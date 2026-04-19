@@ -1,0 +1,51 @@
+version: 2
+project_name: vibe-coder
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - id: vibe-coder
+    main: ./cmd/vibe-coder
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.Version={{ .Version }}
+      - -X main.Commit={{ .Commit }}
+
+archives:
+  - id: default
+    name_template: "vibe-coder_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+      - doc/CHECKLIST.md
+      - doc/MVP.md
+      - doc/docs/**
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  prerelease: auto
+
