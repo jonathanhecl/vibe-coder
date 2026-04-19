@@ -98,6 +98,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			result := tool.Execute(ctx, toolParams)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
 			a.sess.AddAssistant(result.Output)
+			_ = a.sess.Compact(ctx, false)
 			// MVP-11 safety: infer one tool call once only.
 			wantsTool = false
 			continue
@@ -110,6 +111,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		a.ui.StreamAssistant(reply)
 		a.ui.EndAssistant()
 		a.sess.AddAssistant(reply)
+		_ = a.sess.Compact(ctx, false)
 		return nil
 	}
 	return fmt.Errorf("iteration cap reached (%d)", MaxIterations)
@@ -174,6 +176,12 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 		})
 		if err != nil {
 			cancel()
+			if strings.Contains(strings.ToLower(err.Error()), "model not found") {
+				if pulled := a.tryAutoPullModel(rootCtx); pulled {
+					attempt--
+					continue
+				}
+			}
 			lastErr = err
 		} else {
 			var b strings.Builder
@@ -205,6 +213,23 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 		lastErr = fmt.Errorf("empty assistant response")
 	}
 	return "", lastErr
+}
+
+func (a *Agent) tryAutoPullModel(ctx context.Context) bool {
+	allow := a.perm.Check("Bash", map[string]any{
+		"command": "ollama pull " + a.cfg.Model,
+	}, a.ui)
+	if !allow {
+		return false
+	}
+	pullErr := a.client.Pull(ctx, a.cfg.Model, func(ev ollama.PullEvent) {
+		progress := ev.Status
+		if ev.Total > 0 {
+			progress = fmt.Sprintf("%s (%d/%d)", ev.Status, ev.Completed, ev.Total)
+		}
+		a.ui.ShowToolResult("PullModel", progress, false)
+	})
+	return pullErr == nil
 }
 
 func inferSingleToolCall(input string) (string, map[string]any, bool) {

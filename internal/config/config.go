@@ -9,13 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 )
 
 const (
 	defaultOllamaHost    = "http://localhost:11434"
-	defaultModel         = "llama3.2:3b"
 	defaultMaxTokens     = 8192
 	defaultTemperature   = 0.7
 	defaultContextWindow = 32768
@@ -87,6 +87,10 @@ func Load(args []string) (*Config, error) {
 	}
 	applyCLI(cfg, cli)
 
+	if strings.TrimSpace(cfg.Model) == "" {
+		cfg.Model = autoDetectModel()
+	}
+
 	if _, err := url.ParseRequestURI(cfg.OllamaHost); err != nil {
 		return nil, fmt.Errorf("invalid ollama host %q: %w", cfg.OllamaHost, err)
 	}
@@ -102,6 +106,33 @@ func Load(args []string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func autoDetectModel() string {
+	ramGB := detectRAMGB()
+	switch {
+	case ramGB >= 48:
+		return "qwen2.5:14b"
+	case ramGB >= 24:
+		return "llama3.1:8b"
+	case ramGB >= 12:
+		return "qwen2.5:7b"
+	default:
+		return "llama3.2:3b"
+	}
+}
+
+func detectRAMGB() int {
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_RAM_GB")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		_ = bi
+	}
+	// Conservative fallback for portability; users can override with VIBE_CODER_RAM_GB.
+	return 8
 }
 
 func Usage(binName string) string {
@@ -134,7 +165,6 @@ Flags:
 func defaultConfig(cwd, configDir, stateDir string) *Config {
 	return &Config{
 		OllamaHost:    defaultOllamaHost,
-		Model:         defaultModel,
 		MaxTokens:     defaultMaxTokens,
 		Temperature:   defaultTemperature,
 		ContextWindow: defaultContextWindow,
@@ -177,13 +207,13 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("OLLAMA_HOST")); v != "" {
 		cfg.OllamaHost = v
 	}
-	if v := strings.TrimSpace(os.Getenv("vibe-coder_MODEL")); v != "" {
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL", "VIBEGO_MODEL")); v != "" {
 		cfg.Model = v
 	}
-	if v := strings.TrimSpace(os.Getenv("vibe-coder_SIDECAR_MODEL")); v != "" {
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_MODEL", "VIBEGO_SIDECAR_MODEL")); v != "" {
 		cfg.SidecarModel = v
 	}
-	if v := strings.TrimSpace(os.Getenv("vibe-coder_DEBUG")); v != "" {
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DEBUG", "VIBEGO_DEBUG")); v != "" {
 		if parsed, err := strconv.ParseBool(v); err == nil {
 			cfg.Debug = parsed
 		}

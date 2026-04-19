@@ -1,8 +1,10 @@
 package session
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -45,5 +47,25 @@ func TestSaveLoadAndProjectIndex(t *testing.T) {
 	}
 	if byProject.ID() != s.ID() {
 		t.Fatalf("unexpected project session id: got %s want %s", byProject.ID(), s.ID())
+	}
+}
+
+func TestCompactFallbackAndSidecar(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+		ContextWindow: 32,
+		SidecarModel:  "sidecar",
+	}
+	s := New(cfg)
+	for i := 0; i < 80; i++ {
+		s.AddUser(strings.Repeat("x", 40))
+	}
+	if err := s.Compact(context.Background(), false); err != nil {
+		t.Fatalf("compact fallback failed: %v", err)
+	}
+	if s.MessageCount() > 31 {
+		t.Fatalf("expected compacted messages, got %d", s.MessageCount())
 	}
 }

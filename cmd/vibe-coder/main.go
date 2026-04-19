@@ -41,6 +41,7 @@ func main() {
 
 	client := ollama.NewHTTP(cfg.OllamaHost)
 	sess := session.New(cfg)
+	sess.SetClient(client)
 	ui := tui.NewPlain()
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()

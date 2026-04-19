@@ -168,6 +168,10 @@ type fakeChatClient struct{}
 
 func (fakeChatClient) Tags(context.Context) ([]ollama.Model, error) { return nil, nil }
 func (fakeChatClient) Version(context.Context) (string, error)      { return "0.0.0", nil }
+func (fakeChatClient) ChatSync(context.Context, ollama.ChatRequest) (ollama.ChatResponse, error) {
+	return ollama.ChatResponse{Content: "summary"}, nil
+}
+func (fakeChatClient) Pull(context.Context, string, func(ollama.PullEvent)) error { return nil }
 func (fakeChatClient) Chat(context.Context, ollama.ChatRequest) (<-chan ollama.Chunk, error) {
 	ch := make(chan ollama.Chunk, 1)
 	ch <- ollama.Chunk{Delta: "subagent-ok", Done: true}

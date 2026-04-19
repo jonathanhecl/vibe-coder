@@ -84,8 +84,8 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", localAppData)
 	t.Setenv("VIBE_CODER_CONFIG", configFile)
 	t.Setenv("OLLAMA_HOST", "http://env-host:11434")
-	t.Setenv("vibe-coder_MODEL", "env-model")
-	t.Setenv("vibe-coder_DEBUG", "true")
+	t.Setenv("VIBE_CODER_MODEL", "env-model")
+	t.Setenv("VIBE_CODER_DEBUG", "true")
 
 	cfg, err := Load([]string{
 		"--ollama-host", "http://cli-host:11434",
@@ -133,6 +133,22 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg.SessionsDir); err != nil {
 		t.Fatalf("sessions dir not created: %v", err)
+	}
+}
+
+func TestAutoDetectModelWhenEmpty(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("VIBE_CODER_MODEL", "")
+	t.Setenv("VIBEGO_MODEL", "")
+	t.Setenv("VIBE_CODER_RAM_GB", "32")
+
+	cfg, err := Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Model != "llama3.1:8b" {
+		t.Fatalf("unexpected auto model: %q", cfg.Model)
 	}
 }
 

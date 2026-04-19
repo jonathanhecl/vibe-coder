@@ -1,6 +1,10 @@
 package permissions
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -27,6 +31,9 @@ type Manager struct {
 	yesMode bool
 	allow   map[string]struct{}
 	deny    map[string]struct{}
+	file    string
+
+	persistent map[string]string
 }
 
 var (
@@ -49,11 +56,15 @@ var (
 )
 
 func NewManager(cfg *config.Config) *Manager {
-	return &Manager{
-		yesMode: cfg.YesMode,
-		allow:   map[string]struct{}{},
-		deny:    map[string]struct{}{},
+	m := &Manager{
+		yesMode:    cfg.YesMode,
+		allow:      map[string]struct{}{},
+		deny:       map[string]struct{}{},
+		file:       cfg.PermFile,
+		persistent: map[string]string{},
 	}
+	m.loadPersistent()
+	return m
 }
 
 func (m *Manager) SetYesMode(on bool) {
@@ -65,15 +76,23 @@ func (m *Manager) SetYesMode(on bool) {
 func (m *Manager) AllowAll(tool string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.deny, normalizeTool(tool))
-	m.allow[normalizeTool(tool)] = struct{}{}
+	norm := normalizeTool(tool)
+	delete(m.deny, norm)
+	m.allow[norm] = struct{}{}
+	if norm != "bash" {
+		m.persistent[norm] = "allow"
+		_ = m.savePersistentLocked()
+	}
 }
 
 func (m *Manager) DenyAll(tool string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.allow, normalizeTool(tool))
-	m.deny[normalizeTool(tool)] = struct{}{}
+	norm := normalizeTool(tool)
+	delete(m.allow, norm)
+	m.deny[norm] = struct{}{}
+	m.persistent[norm] = "deny"
+	_ = m.savePersistentLocked()
 }
 
 func (m *Manager) Check(toolName string, params map[string]any, ui prompter) bool {
@@ -88,6 +107,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 
 	_, allowed := m.allow[tool]
 	yesMode := m.yesMode
+	pRule := m.persistent[tool]
 	m.mu.Unlock()
 
 	if toolTier(tool) == TierSafe {
@@ -95,6 +115,12 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	}
 	if allowed {
 		return true
+	}
+	if pRule == "allow" {
+		return true
+	}
+	if pRule == "deny" {
+		return false
 	}
 
 	if yesMode {
@@ -155,4 +181,80 @@ func needsAlwaysConfirmBash(command string) bool {
 
 func normalizeTool(tool string) string {
 	return strings.ToLower(strings.TrimSpace(tool))
+}
+
+func (m *Manager) loadPersistent() {
+	if strings.TrimSpace(m.file) == "" {
+		return
+	}
+	info, err := os.Lstat(m.file)
+	if err != nil {
+		return
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	data, err := os.ReadFile(m.file)
+	if err != nil {
+		return
+	}
+	raw := map[string]string{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	for k, v := range raw {
+		k = normalizeTool(k)
+		v = strings.ToLower(strings.TrimSpace(v))
+		if k == "bash" && v == "allow" {
+			continue
+		}
+		if v != "allow" && v != "deny" {
+			continue
+		}
+		m.persistent[k] = v
+	}
+}
+
+func (m *Manager) savePersistentLocked() error {
+	if strings.TrimSpace(m.file) == "" {
+		return nil
+	}
+	parent := filepath.Dir(m.file)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	out := map[string]string{}
+	for k, v := range m.persistent {
+		if k == "bash" && v == "allow" {
+			continue
+		}
+		out[k] = v
+	}
+	raw, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(parent, "*.permissions.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, m.file); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("save permissions: %w", err)
+	}
+	return nil
 }

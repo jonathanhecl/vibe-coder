@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
 const maxSessionFileBytes = 50 * 1024 * 1024
@@ -30,6 +32,7 @@ type Session struct {
 	cfg      *config.Config
 	id       string
 	messages []Message
+	client   ollama.Client
 }
 
 func New(cfg *config.Config) *Session {
@@ -48,6 +51,10 @@ func (s *Session) MessageCount() int {
 	return len(s.messages)
 }
 
+func (s *Session) SetClient(client ollama.Client) {
+	s.client = client
+}
+
 func (s *Session) AddUser(content string) {
 	s.messages = append(s.messages, Message{
 		Role:      "user",
@@ -62,6 +69,54 @@ func (s *Session) AddAssistant(content string) {
 		Content:   content,
 		Timestamp: time.Now().UTC(),
 	})
+}
+
+func (s *Session) TokenEstimate() int {
+	total := 0
+	for _, msg := range s.messages {
+		total += estimateTextTokens(msg.Content)
+	}
+	return total
+}
+
+func (s *Session) Compact(ctx context.Context, force bool) error {
+	if !force {
+		if len(s.messages) <= 300 && s.TokenEstimate() <= int(0.7*float64(s.cfg.ContextWindow)) {
+			return nil
+		}
+	}
+	if len(s.messages) <= 30 {
+		return nil
+	}
+	cut := len(s.messages) - 30
+	old := append([]Message(nil), s.messages[:cut]...)
+	recent := append([]Message(nil), s.messages[cut:]...)
+
+	var summary string
+	if s.client != nil && strings.TrimSpace(s.cfg.SidecarModel) != "" {
+		text := renderMessagesForSummary(old)
+		resp, err := s.client.ChatSync(ctx, ollama.ChatRequest{
+			Model: s.cfg.SidecarModel,
+			Messages: []ollama.Message{
+				{Role: "system", Content: "Summarize the conversation concisely."},
+				{Role: "user", Content: text},
+			},
+			Stream: false,
+		})
+		if err == nil && strings.TrimSpace(resp.Content) != "" {
+			summary = resp.Content
+		}
+	}
+	if summary == "" {
+		summary = "Earlier conversation truncated to stay within context limits."
+	}
+	s.sessAddSummary(summary)
+	s.messages = append(s.messages, recent...)
+	// Avoid starting with tool-like or empty roles in future extensions.
+	for len(s.messages) > 0 && strings.TrimSpace(s.messages[0].Role) == "" {
+		s.messages = s.messages[1:]
+	}
+	return nil
 }
 
 func (s *Session) Clear() {
@@ -268,6 +323,39 @@ func newSessionID() string {
 	raw := make([]byte, 16)
 	_, _ = rand.Read(raw)
 	return hex.EncodeToString(raw)
+}
+
+func estimateTextTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+	cjk := 0
+	for _, r := range text {
+		if (r >= 0x4E00 && r <= 0x9FFF) || (r >= 0x3040 && r <= 0x30FF) || (r >= 0xAC00 && r <= 0xD7AF) {
+			cjk++
+		}
+	}
+	asciiApprox := len(text) / 4
+	return cjk + asciiApprox
+}
+
+func renderMessagesForSummary(messages []Message) string {
+	var b strings.Builder
+	for _, m := range messages {
+		b.WriteString(m.Role)
+		b.WriteString(": ")
+		b.WriteString(m.Content)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (s *Session) sessAddSummary(summary string) {
+	s.messages = []Message{{
+		Role:      "user",
+		Content:   "[Earlier conversation summary]\n" + summary,
+		Timestamp: time.Now().UTC(),
+	}}
 }
 
 func cwdHash(cwd string) (string, error) {

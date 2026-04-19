@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -20,8 +21,10 @@ const (
 
 type Client interface {
 	Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, error)
+	ChatSync(ctx context.Context, req ChatRequest) (ChatResponse, error)
 	Tags(ctx context.Context) ([]Model, error)
 	Version(ctx context.Context) (string, error)
+	Pull(ctx context.Context, model string, progress func(PullEvent)) error
 }
 
 type HTTPClient struct {
@@ -41,17 +44,21 @@ type ChatOptions struct {
 }
 
 type ChatRequest struct {
-	Model    string      `json:"model"`
-	Messages []Message   `json:"messages"`
-	Stream   bool        `json:"stream"`
-	Options  ChatOptions `json:"options"`
-	KeepAlive int        `json:"keep_alive"`
+	Model     string      `json:"model"`
+	Messages  []Message   `json:"messages"`
+	Stream    bool        `json:"stream"`
+	Options   ChatOptions `json:"options"`
+	KeepAlive int         `json:"keep_alive"`
 }
 
 type Chunk struct {
 	Delta string
 	Done  bool
 	Err   error
+}
+
+type ChatResponse struct {
+	Content string
 }
 
 type Model struct {
@@ -72,6 +79,18 @@ type chatResponseLine struct {
 	} `json:"message"`
 	Done  bool   `json:"done"`
 	Error string `json:"error"`
+}
+
+type pullRequest struct {
+	Model  string `json:"model"`
+	Stream bool   `json:"stream"`
+}
+
+type PullEvent struct {
+	Status    string `json:"status"`
+	Completed int64  `json:"completed,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 func NewHTTP(baseURL string) Client {
@@ -139,7 +158,10 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 		return nil, errors.New("chat requires at least one message")
 	}
 
-	if !req.Stream {
+	streamRequested := req.Stream
+	if !streamRequested {
+		req.Stream = false
+	} else {
 		req.Stream = true
 	}
 	if req.KeepAlive == 0 {
@@ -166,6 +188,22 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
 		return nil, fmt.Errorf("ollama chat: %w", mapChatError(resp.StatusCode, string(body)))
+	}
+
+	if !streamRequested {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024*1024))
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read chat response: %w", err)
+		}
+		var parsed chatResponseLine
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return nil, fmt.Errorf("decode chat response: %w", err)
+		}
+		ch := make(chan Chunk, 1)
+		ch <- Chunk{Delta: parsed.Message.Content, Done: true}
+		close(ch)
+		return ch, nil
 	}
 
 	ch := make(chan Chunk)
@@ -214,6 +252,71 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 	return ch, nil
 }
 
+func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+	req.Stream = false
+	stream, err := c.Chat(ctx, req)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	var b strings.Builder
+	for chunk := range stream {
+		if chunk.Err != nil {
+			return ChatResponse{}, chunk.Err
+		}
+		b.WriteString(chunk.Delta)
+		if chunk.Done {
+			break
+		}
+	}
+	out := stripThinkBlocks(b.String())
+	return ChatResponse{Content: out}, nil
+}
+
+func (c *HTTPClient) Pull(ctx context.Context, model string, progress func(PullEvent)) error {
+	payload, err := json.Marshal(pullRequest{Model: model, Stream: true})
+	if err != nil {
+		return fmt.Errorf("marshal pull request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/pull", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build pull request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("ollama pull: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+		return fmt.Errorf("ollama pull failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 4096), maxStreamBuffer)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var ev PullEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			return fmt.Errorf("decode pull event: %w", err)
+		}
+		if progress != nil {
+			progress(ev)
+		}
+		if ev.Error != "" {
+			return errors.New(ev.Error)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read pull stream: %w", err)
+	}
+	return nil
+}
+
 func mapChatError(statusCode int, body string) error {
 	bodyLower := strings.ToLower(body)
 	switch statusCode {
@@ -234,3 +337,7 @@ func mapChatError(statusCode int, body string) error {
 	return fmt.Errorf("http %d: %s", statusCode, trimmed)
 }
 
+func stripThinkBlocks(text string) string {
+	re := regexp.MustCompile(`(?is)<think>.*?</think>`)
+	return strings.TrimSpace(re.ReplaceAllString(text, ""))
+}
