@@ -70,7 +70,25 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return trimLine(line), nil
+	line = trimLine(line)
+	if strings.TrimSpace(line) != ";;" {
+		return line, nil
+	}
+
+	lines := make([]string, 0, 8)
+	for {
+		_, _ = io.WriteString(u.out, "... ")
+		next, err := u.reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		next = trimLine(next)
+		if strings.TrimSpace(next) == ";;" {
+			break
+		}
+		lines = append(lines, next)
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {

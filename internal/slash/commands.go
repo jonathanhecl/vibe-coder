@@ -1,11 +1,16 @@
 package slash
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os/exec"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 )
@@ -15,6 +20,7 @@ type Ctx struct {
 	Session *session.Session
 	Perm    *permissions.Manager
 	Agent   planModeAgent
+	Client  commitClient
 	Out     io.Writer
 }
 
@@ -23,6 +29,12 @@ type planModeAgent interface {
 	ExitPlanMode()
 	InPlanMode() bool
 }
+
+type commitClient interface {
+	ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.ChatResponse, error)
+}
+
+var modelNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.:\-/]+$`)
 
 func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	trimmed := strings.TrimSpace(line)
@@ -41,7 +53,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		return true, true, nil
 	case "/help":
-		fmt.Fprintln(c.Out, "Commands: /exit /quit /q /help /clear /status /save /yes /no")
+		fmt.Fprintln(c.Out, "Commands: /exit /quit /q /help /clear /status /save /yes /no /compact /model /tokens /commit /plan /approve")
 		return true, false, nil
 	case "/clear":
 		if err := c.Session.Save(); err != nil {
@@ -83,6 +95,48 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		fmt.Fprintln(c.Out, "Yes mode disabled.")
 		return true, false, nil
+	case "/compact":
+		before := c.Session.TokenEstimate()
+		if err := c.Session.Compact(context.Background(), true); err != nil {
+			return true, false, err
+		}
+		after := c.Session.TokenEstimate()
+		fmt.Fprintf(c.Out, "Compacted session tokens: %d -> %d\n", before, after)
+		return true, false, nil
+	case "/model", "/models":
+		if len(fields) == 1 {
+			fmt.Fprintf(c.Out, "Current model: %s\n", c.Cfg.Model)
+			return true, false, nil
+		}
+		next := strings.TrimSpace(fields[1])
+		if !modelNameRe.MatchString(next) {
+			fmt.Fprintln(c.Out, "Invalid model name format.")
+			return true, false, nil
+		}
+		c.Cfg.Model = next
+		fmt.Fprintf(c.Out, "Model set to: %s\n", c.Cfg.Model)
+		return true, false, nil
+	case "/tokens":
+		tokens := c.Session.TokenEstimate()
+		pct := 0
+		if c.Cfg.ContextWindow > 0 {
+			pct = min(100, (tokens*100)/c.Cfg.ContextWindow)
+		}
+		bar := renderTokenBar(pct, 30)
+		fmt.Fprintf(c.Out, "Tokens: %d / %d (%d%%)\n%s\n", tokens, c.Cfg.ContextWindow, pct, bar)
+		return true, false, nil
+	case "/commit":
+		msg, out, err := runCommitFlow(c)
+		if err != nil {
+			return true, false, err
+		}
+		if msg != "" {
+			fmt.Fprintf(c.Out, "Committed: %s\n", msg)
+		}
+		if strings.TrimSpace(out) != "" {
+			fmt.Fprintln(c.Out, out)
+		}
+		return true, false, nil
 	case "/plan":
 		if c.Agent != nil {
 			c.Agent.EnterPlanMode()
@@ -108,4 +162,92 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func renderTokenBar(pct, width int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	filled := (pct * width) / 100
+	if filled > width {
+		filled = width
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+}
+
+func runCommitFlow(c *Ctx) (string, string, error) {
+	if _, err := runGit(c.Cfg.Cwd, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return "", "Not a git repository, skipping commit.", nil
+	}
+	diff, err := runGit(c.Cfg.Cwd, "diff", "--staged")
+	if err != nil {
+		return "", "", err
+	}
+	if strings.TrimSpace(diff) == "" {
+		unstaged, err := runGit(c.Cfg.Cwd, "diff")
+		if err != nil {
+			return "", "", err
+		}
+		if strings.TrimSpace(unstaged) == "" {
+			return "", "No changes to commit.", nil
+		}
+		if _, err := runGit(c.Cfg.Cwd, "add", "-A"); err != nil {
+			return "", "", err
+		}
+		diff, err = runGit(c.Cfg.Cwd, "diff", "--staged")
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	msg := "chore: update project files"
+	if c.Client != nil {
+		promptDiff := diff
+		if len(promptDiff) > 4096 {
+			promptDiff = promptDiff[:4096]
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		resp, err := c.Client.ChatSync(ctx, ollama.ChatRequest{
+			Model: c.Cfg.Model,
+			Messages: []ollama.Message{
+				{Role: "system", Content: "Return one concise conventional commit message only."},
+				{Role: "user", Content: "Diff:\n" + promptDiff},
+			},
+			Stream: false,
+		})
+		if err == nil && strings.TrimSpace(resp.Content) != "" {
+			msg = sanitizeCommitMessage(resp.Content)
+		}
+	}
+
+	if _, err := runGit(c.Cfg.Cwd, "commit", "-m", msg); err != nil {
+		return "", "", err
+	}
+	return msg, "", nil
+}
+
+func runGit(cwd string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = cwd
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s failed: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+func sanitizeCommitMessage(raw string) string {
+	line := strings.TrimSpace(strings.Split(raw, "\n")[0])
+	line = strings.Trim(line, "`\"")
+	if line == "" {
+		return "chore: update project files"
+	}
+	if len(line) > 72 {
+		line = line[:72]
+	}
+	return line
 }

@@ -120,6 +120,7 @@ func main() {
 		Session: sess,
 		Perm:    perm,
 		Agent:   ag,
+		Client:  client,
 		Out:     os.Stdout,
 	}
 

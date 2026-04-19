@@ -66,4 +66,32 @@ func TestDispatchMinimumCommands(t *testing.T) {
 	if err != nil || !handled || shouldExit || planAgent.InPlanMode() {
 		t.Fatalf("unexpected /approve result: handled=%t exit=%t err=%v plan=%t", handled, shouldExit, err, planAgent.InPlanMode())
 	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/model")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /model inspect result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/model qwen2.5:7b")
+	if err != nil || !handled || shouldExit || cfg.Model != "qwen2.5:7b" {
+		t.Fatalf("unexpected /model set result: handled=%t exit=%t err=%v model=%s", handled, shouldExit, err, cfg.Model)
+	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/tokens")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /tokens result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+
+	for i := 0; i < 40; i++ {
+		s.AddUser("x")
+	}
+	handled, shouldExit, err = Dispatch(ctx, "/compact")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /compact result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/commit")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /commit result outside repo: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
 }
