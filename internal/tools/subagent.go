@@ -11,6 +11,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
+	"github.com/jonathanhecl/vibe-coder/internal/skills"
 )
 
 type SubAgentTool struct {
@@ -66,13 +67,17 @@ func (t *SubAgentTool) Execute(ctx context.Context, params map[string]any) Resul
 		maxTurns = 20
 	}
 	reply := ""
+	nextPrompt := p
 	for i := 0; i < maxTurns; i++ {
-		out, err := t.runOneTurn(ctx, p)
+		out, err := t.runOneTurn(ctx, nextPrompt)
 		if err != nil {
 			return errResult(err.Error())
 		}
 		reply = out
-		break
+		if strings.TrimSpace(out) == "" {
+			break
+		}
+		nextPrompt = out
 	}
 	return Result{Output: reply}
 }
@@ -83,7 +88,7 @@ func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (stri
 	stream, err := t.client.Chat(ctx, ollama.ChatRequest{
 		Model: t.cfg.Model,
 		Messages: []ollama.Message{
-			{Role: "system", Content: prompt.Build(t.cfg)},
+			{Role: "system", Content: buildSubAgentPrompt(t.cfg)},
 			{Role: "user", Content: userPrompt},
 		},
 		Stream: true,
@@ -107,6 +112,15 @@ func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (stri
 		}
 	}
 	return b.String(), nil
+}
+
+func buildSubAgentPrompt(cfg *config.Config) string {
+	base := prompt.Build(cfg)
+	block := skills.RenderBlock(skills.Load(cfg))
+	if strings.TrimSpace(block) == "" {
+		return base
+	}
+	return base + "\n\n# Loaded Skills\n" + block
 }
 
 func (t *ParallelAgentsTool) Name() string { return "ParallelAgents" }

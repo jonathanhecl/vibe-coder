@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/skills"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/watcher"
@@ -36,6 +38,8 @@ type Agent struct {
 	mu       sync.RWMutex
 	planMode bool
 	watcher  *watcher.Watcher
+	cp       *gitx.Checkpoint
+	autoTest *gitx.AutoTest
 }
 
 type uiPort interface {
@@ -57,12 +61,14 @@ func New(
 	ui uiPort,
 ) *Agent {
 	return &Agent{
-		cfg:    cfg,
-		client: client,
-		reg:    reg,
-		perm:   perm,
-		sess:   sess,
-		ui:     ui,
+		cfg:      cfg,
+		client:   client,
+		reg:      reg,
+		perm:     perm,
+		sess:     sess,
+		ui:       ui,
+		cp:       gitx.NewCheckpoint(cfg.Cwd),
+		autoTest: gitx.NewAutoTest(cfg.Cwd),
 	}
 }
 
@@ -138,6 +144,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.ui.EndAssistant()
 				return nil
 			}
+			if toolName == "Write" || toolName == "Edit" {
+				if err := a.cp.Create("pre-edit"); err != nil {
+					return err
+				}
+			}
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
@@ -145,6 +156,10 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
 				if w := a.getWatcher(); w != nil {
 					w.RefreshSnapshot()
+				}
+				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
+					a.ui.ShowToolResult("AUTO-TEST", auto, true)
+					a.sess.AddAssistant(auto)
 				}
 			}
 			_ = a.sess.Compact(ctx, false)
@@ -251,6 +266,10 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
 		ctx, cancel := context.WithTimeout(rootCtx, 2*time.Minute)
 		systemPrompt := prompt.Build(a.cfg)
+		skillsBlock := skills.RenderBlock(skills.Load(a.cfg))
+		if skillsBlock != "" {
+			systemPrompt = systemPrompt + "\n\n# Loaded Skills\n" + skillsBlock
+		}
 		stream, err := a.client.Chat(ctx, ollama.ChatRequest{
 			Model: a.cfg.Model,
 			Messages: []ollama.Message{
@@ -340,4 +359,9 @@ func inferSingleToolCall(input string) (string, map[string]any, bool) {
 		}, true
 	}
 	return "", nil, false
+}
+
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
 }

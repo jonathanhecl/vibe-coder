@@ -78,7 +78,7 @@ func loadProjectInstructions(cwd string) []string {
 			if len(data) > 4000 {
 				data = data[:4000]
 			}
-			clean := sanitizeInstructions(string(data))
+			clean := SanitizeInstructions(string(data))
 			rel, _ := filepath.Rel(start, path)
 			entries = append(entries, fmt.Sprintf("From %s:\n%s", relPath(rel), clean))
 		}
@@ -91,7 +91,7 @@ func loadProjectInstructions(cwd string) []string {
 	return entries
 }
 
-func sanitizeInstructions(input string) string {
+func SanitizeInstructions(input string) string {
 	out := input
 	replacements := []*regexp.Regexp{
 		regexp.MustCompile(`(?is)<invoke.*?>.*?</invoke>`),
