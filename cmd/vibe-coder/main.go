@@ -75,6 +75,18 @@ func main() {
 	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer rootCancel()
 
+	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, client, ag)
+	if ragErr != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", ragErr)
+		os.Exit(1)
+	}
+	if ragHandled {
+		if strings.TrimSpace(ragMsg) != "" {
+			fmt.Fprintln(os.Stdout, ragMsg)
+		}
+		return
+	}
+
 	if cfg.ListSessions {
 		ctx, cancel := context.WithTimeout(rootCtx, 2*time.Minute)
 		defer cancel()

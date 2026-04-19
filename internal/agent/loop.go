@@ -40,6 +40,7 @@ type Agent struct {
 	watcher  *watcher.Watcher
 	cp       *gitx.Checkpoint
 	autoTest *gitx.AutoTest
+	rag      ragProvider
 }
 
 type uiPort interface {
@@ -50,6 +51,10 @@ type uiPort interface {
 	ShowToolCall(name string, params map[string]any)
 	ShowToolResult(name, output string, isError bool)
 	AskPermission(tool string, params map[string]any) tui.Decision
+}
+
+type ragProvider interface {
+	QueryText(ctx context.Context, query string, k int) (string, error)
 }
 
 func New(
@@ -70,6 +75,12 @@ func New(
 		cp:       gitx.NewCheckpoint(cfg.Cwd),
 		autoTest: gitx.NewAutoTest(cfg.Cwd),
 	}
+}
+
+func (a *Agent) SetRAG(r ragProvider) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.rag = r
 }
 
 func (a *Agent) SetWatcher(w *watcher.Watcher) {
@@ -105,6 +116,16 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	defer a.ui.StopESCMonitor()
 
 	a.sess.AddUser(userInput)
+
+	if rag := a.getRAG(); rag != nil && a.cfg.RAG {
+		k := a.cfg.RAGTopK
+		if k <= 0 {
+			k = 3
+		}
+		if ctxText, err := rag.QueryText(ctx, userInput, k); err == nil && strings.TrimSpace(ctxText) != "" {
+			a.sess.AddUser(ctxText)
+		}
+	}
 
 	if w := a.getWatcher(); w != nil {
 		if changes := w.PendingChanges(); len(changes) > 0 {
@@ -228,6 +249,12 @@ func (a *Agent) getWatcher() *watcher.Watcher {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.watcher
+}
+
+func (a *Agent) getRAG() ragProvider {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.rag
 }
 
 func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
