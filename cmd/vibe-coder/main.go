@@ -19,6 +19,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/version"
+	"github.com/jonathanhecl/vibe-coder/internal/watcher"
 )
 
 func main() {
@@ -50,6 +51,7 @@ func main() {
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
+	ag.SetWatcher(watcher.New(cfg.Cwd))
 	defer ui.Stop()
 
 	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -117,6 +119,7 @@ func main() {
 		Cfg:     cfg,
 		Session: sess,
 		Perm:    perm,
+		Agent:   ag,
 		Out:     os.Stdout,
 	}
 

@@ -14,7 +14,14 @@ type Ctx struct {
 	Cfg     *config.Config
 	Session *session.Session
 	Perm    *permissions.Manager
+	Agent   planModeAgent
 	Out     io.Writer
+}
+
+type planModeAgent interface {
+	EnterPlanMode()
+	ExitPlanMode()
+	InPlanMode() bool
 }
 
 func Dispatch(c *Ctx, line string) (bool, bool, error) {
@@ -75,6 +82,20 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 			c.Perm.SetYesMode(false)
 		}
 		fmt.Fprintln(c.Out, "Yes mode disabled.")
+		return true, false, nil
+	case "/plan":
+		if c.Agent != nil {
+			c.Agent.EnterPlanMode()
+			c.Session.AddUser("[System Note] Plan mode enabled.")
+		}
+		fmt.Fprintln(c.Out, "Plan mode enabled. Writes are restricted to .vibe-coder/plans.")
+		return true, false, nil
+	case "/approve":
+		if c.Agent != nil {
+			c.Agent.ExitPlanMode()
+			c.Session.AddUser("[System Note] Plan approved. Returning to act mode.")
+		}
+		fmt.Fprintln(c.Out, "Plan approved. Act mode restored.")
 		return true, false, nil
 	default:
 		fmt.Fprintf(c.Out, "Unknown command: %s\n", cmd)

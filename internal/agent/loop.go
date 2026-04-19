@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -14,6 +17,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
+	"github.com/jonathanhecl/vibe-coder/internal/watcher"
 )
 
 const (
@@ -28,6 +32,10 @@ type Agent struct {
 	perm   *permissions.Manager
 	sess   *session.Session
 	ui     uiPort
+
+	mu       sync.RWMutex
+	planMode bool
+	watcher  *watcher.Watcher
 }
 
 type uiPort interface {
@@ -58,6 +66,30 @@ func New(
 	}
 }
 
+func (a *Agent) SetWatcher(w *watcher.Watcher) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.watcher = w
+}
+
+func (a *Agent) EnterPlanMode() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.planMode = true
+}
+
+func (a *Agent) ExitPlanMode() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.planMode = false
+}
+
+func (a *Agent) InPlanMode() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.planMode
+}
+
 func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	ctx, cancel := context.WithCancel(rootCtx)
 	defer cancel()
@@ -67,6 +99,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	defer a.ui.StopESCMonitor()
 
 	a.sess.AddUser(userInput)
+
+	if w := a.getWatcher(); w != nil {
+		if changes := w.PendingChanges(); len(changes) > 0 {
+			a.sess.AddUser(w.Format(changes))
+		}
+	}
 
 	if tasks, ok := detectParallelTasks(userInput); ok {
 		tool := a.reg.Get("ParallelAgents")
@@ -89,6 +127,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if tool == nil {
 				return fmt.Errorf("tool not found: %s", toolName)
 			}
+			if a.InPlanMode() && toolName == "Write" && !a.isWriteAllowedInPlan(toolParams) {
+				blockMsg := "Write blocked in plan mode. Allowed path: <cwd>/.vibe-coder/plans/"
+				a.ui.ShowToolResult(toolName, blockMsg, true)
+				a.sess.AddAssistant(blockMsg)
+				return nil
+			}
 			if !a.perm.Check(toolName, toolParams, a.ui) {
 				a.sess.AddAssistant("Permission denied.")
 				a.ui.EndAssistant()
@@ -98,6 +142,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			result := tool.Execute(ctx, toolParams)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
 			a.sess.AddAssistant(result.Output)
+			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
+				if w := a.getWatcher(); w != nil {
+					w.RefreshSnapshot()
+				}
+			}
 			_ = a.sess.Compact(ctx, false)
 			// MVP-11 safety: infer one tool call once only.
 			wantsTool = false
@@ -115,6 +164,47 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		return nil
 	}
 	return fmt.Errorf("iteration cap reached (%d)", MaxIterations)
+}
+
+func (a *Agent) getWatcher() *watcher.Watcher {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.watcher
+}
+
+func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
+	rawPath, _ := params["file_path"].(string)
+	if strings.TrimSpace(rawPath) == "" {
+		return false
+	}
+	absPath := rawPath
+	if !filepath.IsAbs(absPath) {
+		absPath = filepath.Join(a.cfg.Cwd, absPath)
+	}
+	resolvedPath := absPath
+	if v, err := filepath.EvalSymlinks(absPath); err == nil && strings.TrimSpace(v) != "" {
+		resolvedPath = v
+	}
+
+	allowedRoot := filepath.Join(a.cfg.Cwd, ".vibe-coder", "plans")
+	_ = os.MkdirAll(allowedRoot, 0o755)
+	resolvedRoot := allowedRoot
+	if v, err := filepath.EvalSymlinks(allowedRoot); err == nil && strings.TrimSpace(v) != "" {
+		resolvedRoot = v
+	}
+
+	pathAbs, err := filepath.Abs(resolvedPath)
+	if err != nil {
+		return false
+	}
+	rootAbs, err := filepath.Abs(resolvedRoot)
+	if err != nil {
+		return false
+	}
+	if pathAbs == rootAbs {
+		return true
+	}
+	return strings.HasPrefix(pathAbs, rootAbs+string(filepath.Separator))
 }
 
 var numberedTaskPattern = regexp.MustCompile(`(?m)^\s*(\d+[\.\)]\s+.+)$`)
@@ -188,6 +278,7 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 			for chunk := range stream {
 				if chunk.Err != nil {
 					if chunk.Err == context.Canceled {
+						cancel()
 						return "[Cancelled by user]", nil
 					}
 					lastErr = chunk.Err

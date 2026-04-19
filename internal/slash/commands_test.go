@@ -9,6 +9,16 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 )
 
+type fakePlanAgent struct {
+	plan bool
+}
+
+func (f *fakePlanAgent) EnterPlanMode() { f.plan = true }
+func (f *fakePlanAgent) ExitPlanMode()  { f.plan = false }
+func (f *fakePlanAgent) InPlanMode() bool {
+	return f.plan
+}
+
 func TestDispatchMinimumCommands(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
@@ -20,9 +30,11 @@ func TestDispatchMinimumCommands(t *testing.T) {
 	s := session.New(cfg)
 
 	var out bytes.Buffer
+	planAgent := &fakePlanAgent{}
 	ctx := &Ctx{
 		Cfg:     cfg,
 		Session: s,
+		Agent:   planAgent,
 		Out:     &out,
 	}
 
@@ -43,5 +55,15 @@ func TestDispatchMinimumCommands(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Model:") {
 		t.Fatalf("expected status output, got %q", out.String())
+	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/plan")
+	if err != nil || !handled || shouldExit || !planAgent.InPlanMode() {
+		t.Fatalf("unexpected /plan result: handled=%t exit=%t err=%v plan=%t", handled, shouldExit, err, planAgent.InPlanMode())
+	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/approve")
+	if err != nil || !handled || shouldExit || planAgent.InPlanMode() {
+		t.Fatalf("unexpected /approve result: handled=%t exit=%t err=%v plan=%t", handled, shouldExit, err, planAgent.InPlanMode())
 	}
 }

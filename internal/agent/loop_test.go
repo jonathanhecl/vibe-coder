@@ -101,3 +101,30 @@ func TestDetectParallelTasks(t *testing.T) {
 		t.Fatalf("expected parallel tasks from numbered input, got ok=%t len=%d", ok, len(tasks))
 	}
 }
+
+func TestPlanModeWriteGuard(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		MaxTokens:     128,
+		Temperature:   0.2,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ui := &fakeUI{}
+	ag := New(cfg, fakeClient{}, reg, perm, sess, ui)
+	ag.EnterPlanMode()
+
+	if ag.isWriteAllowedInPlan(map[string]any{"file_path": filepath.Join(tmp, "notes.txt")}) {
+		t.Fatalf("write outside .vibe-coder/plans should be blocked in plan mode")
+	}
+	allowed := filepath.Join(tmp, ".vibe-coder", "plans", "a.txt")
+	if !ag.isWriteAllowedInPlan(map[string]any{"file_path": allowed}) {
+		t.Fatalf("write inside .vibe-coder/plans should be allowed in plan mode")
+	}
+}
