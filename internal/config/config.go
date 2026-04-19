@@ -37,18 +37,18 @@ type Config struct {
 	ListSessions  bool
 	Cwd           string
 
-	RAG       bool
-	RAGModel  string
-	RAGPath   string
-	RAGTopK   int
-	RAGIndex  string
-	RAGMode   string
-	ShowHelp  bool
-	ShowVer   bool
-	ConfigDir string
-	StateDir  string
+	RAG         bool
+	RAGModel    string
+	RAGPath     string
+	RAGTopK     int
+	RAGIndex    string
+	RAGMode     string
+	ShowHelp    bool
+	ShowVer     bool
+	ConfigDir   string
+	StateDir    string
 	SessionsDir string
-	PermFile  string
+	PermFile    string
 	HistoryFile string
 }
 
@@ -177,13 +177,13 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("OLLAMA_HOST")); v != "" {
 		cfg.OllamaHost = v
 	}
-	if v := strings.TrimSpace(os.Getenv("VIBEGO_MODEL")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("vibe-coder_MODEL")); v != "" {
 		cfg.Model = v
 	}
-	if v := strings.TrimSpace(os.Getenv("VIBEGO_SIDECAR_MODEL")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("vibe-coder_SIDECAR_MODEL")); v != "" {
 		cfg.SidecarModel = v
 	}
-	if v := strings.TrimSpace(os.Getenv("VIBEGO_DEBUG")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("vibe-coder_DEBUG")); v != "" {
 		if parsed, err := strconv.ParseBool(v); err == nil {
 			cfg.Debug = parsed
 		}
@@ -399,7 +399,7 @@ func (o *optionalBool) Set(v string) error {
 	o.set = true
 	return nil
 }
-func (o *optionalBool) String() string { return strconv.FormatBool(o.value) }
+func (o *optionalBool) String() string   { return strconv.FormatBool(o.value) }
 func (o *optionalBool) IsBoolFlag() bool { return true }
 
 type optionalInt struct {
@@ -435,4 +435,3 @@ func (o *optionalFloat) Set(v string) error {
 func (o *optionalFloat) String() string {
 	return strconv.FormatFloat(o.value, 'f', -1, 64)
 }
-

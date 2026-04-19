@@ -84,8 +84,8 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", localAppData)
 	t.Setenv("VIBE_CODER_CONFIG", configFile)
 	t.Setenv("OLLAMA_HOST", "http://env-host:11434")
-	t.Setenv("VIBEGO_MODEL", "env-model")
-	t.Setenv("VIBEGO_DEBUG", "true")
+	t.Setenv("vibe-coder_MODEL", "env-model")
+	t.Setenv("vibe-coder_DEBUG", "true")
 
 	cfg, err := Load([]string{
 		"--ollama-host", "http://cli-host:11434",
@@ -151,4 +151,3 @@ func TestLoadHelpAndVersionFlags(t *testing.T) {
 		t.Fatal("expected show version to be true")
 	}
 }
-

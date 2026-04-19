@@ -123,7 +123,7 @@ func IsDangerousCommand(cmd string) (bool, string) {
 
 func IsProtectedWrite(cmd string) bool {
 	lower := strings.ToLower(cmd)
-	if !(strings.Contains(lower, "permissions.json") || strings.Contains(lower, ".vibego.json") || strings.Contains(lower, "config.json")) {
+	if !(strings.Contains(lower, "permissions.json") || strings.Contains(lower, ".vibe-coder.json") || strings.Contains(lower, "config.json")) {
 		return false
 	}
 	for _, indicator := range protectedWriteIndicators {

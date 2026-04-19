@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -67,6 +68,20 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 
 	a.sess.AddUser(userInput)
 
+	if tasks, ok := detectParallelTasks(userInput); ok {
+		tool := a.reg.Get("ParallelAgents")
+		if tool != nil {
+			params := map[string]any{"tasks": tasks}
+			if a.perm.Check("ParallelAgents", params, a.ui) {
+				a.ui.ShowToolCall("ParallelAgents", params)
+				result := tool.Execute(ctx, params)
+				a.ui.ShowToolResult("ParallelAgents", result.Output, result.IsError)
+				a.sess.AddAssistant(result.Output)
+				return nil
+			}
+		}
+	}
+
 	toolName, toolParams, wantsTool := inferSingleToolCall(userInput)
 	for i := 0; i < MaxIterations; i++ {
 		if wantsTool {
@@ -98,6 +113,45 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		return nil
 	}
 	return fmt.Errorf("iteration cap reached (%d)", MaxIterations)
+}
+
+var numberedTaskPattern = regexp.MustCompile(`(?m)^\s*(\d+[\.\)]\s+.+)$`)
+
+func detectParallelTasks(input string) ([]any, bool) {
+	matches := numberedTaskPattern.FindAllString(input, -1)
+	if len(matches) >= 2 && len(matches) <= 4 {
+		out := make([]any, 0, len(matches))
+		for _, m := range matches {
+			task := strings.TrimSpace(numberedTaskPattern.ReplaceAllString(m, "$1"))
+			task = regexp.MustCompile(`^\d+[\.\)]\s*`).ReplaceAllString(task, "")
+			if task == "" {
+				continue
+			}
+			out = append(out, map[string]any{"prompt": task})
+		}
+		if len(out) >= 2 {
+			return out, true
+		}
+	}
+
+	lower := strings.ToLower(input)
+	if strings.Contains(lower, " and ") {
+		parts := strings.Split(input, " and ")
+		if len(parts) >= 2 && len(parts) <= 4 {
+			out := make([]any, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				out = append(out, map[string]any{"prompt": p})
+			}
+			if len(out) >= 2 {
+				return out, true
+			}
+		}
+	}
+	return nil, false
 }
 
 func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, error) {

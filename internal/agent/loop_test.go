@@ -89,3 +89,11 @@ func TestInferGlob(t *testing.T) {
 		t.Fatalf("unexpected pattern: %v", params["pattern"])
 	}
 }
+
+func TestDetectParallelTasks(t *testing.T) {
+	t.Parallel()
+	tasks, ok := detectParallelTasks("1. summarize repo\n2. list TODOs")
+	if !ok || len(tasks) != 2 {
+		t.Fatalf("expected parallel tasks from numbered input, got ok=%t len=%d", ok, len(tasks))
+	}
+}
