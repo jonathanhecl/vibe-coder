@@ -17,6 +17,26 @@ It runs as a single CLI binary and supports one-shot prompts, interactive sessio
 - Go `1.25+`
 - A running Ollama instance for model-backed execution
 
+## Install
+
+From source in this repository:
+
+```bash
+go build -o vibe-coder ./cmd/vibe-coder
+```
+
+Install directly with `go install`:
+
+```bash
+go install github.com/jonathanhecl/vibe-coder/cmd/vibe-coder@latest
+```
+
+If your `GOBIN`/`GOPATH/bin` is in `PATH`, run:
+
+```bash
+vibe-coder --version
+```
+
 ## Build
 
 ```bash
@@ -48,6 +68,32 @@ Use a specific model and host:
 ```bash
 ./vibe-coder --model llama3.1:8b --ollama-host http://127.0.0.1:11434
 ```
+
+## Model Configuration
+
+Model settings are loaded with this precedence:
+
+1. defaults
+2. config file
+3. environment variables
+4. CLI flags (highest priority)
+
+Default config file path:
+
+- Windows: `%LOCALAPPDATA%\vibe-coder\config.env`
+- Linux/macOS: `~/.config/vibe-coder/config.env`
+
+You can override the config file path with:
+
+- `VIBE_CODER_CONFIG=<path>`
+
+Model keys and overrides:
+
+- Config file key: `MODEL=<model-name>`
+- Environment: `VIBE_CODER_MODEL=<model-name>`
+- CLI: `--model <model-name>` (or `-m <model-name>`)
+
+If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
 
 ## CLI Flags
 
