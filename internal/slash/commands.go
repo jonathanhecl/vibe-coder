@@ -6,12 +6,14 @@ import (
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 )
 
 type Ctx struct {
 	Cfg     *config.Config
 	Session *session.Session
+	Perm    *permissions.Manager
 	Out     io.Writer
 }
 
@@ -62,10 +64,16 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/yes":
 		c.Cfg.YesMode = true
+		if c.Perm != nil {
+			c.Perm.SetYesMode(true)
+		}
 		fmt.Fprintln(c.Out, "Yes mode enabled.")
 		return true, false, nil
 	case "/no":
 		c.Cfg.YesMode = false
+		if c.Perm != nil {
+			c.Perm.SetYesMode(false)
+		}
 		fmt.Fprintln(c.Out, "Yes mode disabled.")
 		return true, false, nil
 	default:

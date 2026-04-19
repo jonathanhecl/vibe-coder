@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"golang.org/x/term"
@@ -22,6 +23,16 @@ type PlainUI struct {
 	rawFD    int
 	rawState *term.State
 }
+
+type Decision int
+
+const (
+	DecisionDeny Decision = iota
+	DecisionAllowOnce
+	DecisionAllowAll
+	DecisionDenyAll
+	DecisionYesMode
+)
 
 func NewPlain() *PlainUI {
 	return &PlainUI{
@@ -41,6 +52,18 @@ func (u *PlainUI) EndAssistant() {
 	_, _ = io.WriteString(u.out, "\n")
 }
 
+func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
+	_, _ = fmt.Fprintf(u.out, "-> %s(%v)\n", name, params)
+}
+
+func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
+	prefix := "ok"
+	if isError {
+		prefix = "error"
+	}
+	_, _ = fmt.Fprintf(u.out, "<- %s [%s]: %s\n", name, prefix, output)
+}
+
 func (u *PlainUI) GetInput(prompt string) (string, error) {
 	_, _ = io.WriteString(u.out, prompt)
 	line, err := u.reader.ReadString('\n')
@@ -48,6 +71,26 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 		return "", err
 	}
 	return trimLine(line), nil
+}
+
+func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
+	_, _ = fmt.Fprintf(u.out, "Allow %s with params %v? [y]es/[n]o/[a]ll/[d]eny-all/[s]kip-all-confirm: ", tool, params)
+	line, err := u.reader.ReadString('\n')
+	if err != nil {
+		return DecisionDeny
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return DecisionAllowOnce
+	case "a", "all":
+		return DecisionAllowAll
+	case "d", "deny-all":
+		return DecisionDenyAll
+	case "s", "skip-all-confirm":
+		return DecisionYesMode
+	default:
+		return DecisionDeny
+	}
 }
 
 func (u *PlainUI) StartESCMonitor(interrupt func()) error {

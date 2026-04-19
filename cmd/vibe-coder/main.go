@@ -10,11 +10,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
-	"github.com/jonathanhecl/vibe-coder/internal/prompt"
+	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/slash"
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/version"
 )
@@ -40,6 +42,10 @@ func main() {
 	client := ollama.NewHTTP(cfg.OllamaHost)
 	sess := session.New(cfg)
 	ui := tui.NewPlain()
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(cfg)
+	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	defer ui.Stop()
 
 	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -91,7 +97,7 @@ func main() {
 	}
 
 	if cfg.Prompt != "" {
-		if err := runPrompt(rootCtx, cfg, client, ui, sess, cfg.Prompt); err != nil {
+		if err := ag.Run(rootCtx, cfg.Prompt); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -106,6 +112,7 @@ func main() {
 	slashCtx := &slash.Ctx{
 		Cfg:     cfg,
 		Session: sess,
+		Perm:    perm,
 		Out:     os.Stdout,
 	}
 
@@ -136,71 +143,9 @@ func main() {
 			continue
 		}
 
-		if err := runPrompt(rootCtx, cfg, client, ui, sess, line); err != nil {
+		if err := ag.Run(rootCtx, line); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue
 		}
 	}
-}
-
-func runPrompt(
-	rootCtx context.Context,
-	cfg *config.Config,
-	client ollama.Client,
-	ui *tui.PlainUI,
-	sess *session.Session,
-	userPrompt string,
-) error {
-	ctx, cancel := context.WithTimeout(rootCtx, 2*time.Minute)
-	defer cancel()
-
-	if err := ui.StartESCMonitor(cancel); err != nil {
-		return err
-	}
-	defer ui.StopESCMonitor()
-
-	systemPrompt := prompt.Build(cfg)
-	sess.AddUser(userPrompt)
-	stream, err := client.Chat(ctx, ollama.ChatRequest{
-		Model: cfg.Model,
-		Messages: []ollama.Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-		Stream: true,
-		Options: ollama.ChatOptions{
-			NumCtx:      cfg.ContextWindow,
-			NumPredict:  cfg.MaxTokens,
-			Temperature: cfg.Temperature,
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	var response strings.Builder
-	for chunk := range stream {
-		if chunk.Err != nil {
-			if chunk.Err == context.Canceled {
-				ui.EndAssistant()
-				sess.AddAssistant("[Cancelled by user]")
-				return nil
-			}
-			return chunk.Err
-		}
-		if chunk.Delta != "" {
-			ui.StreamAssistant(chunk.Delta)
-			response.WriteString(chunk.Delta)
-		}
-		if chunk.Done {
-			ui.EndAssistant()
-			sess.AddAssistant(response.String())
-			return nil
-		}
-	}
-	ui.EndAssistant()
-	if response.Len() > 0 {
-		sess.AddAssistant(response.String())
-	}
-	return nil
 }
