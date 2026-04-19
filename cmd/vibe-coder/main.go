@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/version"
 )
 
@@ -27,11 +31,71 @@ func main() {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	client := ollama.NewHTTP(cfg.OllamaHost)
+
 	if cfg.ListSessions {
-		fmt.Fprintln(os.Stdout, "No hay sesiones todavía (MVP en progreso).")
+		versionInfo, err := client.Version(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to connect to Ollama: %v\n", err)
+			os.Exit(1)
+		}
+		models, err := client.Tags(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to list Ollama models: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Fprintf(os.Stdout, "Ollama %s\n", versionInfo)
+		if len(models) == 0 {
+			fmt.Fprintln(os.Stdout, "No downloaded models found yet.")
+			return
+		}
+		fmt.Fprintln(os.Stdout, "Available models:")
+		for _, model := range models {
+			fmt.Fprintf(os.Stdout, "- %s\n", model.Name)
+		}
 		return
 	}
 
-	fmt.Fprintln(os.Stdout, "Inicialización MVP lista: wiring de agente pendiente en próximos hitos.")
+	if cfg.Prompt != "" {
+		systemPrompt := prompt.Build(cfg)
+		stream, err := client.Chat(ctx, ollama.ChatRequest{
+			Model: cfg.Model,
+			Messages: []ollama.Message{
+				{Role: "system", Content: systemPrompt},
+				{Role: "user", Content: cfg.Prompt},
+			},
+			Stream: true,
+			Options: ollama.ChatOptions{
+				NumCtx:      cfg.ContextWindow,
+				NumPredict:  cfg.MaxTokens,
+				Temperature: cfg.Temperature,
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+
+		for chunk := range stream {
+			if chunk.Err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", chunk.Err)
+				os.Exit(1)
+			}
+			if chunk.Delta != "" {
+				fmt.Fprint(os.Stdout, chunk.Delta)
+			}
+			if chunk.Done {
+				fmt.Fprintln(os.Stdout)
+				return
+			}
+		}
+		fmt.Fprintln(os.Stdout)
+		return
+	}
+
+	fmt.Fprintln(os.Stdout, "MVP bootstrap complete: agent wiring is coming in next milestones.")
 }
 

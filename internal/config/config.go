@@ -15,6 +15,7 @@ import (
 
 const (
 	defaultOllamaHost    = "http://localhost:11434"
+	defaultModel         = "llama3.2:3b"
 	defaultMaxTokens     = 8192
 	defaultTemperature   = 0.7
 	defaultContextWindow = 32768
@@ -133,6 +134,7 @@ Flags:
 func defaultConfig(cwd, configDir, stateDir string) *Config {
 	return &Config{
 		OllamaHost:    defaultOllamaHost,
+		Model:         defaultModel,
 		MaxTokens:     defaultMaxTokens,
 		Temperature:   defaultTemperature,
 		ContextWindow: defaultContextWindow,
