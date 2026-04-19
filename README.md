@@ -146,18 +146,3 @@ Run tests with RAG tag:
 ```bash
 go test -tags rag ./...
 ```
-
-Release snapshot with GoReleaser:
-
-```bash
-go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean --skip=publish
-```
-
-## Project Docs
-
-For architecture, roadmap, and verification checkpoints:
-
-- `doc/README.md`
-- `doc/MVP.md`
-- `doc/CHECKLIST.md`
-- `doc/docs/`
