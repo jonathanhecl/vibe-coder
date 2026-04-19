@@ -12,6 +12,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -50,6 +51,23 @@ func main() {
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
+
+	mcpCtx, mcpCancel := mcp.DefaultInitContext()
+	defer mcpCancel()
+	mcpClients, mcpTools, mcpErr := mcp.InitAndWrapAll(mcpCtx, cfg.ConfigDir, cfg.Cwd)
+	if mcpErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to initialize MCP tools: %v\n", mcpErr)
+	}
+	for _, tool := range mcpTools {
+		reg.Register(tool)
+		perm.AddAskTool(tool.Name())
+	}
+	defer func() {
+		for _, c := range mcpClients {
+			c.Stop()
+		}
+	}()
+
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	ag.SetWatcher(watcher.New(cfg.Cwd))
 	defer ui.Stop()

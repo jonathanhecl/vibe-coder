@@ -55,6 +55,10 @@ var (
 	}
 )
 
+var (
+	askToolsMu sync.RWMutex
+)
+
 func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
 		yesMode:    cfg.YesMode,
@@ -158,16 +162,26 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 }
 
 func toolTier(tool string) Tier {
+	askToolsMu.RLock()
+	_, ask := askTools[tool]
+	askToolsMu.RUnlock()
+
 	if _, ok := networkTools[tool]; ok {
 		return TierNetwork
 	}
-	if _, ok := askTools[tool]; ok {
+	if ask {
 		return TierAsk
 	}
 	if _, ok := safeTools[tool]; ok {
 		return TierSafe
 	}
 	return TierAsk
+}
+
+func (m *Manager) AddAskTool(tool string) {
+	askToolsMu.Lock()
+	defer askToolsMu.Unlock()
+	askTools[normalizeTool(tool)] = struct{}{}
 }
 
 func needsAlwaysConfirmBash(command string) bool {

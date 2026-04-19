@@ -172,6 +172,49 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		if err != nil {
 			return err
 		}
+		if toolName, toolParams, ok := parseXMLFallback(reply); ok {
+			tool := a.reg.Get(toolName)
+			if tool == nil {
+				a.ui.StreamAssistant(reply)
+				a.ui.EndAssistant()
+				a.sess.AddAssistant(reply)
+				_ = a.sess.Compact(ctx, false)
+				return nil
+			}
+			if a.InPlanMode() && toolName == "Write" && !a.isWriteAllowedInPlan(toolParams) {
+				blockMsg := "Write blocked in plan mode. Allowed path: <cwd>/.vibe-coder/plans/"
+				a.ui.ShowToolResult(toolName, blockMsg, true)
+				a.sess.AddAssistant(blockMsg)
+				return nil
+			}
+			if !a.perm.Check(toolName, toolParams, a.ui) {
+				deny := "Permission denied."
+				a.ui.ShowToolResult(toolName, deny, true)
+				a.sess.AddAssistant(deny)
+				return nil
+			}
+			if toolName == "Write" || toolName == "Edit" {
+				if err := a.cp.Create("pre-edit"); err != nil {
+					return err
+				}
+			}
+			a.ui.ShowToolCall(toolName, toolParams)
+			result := tool.Execute(ctx, toolParams)
+			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
+			a.sess.AddAssistant(result.Output)
+			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
+				if w := a.getWatcher(); w != nil {
+					w.RefreshSnapshot()
+				}
+				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
+					a.ui.ShowToolResult("AUTO-TEST", auto, true)
+					a.sess.AddAssistant(auto)
+				}
+			}
+			userInput = "Tool result:\n" + result.Output
+			_ = a.sess.Compact(ctx, false)
+			continue
+		}
 		a.ui.StreamAssistant(reply)
 		a.ui.EndAssistant()
 		a.sess.AddAssistant(reply)
