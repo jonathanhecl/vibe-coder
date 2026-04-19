@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
 func TestVersionFlagSmoke(t *testing.T) {
@@ -56,3 +58,28 @@ func TestOneShotPromptSmoke(t *testing.T) {
 	}
 }
 
+func TestStartupBanner(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:        "llama3.2:3b",
+		SidecarModel: "",
+		OllamaHost:   "http://localhost:11434",
+	}
+	out := startupBanner(cfg, "session-123")
+	if !strings.Contains(out, "vibe-coder") {
+		t.Fatalf("missing app name banner: %q", out)
+	}
+	if !strings.Contains(out, "Session started: session-123") {
+		t.Fatalf("missing session id: %q", out)
+	}
+	if !strings.Contains(out, "Model: llama3.2:3b") {
+		t.Fatalf("missing model line: %q", out)
+	}
+	if !strings.Contains(out, "Sidecar: (disabled)") {
+		t.Fatalf("missing sidecar line: %q", out)
+	}
+	if !strings.Contains(out, "Ollama host: http://localhost:11434") {
+		t.Fatalf("missing host line: %q", out)
+	}
+}

@@ -144,7 +144,7 @@ func main() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "Session started: %s\n", sess.ID())
+	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID()))
 	slashCtx := &slash.Ctx{
 		Cfg:     cfg,
 		Session: sess,
@@ -186,4 +186,19 @@ func main() {
 			continue
 		}
 	}
+}
+
+func startupBanner(cfg *config.Config, sessionID string) string {
+	sidecar := strings.TrimSpace(cfg.SidecarModel)
+	if sidecar == "" {
+		sidecar = "(disabled)"
+	}
+	return fmt.Sprintf(
+		"vibe-coder %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
+		version.Value,
+		sessionID,
+		cfg.Model,
+		sidecar,
+		cfg.OllamaHost,
+	)
 }
