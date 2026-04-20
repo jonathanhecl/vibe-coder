@@ -33,8 +33,9 @@ type HTTPClient struct {
 }
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role     string `json:"role"`
+	Content  string `json:"content"`
+	Thinking string `json:"thinking,omitempty"`
 }
 
 type ChatOptions struct {
@@ -47,18 +48,24 @@ type ChatRequest struct {
 	Model     string      `json:"model"`
 	Messages  []Message   `json:"messages"`
 	Stream    bool        `json:"stream"`
+	Think     bool        `json:"think,omitempty"`
 	Options   ChatOptions `json:"options"`
 	KeepAlive int         `json:"keep_alive"`
 }
 
+// Chunk is one streamed slice of a chat reply. Delta carries final visible
+// content; Thinking carries reasoning emitted via the native Ollama field
+// (when supported by the model and Ollama version).
 type Chunk struct {
-	Delta string
-	Done  bool
-	Err   error
+	Delta    string
+	Thinking string
+	Done     bool
+	Err      error
 }
 
 type ChatResponse struct {
-	Content string
+	Content  string
+	Thinking string
 }
 
 type Model struct {
@@ -75,7 +82,8 @@ type versionResponse struct {
 
 type chatResponseLine struct {
 	Message struct {
-		Content string `json:"content"`
+		Content  string `json:"content"`
+		Thinking string `json:"thinking"`
 	} `json:"message"`
 	Done  bool   `json:"done"`
 	Error string `json:"error"`
@@ -201,7 +209,11 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 			return nil, fmt.Errorf("decode chat response: %w", err)
 		}
 		ch := make(chan Chunk, 1)
-		ch <- Chunk{Delta: parsed.Message.Content, Done: true}
+		ch <- Chunk{
+			Delta:    parsed.Message.Content,
+			Thinking: parsed.Message.Thinking,
+			Done:     true,
+		}
 		close(ch)
 		return ch, nil
 	}
@@ -237,8 +249,9 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 			}
 
 			ch <- Chunk{
-				Delta: parsed.Message.Content,
-				Done:  parsed.Done,
+				Delta:    parsed.Message.Content,
+				Thinking: parsed.Message.Thinking,
+				Done:     parsed.Done,
 			}
 			if parsed.Done {
 				return
@@ -258,18 +271,19 @@ func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatRespons
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	var b strings.Builder
+	var content, thinking strings.Builder
 	for chunk := range stream {
 		if chunk.Err != nil {
 			return ChatResponse{}, chunk.Err
 		}
-		b.WriteString(chunk.Delta)
+		content.WriteString(chunk.Delta)
+		thinking.WriteString(chunk.Thinking)
 		if chunk.Done {
 			break
 		}
 	}
-	out := stripThinkBlocks(b.String())
-	return ChatResponse{Content: out}, nil
+	out := stripThinkBlocks(content.String())
+	return ChatResponse{Content: out, Thinking: strings.TrimSpace(thinking.String())}, nil
 }
 
 func (c *HTTPClient) Pull(ctx context.Context, model string, progress func(PullEvent)) error {

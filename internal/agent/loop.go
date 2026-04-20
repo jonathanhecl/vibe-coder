@@ -48,6 +48,8 @@ type uiPort interface {
 	StopESCMonitor()
 	StreamAssistant(text string)
 	EndAssistant()
+	StreamThinking(text string)
+	EndThinking()
 	ShowToolCall(name string, params map[string]any)
 	ShowToolResult(name, output string, isError bool)
 	AskPermission(tool string, params map[string]any) tui.Decision
@@ -350,6 +352,7 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 				{Role: "user", Content: userInput},
 			},
 			Stream: true,
+			Think:  true,
 			Options: ollama.ChatOptions{
 				NumCtx:      a.cfg.ContextWindow,
 				NumPredict:  a.cfg.MaxTokens,
@@ -367,8 +370,12 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 			lastErr = err
 		} else {
 			var b strings.Builder
+			thinkingSeen := false
 			for chunk := range stream {
 				if chunk.Err != nil {
+					if thinkingSeen {
+						a.ui.EndThinking()
+					}
 					if chunk.Err == context.Canceled {
 						cancel()
 						return "[Cancelled by user]", nil
@@ -376,11 +383,21 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 					lastErr = chunk.Err
 					break
 				}
+				if chunk.Thinking != "" {
+					thinkingSeen = true
+					a.ui.StreamThinking(chunk.Thinking)
+				}
 				b.WriteString(chunk.Delta)
 				if chunk.Done {
+					if thinkingSeen {
+						a.ui.EndThinking()
+					}
 					cancel()
 					return b.String(), nil
 				}
+			}
+			if thinkingSeen {
+				a.ui.EndThinking()
 			}
 			if b.Len() > 0 && lastErr == nil {
 				cancel()

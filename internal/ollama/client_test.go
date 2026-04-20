@@ -72,6 +72,48 @@ func TestTagsVersionAndChatStream(t *testing.T) {
 	}
 }
 
+func TestChatStreamSplitsThinkingAndContent(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"thinking":"reasoning... "},"done":false}` + "\n"))
+		_, _ = w.Write([]byte(`{"message":{"thinking":"more"},"done":false}` + "\n"))
+		_, _ = w.Write([]byte(`{"message":{"content":"answer"},"done":true}` + "\n"))
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	stream, err := client.Chat(context.Background(), ChatRequest{
+		Model:    "qwen3.5:9b",
+		Messages: []Message{{Role: "user", Content: "hi"}},
+		Stream:   true,
+		Think:    true,
+	})
+	if err != nil {
+		t.Fatalf("chat failed: %v", err)
+	}
+
+	var content, thinking strings.Builder
+	for chunk := range stream {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected stream error: %v", chunk.Err)
+		}
+		content.WriteString(chunk.Delta)
+		thinking.WriteString(chunk.Thinking)
+	}
+	if content.String() != "answer" {
+		t.Fatalf("unexpected content: %q", content.String())
+	}
+	if thinking.String() != "reasoning... more" {
+		t.Fatalf("unexpected thinking: %q", thinking.String())
+	}
+}
+
 func TestChatErrorMapping(t *testing.T) {
 	t.Parallel()
 

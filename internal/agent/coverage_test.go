@@ -25,6 +25,8 @@ func (c *coverageUI) StartESCMonitor(func()) error { return nil }
 func (c *coverageUI) StopESCMonitor()              {}
 func (c *coverageUI) StreamAssistant(string)       {}
 func (c *coverageUI) EndAssistant()                {}
+func (c *coverageUI) StreamThinking(string)        {}
+func (c *coverageUI) EndThinking()                 {}
 func (c *coverageUI) ShowToolCall(string, map[string]any) {
 }
 func (c *coverageUI) ShowToolResult(string, string, bool) {

@@ -38,6 +38,8 @@ func (f *fakeUI) StartESCMonitor(func()) error { return nil }
 func (f *fakeUI) StopESCMonitor()              {}
 func (f *fakeUI) StreamAssistant(string)       {}
 func (f *fakeUI) EndAssistant()                {}
+func (f *fakeUI) StreamThinking(string)        {}
+func (f *fakeUI) EndThinking()                 {}
 func (f *fakeUI) ShowToolCall(string, map[string]any) {
 	f.calls++
 }

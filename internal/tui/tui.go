@@ -55,6 +55,8 @@ const (
 	iconOk        = "✓"
 	iconErr       = "✗"
 	iconThink     = "…"
+	iconRule      = "┄"
+	iconBar       = "│"
 )
 
 // NewPlain constructs a PlainUI bound to standard streams. Colors are emitted
@@ -126,6 +128,45 @@ func (u *PlainUI) EndAssistant() {
 	if u.streamingAssistant {
 		fmt.Fprintln(u.out)
 		u.streamingAssistant = false
+	}
+}
+
+// StreamThinking renders native Ollama "thinking" tokens as a dim, indented
+// panel under the assistant bubble, similar to Cursor's reasoning panel.
+// Each chunk is emitted live so the user can see the model reasoning in
+// real time, then EndThinking closes the panel before the final answer.
+func (u *PlainUI) StreamThinking(text string) {
+	if text == "" {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	u.flushPendingToolLocked()
+	if u.streamingAssistant {
+		fmt.Fprintln(u.out)
+		u.streamingAssistant = false
+	}
+	if !u.thinkingActive {
+		fmt.Fprintf(u.out, "\n%s %s\n%s ",
+			u.style.Dim(iconRule),
+			u.style.Dim("thinking"),
+			u.style.Dim(iconBar),
+		)
+		u.thinkingActive = true
+	}
+	indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
+	fmt.Fprint(u.out, u.style.Dim(indented))
+}
+
+// EndThinking closes the dim thinking panel if one is open, leaving a blank
+// line before the assistant's visible answer.
+func (u *PlainUI) EndThinking() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.thinkingActive {
+		fmt.Fprintln(u.out)
+		u.thinkingActive = false
 	}
 }
 
