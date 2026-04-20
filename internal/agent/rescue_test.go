@@ -6,6 +6,43 @@ import (
 	"testing"
 )
 
+func TestPathMemoryCandidatesReturnsSortedAbsPaths(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	dirs := []string{"b", "a", "c"}
+	var want []string
+	for _, d := range dirs {
+		full := filepath.Join(tmp, d)
+		if err := os.MkdirAll(full, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		p := filepath.Join(full, "config.go")
+		if err := os.WriteFile(p, []byte("package x"), 0o644); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		want = append(want, p)
+	}
+	// Expected sorted lexicographically by absolute path.
+	sortStrings(want)
+
+	mem := newPathMemory(tmp)
+	for _, w := range want {
+		mem.add(w)
+	}
+	got := mem.Candidates("config.go")
+	if len(got) != len(want) {
+		t.Fatalf("expected %d candidates, got %d (%v)", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("candidate %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if c := mem.Candidates("nope.go"); c != nil {
+		t.Fatalf("expected nil for unknown basename, got %v", c)
+	}
+}
+
 func TestPathMemoryResolvesAgainstCwd(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()

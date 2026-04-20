@@ -106,24 +106,43 @@ If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
 ### What is the sidecar model for?
 
 `MODEL` is the conversational/coding model that answers every prompt. The
-**sidecar** is a smaller, faster model used internally by `vibe-coder` to
-**summarize old turns** when the conversation outgrows the context window.
-It is invoked **only** by `Session.Compact()` when one of these is true:
+**sidecar** is a smaller, faster model `vibe-coder` uses internally for
+short, high-leverage tasks the main model would either bloat the context
+with or answer too slowly. All sidecar calls are guarded by a worker
+semaphore, request deduplication (`singleflight`) and a small LRU cache,
+so even on a single local Ollama instance you never see N parallel
+requests piling up.
 
-- the session has more than 300 messages, or
-- the rolling token estimate exceeds 70% of `ContextWindow`.
+The sidecar is invoked in three places today:
 
-When that happens, the oldest messages are sent to the sidecar (a single
-non-streaming `ChatSync` request) with a "Summarize the conversation
-concisely" instruction; the summary replaces them in the in-memory history,
-and the last 30 messages are kept verbatim. Short sessions never trigger
-this path, so the spinner you see in the TUI (`waiting for <MODEL>…`) is
-always the main model — never the sidecar.
+1. **Session compaction** — when the session has more than 300 messages
+   or the rolling token estimate exceeds 70% of `ContextWindow`,
+   `Session.Compact()` sends the oldest messages to the sidecar with a
+   "Summarize the conversation concisely" prompt and replaces them with
+   the summary. The last 30 messages are kept verbatim.
+2. **Tool-output condensation** — when a tool (typically `Read`, `Bash`,
+   `Grep`) returns more than ~6 KB, the output is sent to the sidecar
+   with a strict "produce 4-10 bullets, preserve paths/symbols/errors,
+   no prose" system prompt. The condensed bullets replace the raw bytes
+   in the model's context (the unredacted output is still printed live
+   in the TUI). This keeps the main model focused and dramatically
+   reduces tokens-per-turn on big files.
+3. **Path disambiguation** — when the agent rescues a relative path
+   (e.g. `Read("config.go")`) and finds **multiple** known absolute
+   candidates, the sidecar picks one based on the user's current goal
+   (`PICK: <n>` reply). If it declines or is unavailable, the rescue is
+   skipped, matching the previous behaviour.
 
-Pick a sidecar that is **fast and cheap** (e.g. `llama3.2:3b`, `qwen2.5:3b`,
-`phi3:mini`). Leave it empty to disable compaction summarization; the
-session will then truncate to a static "Earlier conversation truncated…"
-note instead.
+The TUI spinner (`waiting for <MODEL>…`) is always the **main** model;
+sidecar calls are short and run in the background so you only see them
+through tool-result hints like `sidecar condensed 12345 bytes → summary
+stored in context` or `sidecar disambiguated "config.go" → <abs>`.
+
+Pick a sidecar that is **fast and cheap** (e.g. `llama3.2:3b`,
+`qwen2.5:3b`, `phi3:mini`). Leave it empty to disable all three
+behaviours: compaction will truncate to a static "Earlier conversation
+truncated…" note, large tool outputs will be inserted verbatim into the
+context, and ambiguous paths will not be rescued.
 
 ### Remote Ollama for vibe-coder only
 

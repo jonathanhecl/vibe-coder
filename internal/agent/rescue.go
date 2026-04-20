@@ -133,6 +133,41 @@ func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
 	return "", false, false
 }
 
+// Candidates returns every absolute path indexed under the basename of p,
+// sorted lexicographically for stable disambiguation prompts. Returns nil
+// when nothing matches. Callers use this together with a sidecar
+// disambiguator when Resolve declines because of ambiguity.
+func (m *pathMemory) Candidates(p string) []string {
+	if strings.TrimSpace(p) == "" {
+		return nil
+	}
+	base := filepath.Base(p)
+	m.mu.Lock()
+	set := m.byName[base]
+	out := make([]string, 0, len(set))
+	for c := range set {
+		out = append(out, c)
+	}
+	m.mu.Unlock()
+	if len(out) == 0 {
+		return nil
+	}
+	// Stable order so cache keys for DisambiguatePath stay deterministic.
+	sortStrings(out)
+	return out
+}
+
+// sortStrings is a tiny helper kept package-local so we don't drag in
+// "sort" everywhere; insertion sort is fine for the small slices we get
+// from path candidates (typically 2-5 entries).
+func sortStrings(xs []string) {
+	for i := 1; i < len(xs); i++ {
+		for j := i; j > 0 && xs[j-1] > xs[j]; j-- {
+			xs[j-1], xs[j] = xs[j], xs[j-1]
+		}
+	}
+}
+
 // pathParamKeyForTool returns the parameter name that holds a file path for
 // the given tool, or "" if the tool doesn't take a path we should rescue.
 //

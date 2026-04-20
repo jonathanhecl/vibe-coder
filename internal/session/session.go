@@ -47,6 +47,16 @@ func (s *Session) ID() string {
 	return s.id
 }
 
+// Messages returns a copy of the in-memory transcript. Safe to mutate; the
+// underlying slice is cloned. Used by the agent runtime (e.g. compaction
+// heuristics) and by tests that need to assert the exact wrapping of tool
+// observations.
+func (s *Session) Messages() []Message {
+	out := make([]Message, len(s.messages))
+	copy(out, s.messages)
+	return out
+}
+
 func (s *Session) MessageCount() int {
 	return len(s.messages)
 }

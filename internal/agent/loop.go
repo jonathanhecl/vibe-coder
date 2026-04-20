@@ -16,6 +16,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
 	"github.com/jonathanhecl/vibe-coder/internal/skills"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
@@ -42,6 +43,7 @@ type Agent struct {
 	autoTest    *gitx.AutoTest
 	rag         ragProvider
 	paths       *pathMemory
+	side        *sidecar.Pool
 	currentGoal string // verbatim text of the user's request for this Run()
 }
 
@@ -81,7 +83,16 @@ func New(
 		cp:       gitx.NewCheckpoint(cfg.Cwd),
 		autoTest: gitx.NewAutoTest(cfg.Cwd),
 		paths:    newPathMemory(cfg.Cwd),
+		side:     sidecar.New(cfg, client),
 	}
+}
+
+// SetSidecar overrides the default sidecar pool. Tests use this to inject
+// a fake; production code should leave the default in place.
+func (a *Agent) SetSidecar(p *sidecar.Pool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.side = p
 }
 
 func (a *Agent) SetRAG(r ragProvider) {
@@ -151,7 +162,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.ui.ShowToolCall("ParallelAgents", params)
 				result := tool.Execute(ctx, params)
 				a.ui.ShowToolResult("ParallelAgents", result.Output, result.IsError)
-				a.sess.AddToolObservation("ParallelAgents", result.Output)
+				a.recordToolObservation(ctx, "ParallelAgents", result.Output)
 				return nil
 			}
 		}
@@ -180,19 +191,19 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
-			a.rescuePathParam(toolName, toolParams)
+			a.rescuePathParam(ctx, toolName, toolParams)
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
-			a.sess.AddToolObservation(toolName, result.Output)
+			a.recordToolObservation(ctx, toolName, result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
 				if w := a.getWatcher(); w != nil {
 					w.RefreshSnapshot()
 				}
 				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
 					a.ui.ShowToolResult("AUTO-TEST", auto, true)
-					a.sess.AddToolObservation("AUTO-TEST", auto)
+					a.recordToolObservation(ctx, "AUTO-TEST", auto)
 				}
 			}
 			_ = a.sess.Compact(ctx, false)
@@ -231,19 +242,19 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
-			a.rescuePathParam(toolName, toolParams)
+			a.rescuePathParam(ctx, toolName, toolParams)
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
-			a.sess.AddToolObservation(toolName, result.Output)
+			a.recordToolObservation(ctx, toolName, result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
 				if w := a.getWatcher(); w != nil {
 					w.RefreshSnapshot()
 				}
 				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
 					a.ui.ShowToolResult("AUTO-TEST", auto, true)
-					a.sess.AddToolObservation("AUTO-TEST", auto)
+					a.recordToolObservation(ctx, "AUTO-TEST", auto)
 				}
 			}
 			userInput = fmt.Sprintf(
@@ -279,9 +290,14 @@ func (a *Agent) getRAG() ragProvider {
 // is relative or a bare basename, we try to resolve it against cwd or a
 // memory of paths seen in earlier tool outputs (Glob, Read, Grep, etc.).
 //
-// When a rescue is performed we surface a one-line "↻ rescued path" hint
-// through the UI so the user can see what the agent corrected.
-func (a *Agent) rescuePathParam(toolName string, params map[string]any) {
+// When the basename matches multiple known files the deterministic
+// resolver gives up; we then ask the sidecar (if configured) to pick the
+// right one based on the user's current goal. A failed/disabled sidecar
+// silently falls back to "no rescue", matching the previous behaviour.
+//
+// Any rescue or disambiguation surfaces a one-line hint through the UI so
+// the user can see (and verify) what the agent corrected.
+func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map[string]any) {
 	key := pathParamKeyForTool(toolName)
 	if key == "" {
 		return
@@ -290,14 +306,58 @@ func (a *Agent) rescuePathParam(toolName string, params map[string]any) {
 	if !ok || strings.TrimSpace(raw) == "" {
 		return
 	}
-	abs, rescued, ok := a.paths.Resolve(raw)
-	if !ok || abs == raw {
+	if abs, rescued, ok := a.paths.Resolve(raw); ok {
+		if abs != raw {
+			params[key] = abs
+			if rescued {
+				a.ui.ShowToolResult(toolName, fmt.Sprintf("rescued path %q → %s", raw, abs), false)
+			}
+		}
 		return
 	}
-	params[key] = abs
-	if rescued {
-		a.ui.ShowToolResult(toolName, fmt.Sprintf("rescued path %q → %s", raw, abs), false)
+	// Resolve declined: try sidecar disambiguation across remembered
+	// candidates. This only kicks in when there are 2+ matches under the
+	// same basename, which is exactly the case where the deterministic
+	// rescuer is blind on purpose.
+	a.mu.RLock()
+	side := a.side
+	goal := a.currentGoal
+	a.mu.RUnlock()
+	if side == nil || !side.Enabled() {
+		return
 	}
+	cands := a.paths.Candidates(raw)
+	if len(cands) < 2 {
+		return
+	}
+	hint := fmt.Sprintf("model wrote %q while user goal was: %s", raw, goal)
+	chosen, ok, err := side.DisambiguatePath(ctx, hint, cands)
+	if err != nil || !ok {
+		return
+	}
+	params[key] = chosen
+	a.ui.ShowToolResult(toolName, fmt.Sprintf("sidecar disambiguated %q → %s", raw, chosen), false)
+}
+
+// recordToolObservation persists a tool result into the session, optionally
+// asking the sidecar to summarise large outputs first. The summary keeps
+// the model focused on signal (paths, symbols, errors) instead of pages of
+// raw bytes; the original output is still shown live in the UI through
+// ShowToolResult, so the user always sees the unredacted truth.
+func (a *Agent) recordToolObservation(ctx context.Context, toolName, output string) {
+	a.mu.RLock()
+	side := a.side
+	a.mu.RUnlock()
+	if side != nil && side.Enabled() {
+		if summary, used, _ := side.SummariseToolOutput(ctx, toolName, output); used && summary != "" {
+			a.sess.AddToolObservation(toolName, summary)
+			a.ui.ShowToolResult(toolName,
+				fmt.Sprintf("sidecar condensed %d bytes → summary stored in context", len(output)),
+				false)
+			return
+		}
+	}
+	a.sess.AddToolObservation(toolName, output)
 }
 
 func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
