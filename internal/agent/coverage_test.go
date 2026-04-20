@@ -33,6 +33,7 @@ func (c *coverageUI) ShowToolCall(string, map[string]any) {
 }
 func (c *coverageUI) ShowToolResult(string, string, bool) {
 }
+func (c *coverageUI) ShowTodos([]tui.TodoItem) {}
 func (c *coverageUI) AskPermission(string, map[string]any) tui.Decision {
 	return c.decision
 }

@@ -65,6 +65,7 @@ func (r *recordingUI) ShowToolCall(string, map[string]any)                   {}
 func (r *recordingUI) ShowToolResult(name, output string, isError bool) {
 	r.results = append(r.results, output)
 }
+func (r *recordingUI) ShowTodos([]tui.TodoItem) {}
 func (r *recordingUI) AskPermission(string, map[string]any) tui.Decision {
 	return tui.DecisionDeny
 }

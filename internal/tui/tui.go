@@ -38,6 +38,7 @@ type PlainUI struct {
 	thinkingActive     bool
 	thinkingStart      time.Time
 	streamBuffer       strings.Builder
+	markdown           *MarkdownRenderer
 
 	// spinner state. spinnerMu guards spinner only (a small lock that does
 	// NOT cover stdout writes); the running goroutine takes mu to paint
@@ -70,12 +71,14 @@ const (
 // NewPlain constructs a PlainUI bound to standard streams. Colors are emitted
 // only when stdout is a TTY and NO_COLOR is unset.
 func NewPlain() *PlainUI {
+	st := NewStyle(os.Stdout)
 	return &PlainUI{
-		in:     os.Stdin,
-		out:    os.Stdout,
-		reader: bufio.NewReader(os.Stdin),
-		style:  NewStyle(os.Stdout),
-		stopCh: make(chan struct{}),
+		in:       os.Stdin,
+		out:      os.Stdout,
+		reader:   bufio.NewReader(os.Stdin),
+		style:    st,
+		stopCh:   make(chan struct{}),
+		markdown: NewMarkdownRenderer(st),
 	}
 }
 
@@ -91,12 +94,13 @@ func (u *PlainUI) StreamAssistant(text string) {
 
 	if !u.streamingAssistant {
 		if u.style.Enabled() {
-			fmt.Fprintf(u.out, "%s %s ",
+			fmt.Fprintf(u.out, "%s %s\n",
 				u.style.BrightGreen(iconAssistant),
 				u.style.BoldGreen("assistant"),
 			)
 		}
 		u.streamingAssistant = true
+		u.ensureMarkdownLocked()
 	}
 
 	u.streamBuffer.WriteString(text)
@@ -105,7 +109,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 		visible, thinking, leftover, hasMore := splitThinking(buf)
 
 		if visible != "" {
-			fmt.Fprint(u.out, u.style.BrightWhite(visible))
+			u.markdown.Write(u.out, visible)
 		}
 		if thinking != "" {
 			u.writeThinkingChunkLocked(thinking)
@@ -120,6 +124,16 @@ func (u *PlainUI) StreamAssistant(text string) {
 	}
 }
 
+// ensureMarkdownLocked lazily wires a MarkdownRenderer to the TUI. Called
+// from streaming entry points so non-NewPlain constructors (tests with
+// PlainUI{...}) and zero-value safety paths still get rich output without
+// each test having to know to create one.
+func (u *PlainUI) ensureMarkdownLocked() {
+	if u.markdown == nil {
+		u.markdown = NewMarkdownRenderer(u.style)
+	}
+}
+
 // EndAssistant marks the end of an assistant turn and prints a trailing
 // newline so the next prompt lines up cleanly.
 func (u *PlainUI) EndAssistant() {
@@ -128,8 +142,13 @@ func (u *PlainUI) EndAssistant() {
 	defer u.mu.Unlock()
 
 	if rest := u.streamBuffer.String(); rest != "" {
-		fmt.Fprint(u.out, u.style.BrightWhite(rest))
+		u.ensureMarkdownLocked()
+		u.markdown.Write(u.out, rest)
 		u.streamBuffer.Reset()
+	}
+	if u.markdown != nil {
+		u.markdown.Flush(u.out)
+		u.markdown.Reset()
 	}
 	if u.thinkingActive {
 		elapsed := formatElapsed(time.Since(u.thinkingStart))
@@ -163,11 +182,11 @@ func (u *PlainUI) StreamThinking(text string) {
 		u.streamingAssistant = false
 	}
 	if !u.thinkingActive {
-		fmt.Fprintf(u.out, "%s %s\n%s ",
-			u.style.Dim(iconRule),
-			u.style.Dim("thinking"),
-			u.style.Dim(iconBar),
-		)
+		// No "thinking" header on purpose: the streamed bullets prefixed
+		// with `│` already convey the panel, and EndThinking will close
+		// it with a single `┄ thought for Xs` footer. Two lines bracketing
+		// every reasoning panel was visual noise.
+		fmt.Fprintf(u.out, "\n%s ", u.style.Dim(iconBar))
 		u.thinkingActive = true
 		u.thinkingStart = time.Now()
 	}
@@ -213,11 +232,9 @@ func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
 	}
 	u.flushPendingToolLocked()
 
+	compact := CompactToolHeader(name, params)
 	u.pendingTool = name
-	u.pendingHeader = fmt.Sprintf("%s%s",
-		u.style.BoldBlue(name),
-		u.style.DimBlue(formatParams(params)),
-	)
+	u.pendingHeader = u.style.BoldBlue(compact)
 	u.pendingActive = true
 
 	enabled := u.style.Enabled()
@@ -226,9 +243,8 @@ func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
 	if !enabled {
 		return
 	}
-	label := fmt.Sprintf("%s%s %s",
-		u.style.BoldBlue(name),
-		u.style.DimBlue(formatParams(params)),
+	label := fmt.Sprintf("%s %s",
+		u.style.BoldBlue(compact),
 		u.style.DimBlue("running…"),
 	)
 	u.startSpinner(label)
@@ -384,12 +400,20 @@ func (u *PlainUI) flushPendingToolLocked() {
 	u.pendingHeader = ""
 }
 
+// writeThinkingChunkLocked handles in-band <think>...</think> sections that
+// some models emit inside the assistant stream (e.g. when the native Ollama
+// "thinking" field is unavailable). It uses the same `│` bar prefix as
+// StreamThinking so the user sees a consistent reasoning panel regardless
+// of how the model surfaces its reasoning, and so EndAssistant's "thought
+// for Xs" footer reads as the natural close of either source.
 func (u *PlainUI) writeThinkingChunkLocked(text string) {
 	if !u.thinkingActive {
-		fmt.Fprintf(u.out, "\n%s %s ", u.style.DimGreen(iconThink), u.style.DimGreen("thinking"))
+		fmt.Fprintf(u.out, "\n%s ", u.style.Dim(iconBar))
 		u.thinkingActive = true
+		u.thinkingStart = time.Now()
 	}
-	fmt.Fprint(u.out, u.style.DimGreen(text))
+	indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
+	fmt.Fprint(u.out, u.style.Dim(indented))
 }
 
 // splitThinking pulls one <think>...</think> (or <thinking>...) segment from

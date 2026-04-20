@@ -36,6 +36,7 @@ const (
 	cReset       = "\x1b[0m"
 	cBold        = "\x1b[1m"
 	cDim         = "\x1b[2m"
+	cItalic      = "\x1b[3m"
 	cRed         = "\x1b[31m"
 	cGreen       = "\x1b[32m"
 	cYellow      = "\x1b[33m"
@@ -63,6 +64,7 @@ func (s Style) wrap(code, text string) string {
 
 func (s Style) Bold(text string) string        { return s.wrap(cBold, text) }
 func (s Style) Dim(text string) string         { return s.wrap(cDim, text) }
+func (s Style) Italic(text string) string      { return s.wrap(cItalic, text) }
 func (s Style) Red(text string) string         { return s.wrap(cRed, text) }
 func (s Style) Green(text string) string       { return s.wrap(cGreen, text) }
 func (s Style) BrightGreen(text string) string { return s.wrap(cBrightGreen, text) }

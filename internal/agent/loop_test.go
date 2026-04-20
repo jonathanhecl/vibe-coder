@@ -46,6 +46,7 @@ func (f *fakeUI) ShowToolCall(string, map[string]any) {
 	f.calls++
 }
 func (f *fakeUI) ShowToolResult(string, string, bool) {}
+func (f *fakeUI) ShowTodos([]tui.TodoItem)             {}
 func (f *fakeUI) AskPermission(string, map[string]any) tui.Decision {
 	return tui.DecisionAllowOnce
 }

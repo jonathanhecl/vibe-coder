@@ -58,6 +58,7 @@ type uiPort interface {
 	StopWaiting()
 	ShowToolCall(name string, params map[string]any)
 	ShowToolResult(name, output string, isError bool)
+	ShowTodos(items []tui.TodoItem)
 	AskPermission(tool string, params map[string]any) tui.Decision
 }
 
@@ -196,6 +197,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
+			a.maybeShowTodos(toolName)
 			a.recordToolObservation(ctx, toolName, result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
 				if w := a.getWatcher(); w != nil {
@@ -247,6 +249,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
+			a.maybeShowTodos(toolName)
 			a.recordToolObservation(ctx, toolName, result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
 				if w := a.getWatcher(); w != nil {
@@ -337,6 +340,37 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 	}
 	params[key] = chosen
 	a.ui.ShowToolResult(toolName, fmt.Sprintf("sidecar disambiguated %q → %s", raw, chosen), false)
+}
+
+// maybeShowTodos checks if the executed tool was TodoWrite and, if so,
+// pushes the current snapshot of the TODO list into the UI as a Cursor-
+// style "To-dos" panel. No-op for any other tool. Kept tiny and isolated
+// so the call sites stay readable.
+func (a *Agent) maybeShowTodos(toolName string) {
+	if toolName != "TodoWrite" {
+		return
+	}
+	t := a.reg.Get("TodoWrite")
+	if t == nil {
+		return
+	}
+	tw, ok := t.(*tools.TodoWriteTool)
+	if !ok {
+		return
+	}
+	snap := tw.Store().Snapshot()
+	if len(snap) == 0 {
+		return
+	}
+	items := make([]tui.TodoItem, 0, len(snap))
+	for _, it := range snap {
+		items = append(items, tui.TodoItem{
+			ID:      it.ID,
+			Content: it.Content,
+			Status:  it.Status,
+		})
+	}
+	a.ui.ShowTodos(items)
 }
 
 // recordToolObservation persists a tool result into the session, optionally

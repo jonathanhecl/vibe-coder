@@ -101,6 +101,36 @@ func TestFormatElapsedBuckets(t *testing.T) {
 	}
 }
 
+func TestStreamThinkingNoHeaderAndFooterReplacesIt(t *testing.T) {
+	t.Parallel()
+
+	// Build a PlainUI by hand against a buffer so we can inspect the
+	// raw bytes produced by the streaming thinking panel. ANSI is
+	// disabled (zero-value Style) which makes string assertions stable.
+	var buf bytes.Buffer
+	u := &PlainUI{out: &buf, style: Style{}}
+	u.StreamThinking("first line\nsecond line")
+	u.EndThinking()
+
+	out := buf.String()
+	// Regression: the old behavior printed a "┄ thinking" header at the
+	// top of the panel. The new contract is that nothing announces the
+	// panel until it closes — only the bar prefix on each line — and
+	// then a single "┄ thought for Xs" footer takes its place.
+	if strings.Contains(out, "thinking") {
+		t.Fatalf("did not expect 'thinking' header anywhere, got:\n%s", out)
+	}
+	if !strings.Contains(out, "thought for ") {
+		t.Fatalf("expected closing 'thought for' footer, got:\n%s", out)
+	}
+	if !strings.Contains(out, "│ first line") {
+		t.Fatalf("expected first thinking line prefixed with bar, got:\n%s", out)
+	}
+	if !strings.Contains(out, "│ second line") {
+		t.Fatalf("expected wrapped lines to keep bar prefix, got:\n%s", out)
+	}
+}
+
 func TestStyleDisabledWhenNotTTY(t *testing.T) {
 	t.Parallel()
 
