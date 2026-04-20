@@ -54,8 +54,14 @@ func TestOneShotPromptSmoke(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(string(out))
-	if got != "response" {
-		t.Fatalf("unexpected one-shot output: %q", got)
+	if !strings.Contains(got, "Session started:") {
+		t.Fatalf("expected startup banner in one-shot output, got: %q", got)
+	}
+	if !strings.Contains(got, "Model: llama3.2:3b") {
+		t.Fatalf("expected model line in one-shot output, got: %q", got)
+	}
+	if !strings.HasSuffix(got, "response") {
+		t.Fatalf("expected one-shot response at end of output, got: %q", got)
 	}
 }
 

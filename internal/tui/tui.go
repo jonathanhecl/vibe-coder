@@ -58,14 +58,15 @@ const (
 )
 
 const (
-	iconUser      = "›"
-	iconAssistant = "●"
-	iconRunning   = "▸"
-	iconOk        = "✓"
-	iconErr       = "✗"
-	iconThink     = "…"
-	iconRule      = "┄"
-	iconBar       = "│"
+	iconUser      = "👤"
+	iconAssistant = "🤖"
+	iconRunning   = "🔄"
+	iconTool      = "🔨"
+	iconDone      = "✅"
+	iconErr       = "❌"
+	iconThink     = "☁️"
+	iconRule      = "🧠"
+	iconBar       = "💭"
 )
 
 // NewPlain constructs a PlainUI bound to standard streams. Colors are emitted
@@ -186,7 +187,7 @@ func (u *PlainUI) StreamThinking(text string) {
 		// with `│` already convey the panel, and EndThinking will close
 		// it with a single `┄ thought for Xs` footer. Two lines bracketing
 		// every reasoning panel was visual noise.
-		fmt.Fprintf(u.out, "\n%s ", u.style.Dim(iconBar))
+		fmt.Fprintf(u.out, "%s ", u.style.Dim(iconBar))
 		u.thinkingActive = true
 		u.thinkingStart = time.Now()
 	}
@@ -259,7 +260,7 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	icon := u.style.BrightGreen(iconOk)
+	icon := u.style.BrightGreen(iconTool)
 	tag := u.style.DimGreen("done")
 	summaryColor := u.style.DimGreen
 	if isError {

@@ -143,6 +143,9 @@ func main() {
 	}
 
 	if cfg.Prompt != "" {
+		// Keep one-shot output aligned with interactive startup context so users
+		// can always see which model/session/host served the answer.
+		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
 		if err := ag.Run(rootCtx, cfg.Prompt); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
