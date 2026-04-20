@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // PlainUI renders an interactive session in a way inspired by Cursor's chat:
@@ -35,6 +36,7 @@ type PlainUI struct {
 
 	streamingAssistant bool
 	thinkingActive     bool
+	thinkingStart      time.Time
 	streamBuffer       strings.Builder
 
 	// spinner state. spinnerMu guards spinner only (a small lock that does
@@ -130,7 +132,11 @@ func (u *PlainUI) EndAssistant() {
 		u.streamBuffer.Reset()
 	}
 	if u.thinkingActive {
-		fmt.Fprintln(u.out)
+		elapsed := formatElapsed(time.Since(u.thinkingStart))
+		fmt.Fprintf(u.out, "\n%s %s\n",
+			u.style.Dim(iconRule),
+			u.style.Dim("thought for "+elapsed),
+		)
 		u.thinkingActive = false
 	}
 	if u.streamingAssistant {
@@ -163,19 +169,25 @@ func (u *PlainUI) StreamThinking(text string) {
 			u.style.Dim(iconBar),
 		)
 		u.thinkingActive = true
+		u.thinkingStart = time.Now()
 	}
 	indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
 	fmt.Fprint(u.out, u.style.Dim(indented))
 }
 
-// EndThinking closes the dim thinking panel if one is open, leaving a blank
-// line before the assistant's visible answer.
+// EndThinking closes the dim thinking panel if one is open, printing a
+// "thought for Xs" footer so the user can see how long the model spent
+// reasoning before producing the visible answer.
 func (u *PlainUI) EndThinking() {
 	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.thinkingActive {
-		fmt.Fprintln(u.out)
+		elapsed := formatElapsed(time.Since(u.thinkingStart))
+		fmt.Fprintf(u.out, "\n%s %s\n",
+			u.style.Dim(iconRule),
+			u.style.Dim("thought for "+elapsed),
+		)
 		u.thinkingActive = false
 	}
 }

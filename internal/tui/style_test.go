@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSplitThinkingExtractsBlock(t *testing.T) {
@@ -80,6 +81,23 @@ func TestSummarizeOutputTruncatesAndCounts(t *testing.T) {
 	long := strings.Repeat("a", 500)
 	if got := summarizeOutput(long); !strings.HasSuffix(got, "…") {
 		t.Fatalf("expected truncated suffix, got %q", got)
+	}
+}
+
+func TestFormatElapsedBuckets(t *testing.T) {
+	t.Parallel()
+
+	cases := map[time.Duration]string{
+		500 * time.Millisecond: "0s",
+		5 * time.Second:        "5s",
+		59 * time.Second:       "59s",
+		90 * time.Second:       "1m30s",
+		2 * time.Hour:          "2h00m",
+	}
+	for d, want := range cases {
+		if got := formatElapsed(d); got != want {
+			t.Fatalf("formatElapsed(%s) = %q, want %q", d, got, want)
+		}
 	}
 }
 

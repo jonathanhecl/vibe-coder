@@ -20,9 +20,10 @@ const spinnerInterval = 90 * time.Millisecond
 // PlainUI.stopSpinner so the animation is always cleared from the line
 // before any other content is printed.
 type spinner struct {
-	label  string
-	stopCh chan struct{}
-	doneCh chan struct{}
+	label   string
+	started time.Time
+	stopCh  chan struct{}
+	doneCh  chan struct{}
 }
 
 // startSpinner replaces any in-flight animation with a new one. Safe to call
@@ -43,9 +44,10 @@ func (u *PlainUI) startSpinner(label string) {
 		u.spinnerMu.Lock()
 	}
 	sp := &spinner{
-		label:  label,
-		stopCh: make(chan struct{}),
-		doneCh: make(chan struct{}),
+		label:   label,
+		started: time.Now(),
+		stopCh:  make(chan struct{}),
+		doneCh:  make(chan struct{}),
 	}
 	u.spinner = sp
 	u.spinnerMu.Unlock()
@@ -75,8 +77,17 @@ func (u *PlainUI) stopSpinner() {
 }
 
 // runSpinner is the per-spinner goroutine. It paints a single line and
-// rewrites it in place every ~90ms until stopCh is closed. The cursor is
-// kept on the same line (no \n) so stopSpinner can wipe it cleanly.
+// rewrites it in place every ~90ms until stopCh is closed.
+//
+// To avoid the visible flicker of "clear, then write" (which left the line
+// blank for a moment between frames), each frame is sent in ONE write that:
+//  1. moves the cursor to column 0 with \r (no clearing yet),
+//  2. writes the new frame + label + elapsed counter,
+//  3. clears from the cursor to the end of the line with \x1b[K so any
+//     leftover characters from a longer previous frame disappear.
+//
+// This produces a buttery-smooth update — the terminal commits the entire
+// new state atomically and never shows a half-empty row.
 func (u *PlainUI) runSpinner(sp *spinner) {
 	defer close(sp.doneCh)
 
@@ -85,11 +96,12 @@ func (u *PlainUI) runSpinner(sp *spinner) {
 
 	frame := 0
 	paintFrame := func() {
+		elapsed := formatElapsed(time.Since(sp.started))
 		u.mu.Lock()
-		fmt.Fprint(u.out, u.style.ClearPendingLine())
-		fmt.Fprintf(u.out, "%s %s",
+		fmt.Fprintf(u.out, "\r%s %s %s\x1b[K",
 			u.style.BrightBlue(spinnerFrames[frame%len(spinnerFrames)]),
 			sp.label,
+			u.style.Dim("("+elapsed+")"),
 		)
 		u.mu.Unlock()
 	}
@@ -118,5 +130,25 @@ func (u *PlainUI) StopWaiting() {
 	u.stopSpinner()
 }
 
-// spinnerStateMu is exported only for clarity in tests; do not use directly.
-var _ = sync.Mutex{}
+// formatElapsed renders a human-friendly duration meant to fit next to a
+// spinner: "0s", "5s", "1m23s", "2h05m". Resolution is intentionally one
+// second so the counter doesn't jitter on every frame.
+func formatElapsed(d time.Duration) string {
+	if d < time.Second {
+		return "0s"
+	}
+	total := int(d.Seconds())
+	if total < 60 {
+		return fmt.Sprintf("%ds", total)
+	}
+	mins := total / 60
+	secs := total % 60
+	if mins < 60 {
+		return fmt.Sprintf("%dm%02ds", mins, secs)
+	}
+	hours := mins / 60
+	mins = mins % 60
+	return fmt.Sprintf("%dh%02dm", hours, mins)
+}
+
+var _ = sync.Mutex{} // keep sync import for future extensions
