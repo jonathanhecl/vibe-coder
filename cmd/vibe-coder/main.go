@@ -84,6 +84,8 @@ func main() {
 	rootCtx, rootCancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer rootCancel()
 
+	installSignalSafetyNet(ui)
+
 	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, client, ag)
 	if ragErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", ragErr)
@@ -210,6 +212,24 @@ func startupBanner(cfg *config.Config, sessionID string) string {
 		sidecar,
 		cfg.OllamaHost,
 	)
+}
+
+// installSignalSafetyNet listens for OS interrupts in addition to
+// signal.NotifyContext. The first signal lets the existing context cancellation
+// path try to shut down cleanly. A second signal forces termination but always
+// restores the terminal first so the user is not left in raw mode.
+func installSignalSafetyNet(ui interface{ Stop() }) {
+	sigCh := make(chan os.Signal, 4)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		<-sigCh
+		if ui != nil {
+			ui.Stop()
+		}
+		fmt.Fprintln(os.Stderr, "\nForced exit. Terminal restored.")
+		os.Exit(130)
+	}()
 }
 
 func extractPersistDirective(args []string) ([]string, bool) {

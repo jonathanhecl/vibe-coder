@@ -336,6 +336,9 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
 		ctx, cancel := context.WithTimeout(rootCtx, 2*time.Minute)
 		systemPrompt := prompt.Build(a.cfg)
+		if toolsBlock := tools.RenderPromptBlock(a.reg); toolsBlock != "" {
+			systemPrompt = systemPrompt + "\n\n" + toolsBlock
+		}
 		skillsBlock := skills.RenderBlock(skills.Load(a.cfg))
 		if skillsBlock != "" {
 			systemPrompt = systemPrompt + "\n\n# Loaded Skills\n" + skillsBlock
