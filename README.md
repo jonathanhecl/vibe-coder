@@ -49,6 +49,12 @@ Windows:
 go build -o vibe-coder.exe ./cmd/vibe-coder
 ```
 
+Windows helper script:
+
+```powershell
+.\build.ps1
+```
+
 ## Quick Start
 
 One-shot prompt:
@@ -117,6 +123,12 @@ Next runs can simply use:
 
 ```powershell
 .\vibe-coder.exe
+```
+
+If you use PowerShell and want to run from source with the same flags:
+
+```powershell
+.\run.ps1 -model "qwen2.5-coder:7b" -sidecar "llama3.2:3b" -ollama-host "http://192.168.1.50:11434" /save
 ```
 
 ## CLI Flags
