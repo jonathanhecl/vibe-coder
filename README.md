@@ -103,6 +103,28 @@ Model keys and overrides:
 
 If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
 
+### What is the sidecar model for?
+
+`MODEL` is the conversational/coding model that answers every prompt. The
+**sidecar** is a smaller, faster model used internally by `vibe-coder` to
+**summarize old turns** when the conversation outgrows the context window.
+It is invoked **only** by `Session.Compact()` when one of these is true:
+
+- the session has more than 300 messages, or
+- the rolling token estimate exceeds 70% of `ContextWindow`.
+
+When that happens, the oldest messages are sent to the sidecar (a single
+non-streaming `ChatSync` request) with a "Summarize the conversation
+concisely" instruction; the summary replaces them in the in-memory history,
+and the last 30 messages are kept verbatim. Short sessions never trigger
+this path, so the spinner you see in the TUI (`waiting for <MODEL>…`) is
+always the main model — never the sidecar.
+
+Pick a sidecar that is **fast and cheap** (e.g. `llama3.2:3b`, `qwen2.5:3b`,
+`phi3:mini`). Leave it empty to disable compaction summarization; the
+session will then truncate to a static "Earlier conversation truncated…"
+note instead.
+
 ### Remote Ollama for vibe-coder only
 
 If Ollama runs on another machine in your network, you can configure `vibe-coder` and persist

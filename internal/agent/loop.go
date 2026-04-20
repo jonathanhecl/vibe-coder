@@ -379,7 +379,7 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 		if skillsBlock != "" {
 			systemPrompt = systemPrompt + "\n\n# Loaded Skills\n" + skillsBlock
 		}
-		a.ui.StartWaiting("waiting for model…")
+		a.ui.StartWaiting(fmt.Sprintf("waiting for %s…", shortModelName(a.cfg.Model)))
 		stream, err := a.client.Chat(ctx, ollama.ChatRequest{
 			Model: a.cfg.Model,
 			Messages: []ollama.Message{
@@ -464,16 +464,33 @@ func (a *Agent) tryAutoPullModel(ctx context.Context) bool {
 	if !allow {
 		return false
 	}
-	a.ui.StartWaiting("pulling " + a.cfg.Model + "…")
+	short := shortModelName(a.cfg.Model)
+	a.ui.StartWaiting("pulling " + short + "…")
 	defer a.ui.StopWaiting()
 	pullErr := a.client.Pull(ctx, a.cfg.Model, func(ev ollama.PullEvent) {
 		progress := ev.Status
 		if ev.Total > 0 {
 			progress = fmt.Sprintf("%s (%d/%d)", ev.Status, ev.Completed, ev.Total)
 		}
-		a.ui.StartWaiting("pulling " + a.cfg.Model + " — " + progress)
+		a.ui.StartWaiting("pulling " + short + " — " + progress)
 	})
 	return pullErr == nil
+}
+
+// shortModelName trims long Ollama identifiers (e.g.
+// "hf.co/Fecac/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive:Q4_K_M") down to
+// something that still fits on a single TUI line. The full name is kept in
+// config and tool calls; this is purely cosmetic for the spinner label.
+func shortModelName(name string) string {
+	name = strings.TrimSpace(name)
+	if i := strings.LastIndex(name, "/"); i >= 0 && i+1 < len(name) {
+		name = name[i+1:]
+	}
+	const maxLen = 32
+	if len(name) > maxLen {
+		name = name[:maxLen-1] + "…"
+	}
+	return name
 }
 
 func inferSingleToolCall(input string) (string, map[string]any, bool) {
