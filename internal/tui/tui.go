@@ -8,13 +8,16 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
-	"golang.org/x/term"
 )
 
 // PlainUI renders an interactive session in a way inspired by Cursor's chat:
 // streamed assistant text, a single-line tool "card" that gets rewritten in
 // place when the result arrives, and dim "thinking" sections.
+//
+// Important: PlainUI never puts the terminal in raw mode. We rely on the OS
+// signal handler in main to translate Ctrl+C into a clean shutdown. Raw mode
+// would silently swallow Ctrl+C (it becomes byte 0x03) and would also race
+// with bufio readers on stdin, leaving the user unable to type or exit.
 type PlainUI struct {
 	in  *os.File
 	out io.Writer
@@ -25,8 +28,6 @@ type PlainUI struct {
 	mu       sync.Mutex
 	stopCh   chan struct{}
 	stopOnce sync.Once
-	rawFD    int
-	rawState *term.State
 
 	pendingTool   string
 	pendingHeader string
@@ -65,7 +66,6 @@ func NewPlain() *PlainUI {
 		reader: bufio.NewReader(os.Stdin),
 		style:  NewStyle(os.Stdout),
 		stopCh: make(chan struct{}),
-		rawFD:  int(os.Stdin.Fd()),
 	}
 }
 
@@ -268,66 +268,22 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	}
 }
 
-// StartESCMonitor switches the terminal to raw mode so we can detect ESC
-// without waiting for a newline. Always paired with StopESCMonitor.
-func (u *PlainUI) StartESCMonitor(interrupt func()) error {
-	if !term.IsTerminal(u.rawFD) {
-		return nil
-	}
+// StartESCMonitor is a no-op kept for backwards compatibility with the
+// agent's uiPort interface. We intentionally do not enter raw mode anymore;
+// see the type comment for why. Cancellation is now driven by the OS signal
+// handler in main, which cancels the root context on Ctrl+C.
+func (u *PlainUI) StartESCMonitor(interrupt func()) error { return nil }
 
-	u.mu.Lock()
-	if u.rawState != nil {
-		u.mu.Unlock()
-		return nil
-	}
-	state, err := term.MakeRaw(u.rawFD)
-	if err != nil {
-		u.mu.Unlock()
-		return fmt.Errorf("enable raw mode: %w", err)
-	}
-	u.rawState = state
-	u.mu.Unlock()
+// StopESCMonitor is a no-op kept for backwards compatibility.
+func (u *PlainUI) StopESCMonitor() {}
 
-	go func() {
-		buf := make([]byte, 1)
-		for {
-			select {
-			case <-u.stopCh:
-				return
-			default:
-			}
-			n, err := u.in.Read(buf)
-			if err != nil || n == 0 {
-				return
-			}
-			if buf[0] == 0x1B {
-				interrupt()
-				return
-			}
-		}
-	}()
-	return nil
-}
-
-// StopESCMonitor restores the terminal cooked mode. Safe to call multiple
-// times; this is what protects the user from a corrupted terminal after
-// abrupt exits.
-func (u *PlainUI) StopESCMonitor() {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	if u.rawState != nil {
-		_ = term.Restore(u.rawFD, u.rawState)
-		u.rawState = nil
-	}
-}
-
-// Stop performs a one-time shutdown of the UI: closes the ESC monitor and
-// restores the terminal. Idempotent so signal handlers can call it safely.
+// Stop performs a one-time shutdown of the UI. Idempotent so signal handlers
+// can call it safely. Currently there is no terminal state to restore but the
+// channel is still closed for future raw-mode consumers and tests.
 func (u *PlainUI) Stop() {
 	u.stopOnce.Do(func() {
 		close(u.stopCh)
 	})
-	u.StopESCMonitor()
 }
 
 // flushPendingToolLocked closes any tool card that was left in the
