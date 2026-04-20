@@ -334,7 +334,14 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 		return
 	}
 	hint := fmt.Sprintf("model wrote %q while user goal was: %s", raw, goal)
+	// Same rationale as recordToolObservation: sidecar calls are slow
+	// enough on cold-start that an unannounced 5–20s pause feels like a
+	// hang. A short waiting label tells the user a small model is being
+	// queried and why.
+	a.ui.StartWaiting(fmt.Sprintf("disambiguating %q via %s…",
+		raw, shortModelName(a.cfg.SidecarModel)))
 	chosen, ok, err := side.DisambiguatePath(ctx, hint, cands)
+	a.ui.StopWaiting()
 	if err != nil || !ok {
 		return
 	}
@@ -378,12 +385,28 @@ func (a *Agent) maybeShowTodos(toolName string) {
 // the model focused on signal (paths, symbols, errors) instead of pages of
 // raw bytes; the original output is still shown live in the UI through
 // ShowToolResult, so the user always sees the unredacted truth.
+//
+// Crucially, the sidecar call is wrapped in StartWaiting/StopWaiting:
+// without it the user sees a "✓ Read done" line followed by what looks
+// like 10–30 silent seconds before the next chatOnce spinner appears,
+// because the sidecar (qwen3.5:4b et al.) takes real time to load and
+// respond. The visible "condensing …" spinner with elapsed counter
+// closes that perception gap.
 func (a *Agent) recordToolObservation(ctx context.Context, toolName, output string) {
 	a.mu.RLock()
 	side := a.side
 	a.mu.RUnlock()
-	if side != nil && side.Enabled() {
-		if summary, used, _ := side.SummariseToolOutput(ctx, toolName, output); used && summary != "" {
+	// Use the Pool's configured threshold (not the package default) so
+	// tests that lower it via WithSummariseThreshold still exercise the
+	// summary path and so users that raise it via env don't pay for a
+	// useless spinner on outputs the sidecar would skip anyway.
+	if side != nil && side.Enabled() && len(output) >= side.Threshold() {
+		label := fmt.Sprintf("condensing %s output via %s…",
+			toolName, shortModelName(a.cfg.SidecarModel))
+		a.ui.StartWaiting(label)
+		summary, used, _ := side.SummariseToolOutput(ctx, toolName, output)
+		a.ui.StopWaiting()
+		if used && summary != "" {
 			a.sess.AddToolObservation(toolName, summary)
 			a.ui.ShowToolResult(toolName,
 				fmt.Sprintf("sidecar condensed %d bytes → summary stored in context", len(output)),
