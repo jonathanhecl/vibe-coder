@@ -46,6 +46,7 @@ type Config struct {
 	ShowHelp    bool
 	ShowVer     bool
 	ConfigDir   string
+	ConfigFile  string
 	StateDir    string
 	SessionsDir string
 	PermFile    string
@@ -74,6 +75,7 @@ func Load(args []string) (*Config, error) {
 	if configPath == "" {
 		configPath = filepath.Join(cfg.ConfigDir, "config.env")
 	}
+	cfg.ConfigFile = configPath
 
 	if err := applyConfigFile(cfg, configPath); err != nil {
 		return nil, err
@@ -144,6 +146,7 @@ Flags:
   --help                    Show this help and exit
   -p string                 One-shot prompt
   -m, --model string        Model name
+  --sidecar string          Sidecar model name
   -y                        Enable yes mode
   --debug                   Enable debug logs
   --resume                  Resume last session for this project
@@ -159,6 +162,9 @@ Flags:
   --rag-topk int            RAG top-k chunks
   --rag-model string        RAG embedding model
   --rag-index string        Build/index RAG path and exit
+
+Special directive:
+  /save                     Persist model/sidecar/host to config.env
 `, binName)
 }
 
@@ -288,6 +294,7 @@ func applyConfigFile(cfg *Config, path string) error {
 type cliOptions struct {
 	prompt        optionalString
 	model         optionalString
+	sidecar       optionalString
 	yesMode       optionalBool
 	debug         optionalBool
 	resume        optionalBool
@@ -316,6 +323,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.prompt, "p", "one-shot prompt")
 	fs.Var(&opts.model, "m", "model")
 	fs.Var(&opts.model, "model", "model")
+	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
 	fs.Var(&opts.yesMode, "y", "yes mode")
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.resume, "resume", "resume session")
@@ -349,6 +357,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.model.set {
 		cfg.Model = cli.model.value
+	}
+	if cli.sidecar.set {
+		cfg.SidecarModel = cli.sidecar.value
 	}
 	if cli.yesMode.set {
 		cfg.YesMode = cli.yesMode.value
@@ -464,4 +475,72 @@ func (o *optionalFloat) Set(v string) error {
 }
 func (o *optionalFloat) String() string {
 	return strconv.FormatFloat(o.value, 'f', -1, 64)
+}
+
+// SaveModelSettings persists runtime model settings to the vibe-coder config file.
+// It updates MODEL, SIDECAR_MODEL, and OLLAMA_HOST while preserving other keys/comments.
+func SaveModelSettings(cfg *Config) error {
+	path := strings.TrimSpace(cfg.ConfigFile)
+	if path == "" {
+		path = filepath.Join(cfg.ConfigDir, "config.env")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+
+	lines := []string{}
+	if data, err := os.ReadFile(path); err == nil {
+		raw := strings.ReplaceAll(string(data), "\r\n", "\n")
+		lines = strings.Split(raw, "\n")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read config file: %w", err)
+	}
+
+	updates := map[string]string{
+		"MODEL":         strings.TrimSpace(cfg.Model),
+		"SIDECAR_MODEL": strings.TrimSpace(cfg.SidecarModel),
+		"OLLAMA_HOST":   strings.TrimSpace(cfg.OllamaHost),
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(lines)+3)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			out = append(out, line)
+			continue
+		}
+		key, _, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			out = append(out, line)
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value, shouldUpdate := updates[key]
+		if !shouldUpdate {
+			out = append(out, line)
+			continue
+		}
+		seen[key] = true
+		if value == "" {
+			continue
+		}
+		out = append(out, key+"="+value)
+	}
+	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "OLLAMA_HOST"} {
+		if seen[key] {
+			continue
+		}
+		if value := updates[key]; value != "" {
+			out = append(out, key+"="+value)
+		}
+	}
+
+	content := strings.TrimRight(strings.Join(out, "\n"), "\n")
+	if content != "" {
+		content += "\n"
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write config file: %w", err)
+	}
+	return nil
 }

@@ -24,10 +24,19 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load(os.Args[1:])
+	args, persistModelSettings := extractPersistDirective(os.Args[1:])
+	cfg, err := config.Load(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if persistModelSettings {
+		if err := config.SaveModelSettings(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "error: failed to save model settings: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stdout, "Saved model settings to %s\n", cfg.ConfigFile)
 	}
 
 	binName := filepath.Base(os.Args[0])
@@ -201,4 +210,17 @@ func startupBanner(cfg *config.Config, sessionID string) string {
 		sidecar,
 		cfg.OllamaHost,
 	)
+}
+
+func extractPersistDirective(args []string) ([]string, bool) {
+	filtered := make([]string, 0, len(args))
+	persist := false
+	for _, arg := range args {
+		if strings.EqualFold(strings.TrimSpace(arg), "/save") {
+			persist = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	return filtered, persist
 }

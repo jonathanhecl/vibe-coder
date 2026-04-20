@@ -85,6 +85,7 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	t.Setenv("VIBE_CODER_CONFIG", configFile)
 	t.Setenv("OLLAMA_HOST", "http://env-host:11434")
 	t.Setenv("VIBE_CODER_MODEL", "env-model")
+	t.Setenv("VIBE_CODER_SIDECAR_MODEL", "env-sidecar")
 	t.Setenv("VIBE_CODER_DEBUG", "true")
 
 	cfg, err := Load([]string{
@@ -93,6 +94,7 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 		"--max-tokens", "4096",
 		"--temperature", "0.4",
 		"--context-window", "8192",
+		"--sidecar", "cli-sidecar",
 		"-y",
 		"--session-id", "abc123",
 	})
@@ -105,6 +107,9 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	}
 	if cfg.Model != "cli-model" {
 		t.Fatalf("expected CLI model, got %q", cfg.Model)
+	}
+	if cfg.SidecarModel != "cli-sidecar" {
+		t.Fatalf("expected CLI sidecar model, got %q", cfg.SidecarModel)
 	}
 	if cfg.MaxTokens != 4096 {
 		t.Fatalf("expected CLI max tokens, got %d", cfg.MaxTokens)
@@ -165,5 +170,49 @@ func TestLoadHelpAndVersionFlags(t *testing.T) {
 	}
 	if !cfg.ShowVer {
 		t.Fatal("expected show version to be true")
+	}
+}
+
+func TestSaveModelSettingsPreservesOtherConfig(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.env")
+	initial := strings.Join([]string{
+		"# keep this comment",
+		"MAX_TOKENS=2048",
+		"MODEL=old-model",
+		"SIDECAR_MODEL=old-sidecar",
+		"OLLAMA_HOST=http://localhost:11434",
+		"",
+	}, "\n")
+	if err := os.WriteFile(cfgPath, []byte(initial), 0o600); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+
+	cfg := &Config{
+		ConfigDir:    tmp,
+		ConfigFile:   cfgPath,
+		Model:        "qwen2.5-coder:7b",
+		SidecarModel: "llama3.2:3b",
+		OllamaHost:   "http://192.168.1.50:11434",
+	}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatalf("save model settings: %v", err)
+	}
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+	saved := string(data)
+	for _, want := range []string{
+		"# keep this comment",
+		"MAX_TOKENS=2048",
+		"MODEL=qwen2.5-coder:7b",
+		"SIDECAR_MODEL=llama3.2:3b",
+		"OLLAMA_HOST=http://192.168.1.50:11434",
+	} {
+		if !strings.Contains(saved, want) {
+			t.Fatalf("saved config missing %q:\n%s", want, saved)
+		}
 	}
 }

@@ -83,3 +83,20 @@ func TestStartupBanner(t *testing.T) {
 		t.Fatalf("missing host line: %q", out)
 	}
 }
+
+func TestExtractPersistDirective(t *testing.T) {
+	t.Parallel()
+
+	args, persist := extractPersistDirective([]string{
+		"-model", "qwen2.5-coder:7b",
+		"-sidecar", "llama3.2:3b",
+		"-ollama-host", "http://192.168.1.50:11434",
+		"/save",
+	})
+	if !persist {
+		t.Fatal("expected persist directive to be detected")
+	}
+	if strings.Join(args, " ") != "-model qwen2.5-coder:7b -sidecar llama3.2:3b -ollama-host http://192.168.1.50:11434" {
+		t.Fatalf("unexpected args after filter: %v", args)
+	}
+}

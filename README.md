@@ -90,10 +90,34 @@ You can override the config file path with:
 Model keys and overrides:
 
 - Config file key: `MODEL=<model-name>`
+- Config file key: `SIDECAR_MODEL=<model-name>`
 - Environment: `VIBE_CODER_MODEL=<model-name>`
+- Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 
 If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
+
+### Remote Ollama for vibe-coder only
+
+If Ollama runs on another machine in your network, you can configure `vibe-coder` and persist
+those settings in one command, without changing global environment variables:
+
+```powershell
+.\vibe-coder.exe -model "qwen2.5-coder:7b" -sidecar "llama3.2:3b" -ollama-host "http://192.168.1.50:11434" /save
+```
+
+What this does:
+
+- Applies model, sidecar model, and host for the current run.
+- Writes `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` to
+  `%LOCALAPPDATA%\vibe-coder\config.env`.
+- Keeps the change scoped to `vibe-coder` only (no `setx` needed).
+
+Next runs can simply use:
+
+```powershell
+.\vibe-coder.exe
+```
 
 ## CLI Flags
 
@@ -103,6 +127,7 @@ Current top-level flags:
 - `--help` show help
 - `-p` one-shot prompt
 - `-m, --model` model name
+- `--sidecar` sidecar model name
 - `-y` yes mode
 - `--debug` debug logs
 - `--resume` resume last project session
@@ -118,6 +143,7 @@ Current top-level flags:
 - `--rag-topk` RAG top-k chunks
 - `--rag-model` RAG embedding model
 - `--rag-index` build/index RAG path and exit
+- `/save` persist current model/sidecar/host into `config.env`
 
 ## RAG Usage
 
