@@ -163,7 +163,7 @@ func (u *PlainUI) StreamThinking(text string) {
 		u.streamingAssistant = false
 	}
 	if !u.thinkingActive {
-		fmt.Fprintf(u.out, "\n%s %s\n%s ",
+		fmt.Fprintf(u.out, "%s %s\n%s ",
 			u.style.Dim(iconRule),
 			u.style.Dim("thinking"),
 			u.style.Dim(iconBar),
