@@ -41,7 +41,7 @@ function Get-BuildVersion {
 $version = Get-BuildVersion
 $ldflags = "-X github.com/jonathanhecl/vibe-coder/internal/version.Value=$version"
 
-Write-Output "[INFO] Building vibe-coder $version"
-go build -ldflags $ldflags -o vibe-coder.exe ./cmd/vibe-coder
-Write-Output "[OK] Built .\vibe-coder.exe"
+Write-Output "[INFO] Installing vibe-coder $version"
+go install -ldflags $ldflags ./cmd/vibe-coder
+Write-Output "[OK] Installed vibe-coder"
 exit $LASTEXITCODE

@@ -1,4 +1,5 @@
 package version
 
-const Value = "dev"
+// Value is set at build time via -ldflags.
+var Value = "dev"
 

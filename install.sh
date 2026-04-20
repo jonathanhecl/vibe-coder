@@ -26,6 +26,6 @@ fi
 version="${base_version}+${build_timestamp}.sha${short_sha}${dirty_suffix}"
 ldflags="-X github.com/jonathanhecl/vibe-coder/internal/version.Value=${version}"
 
-echo "[INFO] Building vibe-coder ${version}"
-go build -ldflags "$ldflags" -o vibe-coder ./cmd/vibe-coder
-echo "[OK] Built ./vibe-coder"
+echo "[INFO] Installing vibe-coder ${version}"
+go install -ldflags "$ldflags" ./cmd/vibe-coder
+echo "[OK] Installed vibe-coder"
