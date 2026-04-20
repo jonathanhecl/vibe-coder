@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
 func TestVersionFlagSmoke(t *testing.T) {
@@ -66,7 +67,7 @@ func TestStartupBanner(t *testing.T) {
 		SidecarModel: "",
 		OllamaHost:   "http://localhost:11434",
 	}
-	out := startupBanner(cfg, "session-123")
+	out := startupBanner(cfg, "session-123", tui.Style{})
 	if !strings.Contains(out, "vibe-coder") {
 		t.Fatalf("missing app name banner: %q", out)
 	}

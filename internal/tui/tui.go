@@ -80,7 +80,10 @@ func (u *PlainUI) StreamAssistant(text string) {
 
 	if !u.streamingAssistant {
 		if u.style.Enabled() {
-			fmt.Fprintf(u.out, "%s %s ", u.style.Cyan(iconAssistant), u.style.Bold("assistant"))
+			fmt.Fprintf(u.out, "%s %s ",
+				u.style.BrightGreen(iconAssistant),
+				u.style.BoldGreen("assistant"),
+			)
 		}
 		u.streamingAssistant = true
 	}
@@ -91,7 +94,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 		visible, thinking, leftover, hasMore := splitThinking(buf)
 
 		if visible != "" {
-			fmt.Fprint(u.out, visible)
+			fmt.Fprint(u.out, u.style.BrightWhite(visible))
 		}
 		if thinking != "" {
 			u.writeThinkingChunkLocked(thinking)
@@ -113,11 +116,11 @@ func (u *PlainUI) EndAssistant() {
 	defer u.mu.Unlock()
 
 	if rest := u.streamBuffer.String(); rest != "" {
-		fmt.Fprint(u.out, rest)
+		fmt.Fprint(u.out, u.style.BrightWhite(rest))
 		u.streamBuffer.Reset()
 	}
 	if u.thinkingActive {
-		fmt.Fprint(u.out, u.style.Dim("\n"))
+		fmt.Fprintln(u.out)
 		u.thinkingActive = false
 	}
 	if u.streamingAssistant {
@@ -139,16 +142,16 @@ func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
 	u.flushPendingToolLocked()
 
 	header := fmt.Sprintf("%s %s%s",
-		u.style.Yellow(iconRunning),
-		u.style.Bold(name),
-		u.style.Dim(formatParams(params)),
+		u.style.BrightBlue(iconRunning),
+		u.style.BoldBlue(name),
+		u.style.DimBlue(formatParams(params)),
 	)
-	fmt.Fprintf(u.out, "%s %s", header, u.style.Dim("running…"))
+	fmt.Fprintf(u.out, "%s %s", header, u.style.DimBlue("running…"))
 
 	u.pendingTool = name
 	u.pendingHeader = fmt.Sprintf("%s%s",
-		u.style.Bold(name),
-		u.style.Dim(formatParams(params)),
+		u.style.BoldBlue(name),
+		u.style.DimBlue(formatParams(params)),
 	)
 	u.pendingActive = true
 }
@@ -161,16 +164,18 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	icon := u.style.Green(iconOk)
-	tag := u.style.Dim("done")
+	icon := u.style.BrightGreen(iconOk)
+	tag := u.style.DimGreen("done")
+	summaryColor := u.style.DimGreen
 	if isError {
-		icon = u.style.Red(iconErr)
+		icon = u.style.BoldRed(iconErr)
 		tag = u.style.Red("error")
+		summaryColor = u.style.Red
 	}
 
 	header := u.pendingHeader
 	if !u.pendingActive || u.pendingTool != name {
-		header = fmt.Sprintf("%s", u.style.Bold(name))
+		header = u.style.BoldBlue(name)
 	}
 
 	summary := summarizeOutput(output)
@@ -178,10 +183,10 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
 	if u.pendingActive {
 		fmt.Fprint(u.out, u.style.ClearPendingLine())
 	}
-	fmt.Fprintf(u.out, "%s %s %s %s\n", icon, header, tag, u.style.Dim("→ "+summary))
+	fmt.Fprintf(u.out, "%s %s %s %s\n", icon, header, tag, summaryColor("→ "+summary))
 
 	if isError && strings.TrimSpace(output) != "" {
-		printIndented(u.out, u.style.Dim(strings.TrimRight(output, "\n")))
+		printIndented(u.out, u.style.Red(strings.TrimRight(output, "\n")))
 	}
 
 	u.pendingActive = false
@@ -198,7 +203,10 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 		u.streamingAssistant = false
 	}
 	if u.style.Enabled() {
-		_, _ = io.WriteString(u.out, fmt.Sprintf("%s %s", u.style.Cyan(iconUser), prompt))
+		_, _ = io.WriteString(u.out, fmt.Sprintf("%s %s",
+			u.style.BrightGreen(iconUser),
+			u.style.BoldGreen(prompt),
+		))
 	} else {
 		_, _ = io.WriteString(u.out, prompt)
 	}
@@ -215,7 +223,7 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 
 	lines := make([]string, 0, 8)
 	for {
-		_, _ = io.WriteString(u.out, u.style.Dim("... "))
+		_, _ = io.WriteString(u.out, u.style.DimGreen("... "))
 		next, err := u.reader.ReadString('\n')
 		if err != nil {
 			return "", err
@@ -234,11 +242,11 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	u.mu.Lock()
 	u.flushPendingToolLocked()
 	question := fmt.Sprintf("%s %s%s",
-		u.style.Yellow("?"),
-		u.style.Bold("Allow "+tool),
-		u.style.Dim(formatParams(params)),
+		u.style.BoldYellow("?"),
+		u.style.BoldYellow("Allow "+tool),
+		u.style.Yellow(formatParams(params)),
 	)
-	choices := u.style.Dim(" [y]es / [n]o / [a]ll / [d]eny-all / [s]kip-all-confirm: ")
+	choices := u.style.DimGreen(" [y]es / [n]o / [a]ll / [d]eny-all / [s]kip-all-confirm: ")
 	_, _ = fmt.Fprint(u.out, question, choices)
 	u.mu.Unlock()
 
@@ -330,7 +338,7 @@ func (u *PlainUI) flushPendingToolLocked() {
 	}
 	fmt.Fprint(u.out, u.style.ClearPendingLine())
 	fmt.Fprintf(u.out, "%s %s %s\n",
-		u.style.Yellow("•"), u.pendingHeader, u.style.Dim("interrupted"),
+		u.style.BoldYellow("•"), u.pendingHeader, u.style.Yellow("interrupted"),
 	)
 	u.pendingActive = false
 	u.pendingTool = ""
@@ -339,10 +347,10 @@ func (u *PlainUI) flushPendingToolLocked() {
 
 func (u *PlainUI) writeThinkingChunkLocked(text string) {
 	if !u.thinkingActive {
-		fmt.Fprintf(u.out, "\n%s %s ", u.style.Gray(iconThink), u.style.Gray("thinking"))
+		fmt.Fprintf(u.out, "\n%s %s ", u.style.DimGreen(iconThink), u.style.DimGreen("thinking"))
 		u.thinkingActive = true
 	}
-	fmt.Fprint(u.out, u.style.Gray(text))
+	fmt.Fprint(u.out, u.style.DimGreen(text))
 }
 
 // splitThinking pulls one <think>...</think> (or <thinking>...) segment from

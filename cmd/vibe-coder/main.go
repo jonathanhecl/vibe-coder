@@ -154,7 +154,7 @@ func main() {
 		return
 	}
 
-	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID()))
+	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
 	slashCtx := &slash.Ctx{
 		Cfg:     cfg,
 		Session: sess,
@@ -198,19 +198,29 @@ func main() {
 	}
 }
 
-func startupBanner(cfg *config.Config, sessionID string) string {
+func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {
 	sidecar := strings.TrimSpace(cfg.SidecarModel)
 	if sidecar == "" {
 		sidecar = "(disabled)"
 	}
-	return fmt.Sprintf(
-		"vibe-coder %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
-		version.Value,
-		sessionID,
-		cfg.Model,
-		sidecar,
-		cfg.OllamaHost,
+	if !style.Enabled() {
+		return fmt.Sprintf(
+			"vibe-coder %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
+			version.Value, sessionID, cfg.Model, sidecar, cfg.OllamaHost,
+		)
+	}
+	label := func(k, v string) string {
+		return fmt.Sprintf("%s %s\n", style.BoldGreen(k+":"), style.BrightGreen(v))
+	}
+	header := fmt.Sprintf("%s %s\n",
+		style.BoldGreen("vibe-coder"),
+		style.DimGreen(version.Value),
 	)
+	return header +
+		label("Session started", sessionID) +
+		label("Model", cfg.Model) +
+		label("Sidecar", sidecar) +
+		label("Ollama host", cfg.OllamaHost)
 }
 
 // installSignalHandler ensures the terminal is always restored on exit, so a
