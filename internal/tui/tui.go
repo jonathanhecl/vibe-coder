@@ -36,6 +36,12 @@ type PlainUI struct {
 	streamingAssistant bool
 	thinkingActive     bool
 	streamBuffer       strings.Builder
+
+	// spinner state. spinnerMu guards spinner only (a small lock that does
+	// NOT cover stdout writes); the running goroutine takes mu to paint
+	// frames, so callers must never hold mu when manipulating spinner.
+	spinnerMu sync.Mutex
+	spinner   *spinner
 }
 
 type Decision int
@@ -75,6 +81,7 @@ func NewPlain() *PlainUI {
 // <think>...</think> blocks from the visible reply and re-routes them to a
 // dimmed thinking section so they read like Cursor's reasoning panel.
 func (u *PlainUI) StreamAssistant(text string) {
+	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -114,6 +121,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 // EndAssistant marks the end of an assistant turn and prints a trailing
 // newline so the next prompt lines up cleanly.
 func (u *PlainUI) EndAssistant() {
+	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -139,6 +147,7 @@ func (u *PlainUI) StreamThinking(text string) {
 	if text == "" {
 		return
 	}
+	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -162,6 +171,7 @@ func (u *PlainUI) StreamThinking(text string) {
 // EndThinking closes the dim thinking panel if one is open, leaving a blank
 // line before the assistant's visible answer.
 func (u *PlainUI) EndThinking() {
+	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.thinkingActive {
@@ -170,24 +180,26 @@ func (u *PlainUI) EndThinking() {
 	}
 }
 
-// ShowToolCall prints a single-line tool card that will be rewritten in place
-// when ShowToolResult arrives, mimicking Cursor's collapsing tool cards.
+// ShowToolCall opens a "running" tool card. In TTY mode the card is rendered
+// by the spinner goroutine so the user sees an animated indicator that
+// proves the agent is alive even on slow tools (Bash, network calls).
+// ShowToolResult later replaces that line with the final ✓/✗ summary.
+//
+// In non-TTY mode (NO_COLOR / redirected stdout / tests) we just record the
+// pending state without animation; the result line is printed verbatim.
 func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
+	u.stopSpinner()
 	u.mu.Lock()
-	defer u.mu.Unlock()
 
 	if u.streamingAssistant {
 		fmt.Fprintln(u.out)
 		u.streamingAssistant = false
 	}
+	if u.thinkingActive {
+		fmt.Fprintln(u.out)
+		u.thinkingActive = false
+	}
 	u.flushPendingToolLocked()
-
-	header := fmt.Sprintf("%s %s%s",
-		u.style.BrightBlue(iconRunning),
-		u.style.BoldBlue(name),
-		u.style.DimBlue(formatParams(params)),
-	)
-	fmt.Fprintf(u.out, "%s %s", header, u.style.DimBlue("running…"))
 
 	u.pendingTool = name
 	u.pendingHeader = fmt.Sprintf("%s%s",
@@ -195,6 +207,19 @@ func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
 		u.style.DimBlue(formatParams(params)),
 	)
 	u.pendingActive = true
+
+	enabled := u.style.Enabled()
+	u.mu.Unlock()
+
+	if !enabled {
+		return
+	}
+	label := fmt.Sprintf("%s%s %s",
+		u.style.BoldBlue(name),
+		u.style.DimBlue(formatParams(params)),
+		u.style.DimBlue("running…"),
+	)
+	u.startSpinner(label)
 }
 
 // ShowToolResult collapses the in-progress tool card into a final state,
@@ -202,6 +227,7 @@ func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
 // Long outputs are truncated; the user sees the same "✓ Read foo.go (1.2KB)"
 // style that Cursor uses.
 func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
+	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -237,6 +263,7 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
 
 // GetInput reads a line from stdin, supporting a ";;...;;" multi-line marker.
 func (u *PlainUI) GetInput(prompt string) (string, error) {
+	u.stopSpinner()
 	u.mu.Lock()
 	u.flushPendingToolLocked()
 	if u.streamingAssistant {
@@ -244,8 +271,9 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 		u.streamingAssistant = false
 	}
 	if u.style.Enabled() {
-		_, _ = io.WriteString(u.out, fmt.Sprintf("%s %s",
+		_, _ = io.WriteString(u.out, fmt.Sprintf("%s %s %s",
 			u.style.BrightGreen(iconUser),
+			u.style.BoldGreen("user"),
 			u.style.BoldGreen(prompt),
 		))
 	} else {
@@ -280,6 +308,7 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 
 // AskPermission prompts the user with a colored question for tool consent.
 func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
+	u.stopSpinner()
 	u.mu.Lock()
 	u.flushPendingToolLocked()
 	question := fmt.Sprintf("%s %s%s",
@@ -319,9 +348,10 @@ func (u *PlainUI) StartESCMonitor(interrupt func()) error { return nil }
 func (u *PlainUI) StopESCMonitor() {}
 
 // Stop performs a one-time shutdown of the UI. Idempotent so signal handlers
-// can call it safely. Currently there is no terminal state to restore but the
-// channel is still closed for future raw-mode consumers and tests.
+// can call it safely. It also halts the spinner so a Ctrl+C doesn't leave a
+// half-painted Braille frame on the user's terminal.
 func (u *PlainUI) Stop() {
+	u.stopSpinner()
 	u.stopOnce.Do(func() {
 		close(u.stopCh)
 	})

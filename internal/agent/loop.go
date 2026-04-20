@@ -41,6 +41,7 @@ type Agent struct {
 	cp       *gitx.Checkpoint
 	autoTest *gitx.AutoTest
 	rag      ragProvider
+	paths    *pathMemory
 }
 
 type uiPort interface {
@@ -50,6 +51,8 @@ type uiPort interface {
 	EndAssistant()
 	StreamThinking(text string)
 	EndThinking()
+	StartWaiting(label string)
+	StopWaiting()
 	ShowToolCall(name string, params map[string]any)
 	ShowToolResult(name, output string, isError bool)
 	AskPermission(tool string, params map[string]any) tui.Decision
@@ -76,6 +79,7 @@ func New(
 		ui:       ui,
 		cp:       gitx.NewCheckpoint(cfg.Cwd),
 		autoTest: gitx.NewAutoTest(cfg.Cwd),
+		paths:    newPathMemory(cfg.Cwd),
 	}
 }
 
@@ -172,8 +176,10 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
+			a.rescuePathParam(toolName, toolParams)
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
+			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
 			a.sess.AddAssistant(result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
@@ -221,8 +227,10 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
+			a.rescuePathParam(toolName, toolParams)
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
+			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
 			a.sess.AddAssistant(result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
@@ -257,6 +265,32 @@ func (a *Agent) getRAG() ragProvider {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.rag
+}
+
+// rescuePathParam normalises tool parameters so the LLM doesn't have to be
+// perfect about absolute paths. If the tool takes a file_path and the value
+// is relative or a bare basename, we try to resolve it against cwd or a
+// memory of paths seen in earlier tool outputs (Glob, Read, Grep, etc.).
+//
+// When a rescue is performed we surface a one-line "↻ rescued path" hint
+// through the UI so the user can see what the agent corrected.
+func (a *Agent) rescuePathParam(toolName string, params map[string]any) {
+	key := pathParamKeyForTool(toolName)
+	if key == "" {
+		return
+	}
+	raw, ok := params[key].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return
+	}
+	abs, rescued, ok := a.paths.Resolve(raw)
+	if !ok || abs == raw {
+		return
+	}
+	params[key] = abs
+	if rescued {
+		a.ui.ShowToolResult(toolName, fmt.Sprintf("rescued path %q → %s", raw, abs), false)
+	}
 }
 
 func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
@@ -345,6 +379,7 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 		if skillsBlock != "" {
 			systemPrompt = systemPrompt + "\n\n# Loaded Skills\n" + skillsBlock
 		}
+		a.ui.StartWaiting("waiting for model…")
 		stream, err := a.client.Chat(ctx, ollama.ChatRequest{
 			Model: a.cfg.Model,
 			Messages: []ollama.Message{
@@ -360,6 +395,7 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 			},
 		})
 		if err != nil {
+			a.ui.StopWaiting()
 			cancel()
 			if strings.Contains(strings.ToLower(err.Error()), "model not found") {
 				if pulled := a.tryAutoPullModel(rootCtx); pulled {
@@ -373,6 +409,7 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 			thinkingSeen := false
 			for chunk := range stream {
 				if chunk.Err != nil {
+					a.ui.StopWaiting()
 					if thinkingSeen {
 						a.ui.EndThinking()
 					}
@@ -387,8 +424,12 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 					thinkingSeen = true
 					a.ui.StreamThinking(chunk.Thinking)
 				}
+				if chunk.Delta != "" {
+					a.ui.StopWaiting()
+				}
 				b.WriteString(chunk.Delta)
 				if chunk.Done {
+					a.ui.StopWaiting()
 					if thinkingSeen {
 						a.ui.EndThinking()
 					}
@@ -396,6 +437,7 @@ func (a *Agent) chatOnce(rootCtx context.Context, userInput string) (string, err
 					return b.String(), nil
 				}
 			}
+			a.ui.StopWaiting()
 			if thinkingSeen {
 				a.ui.EndThinking()
 			}
@@ -422,12 +464,14 @@ func (a *Agent) tryAutoPullModel(ctx context.Context) bool {
 	if !allow {
 		return false
 	}
+	a.ui.StartWaiting("pulling " + a.cfg.Model + "…")
+	defer a.ui.StopWaiting()
 	pullErr := a.client.Pull(ctx, a.cfg.Model, func(ev ollama.PullEvent) {
 		progress := ev.Status
 		if ev.Total > 0 {
 			progress = fmt.Sprintf("%s (%d/%d)", ev.Status, ev.Completed, ev.Total)
 		}
-		a.ui.ShowToolResult("PullModel", progress, false)
+		a.ui.StartWaiting("pulling " + a.cfg.Model + " — " + progress)
 	})
 	return pullErr == nil
 }

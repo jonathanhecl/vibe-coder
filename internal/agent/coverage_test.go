@@ -27,6 +27,8 @@ func (c *coverageUI) StreamAssistant(string)       {}
 func (c *coverageUI) EndAssistant()                {}
 func (c *coverageUI) StreamThinking(string)        {}
 func (c *coverageUI) EndThinking()                 {}
+func (c *coverageUI) StartWaiting(string)          {}
+func (c *coverageUI) StopWaiting()                 {}
 func (c *coverageUI) ShowToolCall(string, map[string]any) {
 }
 func (c *coverageUI) ShowToolResult(string, string, bool) {

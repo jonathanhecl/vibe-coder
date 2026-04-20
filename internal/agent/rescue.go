@@ -1,0 +1,147 @@
+package agent
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+// pathMemory remembers absolute file paths the agent has observed via tool
+// outputs (Glob lines, the file_path of a successful Read/Write/Edit, Grep
+// hits, etc.) so we can rescue later tool calls that arrive with a sloppy
+// relative path or just a basename.
+//
+// This is the agent's safety net for the very common LLM mistake of writing
+// `<invoke name="Read">{"file_path":"AGENTS.md"}</invoke>` after just having
+// listed it via Glob — the model knows the file exists, but loses the full
+// path between turns.
+type pathMemory struct {
+	mu     sync.Mutex
+	cwd    string
+	byName map[string]map[string]struct{} // basename -> set of abs paths
+}
+
+func newPathMemory(cwd string) *pathMemory {
+	abs, err := filepath.Abs(cwd)
+	if err != nil || abs == "" {
+		abs = cwd
+	}
+	return &pathMemory{
+		cwd:    abs,
+		byName: make(map[string]map[string]struct{}),
+	}
+}
+
+// add stores an absolute path under its basename. Non-absolute or
+// non-existent paths are ignored to keep the index trustworthy.
+func (m *pathMemory) add(p string) {
+	if p == "" || !filepath.IsAbs(p) {
+		return
+	}
+	if _, err := os.Stat(p); err != nil {
+		return
+	}
+	base := filepath.Base(p)
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	set, ok := m.byName[base]
+	if !ok {
+		set = make(map[string]struct{}, 2)
+		m.byName[base] = set
+	}
+	set[p] = struct{}{}
+}
+
+// RememberToolResult mines a tool's output for absolute paths to index, and
+// also indexes the resolved file_path of the call itself (so a successful
+// Read of /foo/bar.go is enough to later rescue "bar.go").
+//
+// We deliberately keep this conservative: only file_path-style params and
+// lines whose entire trimmed content is an absolute path that exists on
+// disk are added. This avoids polluting the index with prose.
+func (m *pathMemory) RememberToolResult(toolName string, params map[string]any, output string, isError bool) {
+	if isError {
+		return
+	}
+	if fp, ok := params["file_path"].(string); ok && fp != "" {
+		m.add(fp)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		token := strings.TrimSpace(line)
+		if token == "" {
+			continue
+		}
+		// Grep emits "path:line:match"; take the first colon-separated
+		// chunk that looks like an absolute path.
+		if !filepath.IsAbs(token) {
+			if i := strings.Index(token, ":"); i > 0 {
+				head := token[:i]
+				// On Windows "C:\foo" begins with a drive letter so we
+				// must split on the *second* colon for that case.
+				if len(head) == 1 && i+1 < len(token) {
+					if j := strings.Index(token[i+1:], ":"); j > 0 {
+						head = token[:i+1+j]
+					}
+				}
+				if filepath.IsAbs(head) {
+					token = head
+				}
+			}
+		}
+		m.add(token)
+	}
+}
+
+// Resolve maps a (possibly relative or basename-only) path to an absolute
+// path that exists, using three strategies in order:
+//  1. If already absolute and reachable, return as-is.
+//  2. Join with the agent's cwd; use that if it exists.
+//  3. Look up the basename in memory and accept it only if exactly one
+//     candidate is registered (no ambiguous rescue).
+//
+// rescued is true when strategy 3 was needed, so the caller can surface a
+// "↻ rescued path → ..." hint in the UI and teach the model to be precise
+// next time.
+func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
+	if strings.TrimSpace(p) == "" {
+		return "", false, false
+	}
+	if filepath.IsAbs(p) {
+		if _, err := os.Stat(p); err == nil {
+			return p, false, true
+		}
+		return p, false, false
+	}
+	if joined := filepath.Join(m.cwd, p); joined != "" {
+		if _, err := os.Stat(joined); err == nil {
+			return joined, false, true
+		}
+	}
+	base := filepath.Base(p)
+	m.mu.Lock()
+	candidates := m.byName[base]
+	m.mu.Unlock()
+	if len(candidates) == 1 {
+		for c := range candidates {
+			return c, true, true
+		}
+	}
+	return "", false, false
+}
+
+// pathParamKeyForTool returns the parameter name that holds a file path for
+// the given tool, or "" if the tool doesn't take a path we should rescue.
+//
+// Bash and Glob deliberately return "" — Bash takes a free-form command and
+// Glob takes a directory which is allowed to be relative.
+func pathParamKeyForTool(toolName string) string {
+	switch toolName {
+	case "Read", "Write", "Edit", "NotebookEdit":
+		return "file_path"
+	}
+	return ""
+}

@@ -40,6 +40,8 @@ func (f *fakeUI) StreamAssistant(string)       {}
 func (f *fakeUI) EndAssistant()                {}
 func (f *fakeUI) StreamThinking(string)        {}
 func (f *fakeUI) EndThinking()                 {}
+func (f *fakeUI) StartWaiting(string)          {}
+func (f *fakeUI) StopWaiting()                 {}
 func (f *fakeUI) ShowToolCall(string, map[string]any) {
 	f.calls++
 }
