@@ -3,6 +3,7 @@ package sidecar
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -270,5 +271,20 @@ func TestParsePickHandlesNoise(t *testing.T) {
 		if got := parsePick(in, 5); got != want {
 			t.Fatalf("parsePick(%q, 5) = %d, want %d", in, got, want)
 		}
+	}
+}
+
+func TestClipToolOutputForSidecarTruncatesGlobLines(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	for i := range 900 {
+		fmt.Fprintf(&b, "path-%d\n", i)
+	}
+	out := clipToolOutputForSidecar("Glob", b.String())
+	if !strings.Contains(out, "omitted") {
+		t.Fatalf("expected line-based truncation marker, got len %d", len(out))
+	}
+	if strings.Count(out, "\n") > maxListToolLines+4 {
+		t.Fatalf("expected roughly %d lines, got %d", maxListToolLines, strings.Count(out, "\n"))
 	}
 }

@@ -42,6 +42,19 @@ const DefaultSummariseThreshold = 6 * 1024
 // than block the user's turn forever.
 const CallTimeout = 90 * time.Second
 
+// Sidecar summarisation uses a single /api/chat (ChatSync) per distinct output;
+// it is not multiple HTTP calls. Slowness usually comes from (1) very large
+// tool payloads (KV cache + prompt eval on a small model), (2) loading the
+// sidecar weights if they were evicted from GPU, (3) long generation.
+// We cap input size and num_predict so the small model finishes quickly; the
+// full tool output is still shown in the TUI — only the context summary is clipped.
+const (
+	maxSummaryInputBytes = 48 * 1024 // byte cap on excerpt sent to the sidecar
+	maxListToolLines     = 350       // Glob/Grep: list-like tools; bullets rarely need more
+	summaryNumPredict    = 768       // bullets only; shorter = faster
+	disambigNumPredict   = 96        // one line "PICK: N"
+)
+
 const (
 	defaultMaxParallel = 2
 	defaultCacheSize   = 64
@@ -148,22 +161,25 @@ func (p *Pool) SummariseToolOutput(ctx context.Context, toolName, output string)
 		return "", false, nil
 	}
 	body := strings.TrimSpace(output)
-	if len(body) < p.threshold {
+	origBytes := len(body)
+	if origBytes < p.threshold {
 		return "", false, nil
 	}
 
-	key := cacheKey("summary", p.cfg.SidecarModel, toolName, body)
+	excerpt := clipToolOutputForSidecar(toolName, body)
+
+	key := cacheKey("summary", p.cfg.SidecarModel, toolName, excerpt)
 	if cached, ok := p.cache.get(key); ok {
 		return cached, true, nil
 	}
 
 	user := fmt.Sprintf(
-		"Tool: %s\nOutput length: %d bytes\n\n----- BEGIN OUTPUT -----\n%s\n----- END OUTPUT -----\n\nWrite the summary now.",
-		toolName, len(body), body,
+		"Tool: %s\nOriginal output: %d bytes; excerpt below: %d bytes\n\n----- BEGIN OUTPUT -----\n%s\n----- END OUTPUT -----\n\nWrite the summary now.",
+		toolName, origBytes, len(excerpt), excerpt,
 	)
 
 	v, err, _ := p.sf.Do(key, func() (any, error) {
-		return p.chat(ctx, summariseSystem, user)
+		return p.chatSummary(ctx, summariseSystem, user)
 	})
 	if err != nil {
 		return "", false, nil
@@ -174,7 +190,7 @@ func (p *Pool) SummariseToolOutput(ctx context.Context, toolName, output string)
 	}
 	wrapped := fmt.Sprintf(
 		"[sidecar-summary tool=%s original_bytes=%d]\n%s\n[/sidecar-summary]",
-		toolName, len(body), summary,
+		toolName, origBytes, summary,
 	)
 	p.cache.put(key, wrapped)
 	return wrapped, true, nil
@@ -217,7 +233,7 @@ func (p *Pool) DisambiguatePath(ctx context.Context, hint string, candidates []s
 	}
 
 	v, err, _ := p.sf.Do(key, func() (any, error) {
-		return p.chat(ctx, disambiguateSystem, user)
+		return p.chatDisambig(ctx, disambiguateSystem, user)
 	})
 	if err != nil {
 		return "", false, nil
@@ -231,9 +247,58 @@ func (p *Pool) DisambiguatePath(ctx context.Context, hint string, candidates []s
 	return chosen, true, nil
 }
 
+// clipToolOutputForSidecar shrinks huge tool output before it is sent to the LLM.
+// Listing tools (Glob, Grep) are truncated by line count first; then a byte cap applies.
+func clipToolOutputForSidecar(toolName, body string) string {
+	t := strings.ToLower(strings.TrimSpace(toolName))
+	if t == "glob" || t == "grep" {
+		body = truncateToLineCount(body, maxListToolLines)
+	}
+	beforeByteCap := len(body)
+	if beforeByteCap <= maxSummaryInputBytes {
+		return body
+	}
+	return body[:maxSummaryInputBytes] + fmt.Sprintf(
+		"\n\n[excerpt truncated for sidecar speed: showing first %d of %d bytes]\n",
+		maxSummaryInputBytes, beforeByteCap,
+	)
+}
+
+func truncateToLineCount(s string, maxLines int) string {
+	if maxLines <= 0 || s == "" {
+		return s
+	}
+	lines := 0
+	cut := -1
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\n' {
+			continue
+		}
+		lines++
+		if lines >= maxLines {
+			cut = i
+			break
+		}
+	}
+	if cut < 0 {
+		return s
+	}
+	extra := strings.Count(s[cut:], "\n")
+	return s[:cut] + fmt.Sprintf("\n… [%d more lines omitted; listing truncated for sidecar]\n", extra)
+}
+
+// chatSummary and chatDisambig are the sidecar LLM entry points (one HTTP request each).
+func (p *Pool) chatSummary(ctx context.Context, system, user string) (string, error) {
+	return p.chat(ctx, system, user, summaryNumPredict)
+}
+
+func (p *Pool) chatDisambig(ctx context.Context, system, user string) (string, error) {
+	return p.chat(ctx, system, user, disambigNumPredict)
+}
+
 // chat is the single point of contact with the sidecar model. It applies
 // the worker semaphore, the per-call timeout and cancellation propagation.
-func (p *Pool) chat(ctx context.Context, system, user string) (string, error) {
+func (p *Pool) chat(ctx context.Context, system, user string, numPredict int) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
@@ -254,7 +319,10 @@ func (p *Pool) chat(ctx context.Context, system, user string) (string, error) {
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
-		Options: ollama.ChatOptions{Temperature: 0},
+		Options: ollama.ChatOptions{
+			Temperature: 0,
+			NumPredict:  numPredict,
+		},
 	})
 	if err != nil {
 		return "", err
