@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/jonathanhecl/vibe-coder/internal/safety"
 )
 
 type WriteTool struct{}
@@ -43,16 +41,14 @@ func (t *WriteTool) Execute(_ context.Context, params map[string]any) Result {
 	if !ok {
 		return errResult("contents must be a string")
 	}
-	if !filepath.IsAbs(path) {
-		return errResult("file_path must be absolute")
-	}
-	if safety.IsProtectedPath(path) {
-		return errResult("path is protected")
+	path = strings.TrimSpace(path)
+	if msg := validateWriteTargetPath(path); msg != "" {
+		return errResult(msg)
 	}
 
 	parent := filepath.Dir(path)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return errResult(fmt.Sprintf("create parent dir: %v", err))
+		return errResult(agentPathPreamble(fmt.Sprintf("create parent dir: %v", err)) + assistantPathHints(parent, "mkdir parent", err))
 	}
 	tmp, err := os.CreateTemp(parent, "*.write.tmp")
 	if err != nil {

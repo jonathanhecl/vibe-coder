@@ -142,3 +142,34 @@ func TestPathMemorySkipsErrors(t *testing.T) {
 		t.Fatalf("error result should not populate memory")
 	}
 }
+
+func TestPathMemoryResolvesGodotResURI(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	mainDir := filepath.Join(tmp, "Main")
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	target := filepath.Join(mainDir, "MainMapContainer.gd")
+	if err := os.WriteFile(target, []byte("extends Node"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	mem := newPathMemory(tmp)
+
+	// Do not use filepath.Join for the second case: on Windows, Join turns
+	// "res://..." into "res:\..." and breaks the res:// marker (same bug users hit).
+	brokenConcat := tmp + string(filepath.Separator) + `res://Main/MainMapContainer.gd`
+	cases := []string{
+		`res://Main/MainMapContainer.gd`,
+		brokenConcat,
+	}
+	for _, c := range cases {
+		abs, rescued, ok := mem.Resolve(c)
+		if !ok || !rescued {
+			t.Fatalf("Resolve(%q): ok=%v rescued=%v", c, ok, rescued)
+		}
+		if abs != target {
+			t.Fatalf("Resolve(%q) = %q, want %q", c, abs, target)
+		}
+	}
+}

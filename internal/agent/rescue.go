@@ -96,19 +96,53 @@ func (m *pathMemory) RememberToolResult(toolName string, params map[string]any, 
 	}
 }
 
+// godotResToFilesystem maps Godot's res:// paths to real files under cwd
+// (the project root). It also fixes mistaken Windows concatenations such as
+// `D:\Proj\res://Main/foo.gd` by locating `res://` and taking the suffix as
+// project-relative. Returns ("", false) when p does not contain `res://`.
+func godotResToFilesystem(cwd, p string) (string, bool) {
+	idx := strings.Index(strings.ToLower(p), "res://")
+	if idx < 0 {
+		return "", false
+	}
+	rest := strings.TrimLeft(p[idx+len("res://"):], `/\`)
+	if rest == "" {
+		return "", false
+	}
+	rest = filepath.FromSlash(strings.ReplaceAll(rest, `\`, `/`))
+	joined := filepath.Join(cwd, rest)
+	absPath, err := filepath.Abs(joined)
+	if err != nil {
+		return "", false
+	}
+	rootAbs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(rootAbs, absPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	return absPath, true
+}
+
 // Resolve maps a (possibly relative or basename-only) path to an absolute
-// path that exists, using three strategies in order:
+// path that exists, using strategies in order:
+//  0. Godot res:// → absolute under cwd (always; marks rescued).
 //  1. If already absolute and reachable, return as-is.
 //  2. Join with the agent's cwd; use that if it exists.
 //  3. Look up the basename in memory and accept it only if exactly one
 //     candidate is registered (no ambiguous rescue).
 //
-// rescued is true when strategy 3 was needed, so the caller can surface a
-// "↻ rescued path → ..." hint in the UI and teach the model to be precise
-// next time.
+// rescued is true when strategy 0 or 3 was needed, so the caller can surface a
+// hint in the UI.
 func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
 	if strings.TrimSpace(p) == "" {
 		return "", false, false
+	}
+	p = strings.TrimSpace(p)
+	if abs, ok := godotResToFilesystem(m.cwd, p); ok {
+		return abs, true, true
 	}
 	if filepath.IsAbs(p) {
 		if _, err := os.Stat(p); err == nil {

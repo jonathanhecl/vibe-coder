@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-
-	"github.com/jonathanhecl/vibe-coder/internal/safety"
 )
 
 type NotebookEditTool struct{}
@@ -55,14 +52,12 @@ func (t *NotebookEditTool) Execute(_ context.Context, params map[string]any) Res
 	if !ok || strings.TrimSpace(path) == "" {
 		return errResult("notebook_path is required")
 	}
-	if !filepath.IsAbs(path) {
-		return errResult("notebook_path must be absolute")
-	}
-	if safety.IsProtectedPath(path) {
-		return errResult("path is protected")
-	}
-	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return errResult("refusing symlink notebook")
+	path = strings.TrimSpace(path)
+	if msg := validateExistingFileForRead(path); msg != "" {
+		if msg == "refusing to read symlink" {
+			return errResult("refusing symlink notebook")
+		}
+		return errResult(msg)
 	}
 
 	cellIndex := asInt(params["cell_index"], -1)
@@ -79,7 +74,7 @@ func (t *NotebookEditTool) Execute(_ context.Context, params map[string]any) Res
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return errResult(fmt.Sprintf("read notebook: %v", err))
+		return errResult(agentPathPreamble(fmt.Sprintf("read notebook: %v", err)) + assistantPathHints(path, "read notebook", err))
 	}
 	var nb notebook
 	if err := json.Unmarshal(data, &nb); err != nil {
@@ -115,7 +110,7 @@ func (t *NotebookEditTool) Execute(_ context.Context, params map[string]any) Res
 		return errResult(fmt.Sprintf("encode notebook: %v", err))
 	}
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		return errResult(fmt.Sprintf("write notebook: %v", err))
+		return errResult(agentPathPreamble(fmt.Sprintf("write notebook: %v", err)) + assistantPathHints(path, "write notebook", err))
 	}
 	return Result{Output: "Notebook updated."}
 }

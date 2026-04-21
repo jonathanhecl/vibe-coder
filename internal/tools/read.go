@@ -5,10 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-
-	"github.com/jonathanhecl/vibe-coder/internal/safety"
 )
 
 type ReadTool struct{}
@@ -41,14 +38,9 @@ func (t *ReadTool) Execute(_ context.Context, params map[string]any) Result {
 	if !ok || strings.TrimSpace(path) == "" {
 		return errResult("file_path is required")
 	}
-	if !filepath.IsAbs(path) {
-		return errResult("file_path must be absolute")
-	}
-	if safety.IsProtectedPath(path) {
-		return errResult("path is protected")
-	}
-	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return errResult("refusing to read symlink")
+	path = strings.TrimSpace(path)
+	if msg := validateExistingFileForRead(path); msg != "" {
+		return errResult(msg)
 	}
 
 	file, err := os.Open(path)

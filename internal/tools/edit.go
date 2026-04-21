@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-
-	"github.com/jonathanhecl/vibe-coder/internal/safety"
 )
 
 type EditTool struct{}
@@ -53,15 +50,13 @@ func (t *EditTool) Execute(ctx context.Context, params map[string]any) Result {
 	}
 	replaceAll, _ := params["replace_all"].(bool)
 
-	if !filepath.IsAbs(path) {
-		return errResult("file_path must be absolute")
-	}
-	if safety.IsProtectedPath(path) {
-		return errResult("path is protected")
+	path = strings.TrimSpace(path)
+	if msg := validateExistingFileForRead(path); msg != "" {
+		return errResult(msg)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return errResult(fmt.Sprintf("read file: %v", err))
+		return errResult(agentPathPreamble(fmt.Sprintf("read file: %v", err)) + assistantPathHints(path, "read", err))
 	}
 	content := string(data)
 	count := strings.Count(content, oldString)

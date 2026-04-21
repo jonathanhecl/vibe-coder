@@ -184,6 +184,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.sess.AddSystemNote(blockMsg)
 				return nil
 			}
+			a.rescuePathParam(ctx, toolName, toolParams)
 			if !a.perm.Check(toolName, toolParams, a.ui) {
 				a.sess.AddSystemNote(permissionDeniedNote(a.perm))
 				a.ui.EndAssistant()
@@ -194,7 +195,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
-			a.rescuePathParam(ctx, toolName, toolParams)
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
@@ -233,6 +233,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.sess.AddSystemNote(blockMsg)
 				return nil
 			}
+			a.rescuePathParam(ctx, toolName, toolParams)
 			if !a.perm.Check(toolName, toolParams, a.ui) {
 				deny := permissionDeniedNote(a.perm)
 				a.ui.ShowToolResult(toolName, deny, true, toolParams)
@@ -244,7 +245,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
-			a.rescuePathParam(ctx, toolName, toolParams)
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
