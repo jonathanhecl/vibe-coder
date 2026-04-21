@@ -145,8 +145,10 @@ func (u *PlainUI) ensureMarkdownLocked() {
 	}
 }
 
-// EndAssistant marks the end of an assistant turn and prints a trailing
-// newline so the next prompt lines up cleanly.
+// EndAssistant marks the end of an assistant turn: drains the markdown
+// buffer (Flush already ends the last line with a newline). We intentionally
+// do not emit an extra blank line here — that used to double up with Flush
+// and left an empty row before the next line (e.g. a tool call).
 func (u *PlainUI) EndAssistant() {
 	u.stopSpinner()
 	u.mu.Lock()
@@ -170,7 +172,6 @@ func (u *PlainUI) EndAssistant() {
 		u.thinkingActive = false
 	}
 	if u.streamingAssistant {
-		fmt.Fprintln(u.out)
 		u.streamingAssistant = false
 	}
 }
