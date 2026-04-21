@@ -132,7 +132,9 @@ func godotResToFilesystem(cwd, p string) (string, bool) {
 //  1. If already absolute and reachable, return as-is.
 //  2. Join with the agent's cwd; use that if it exists.
 //  3. Look up the basename in memory and accept it only if exactly one
-//     candidate is registered (no ambiguous rescue).
+//     candidate is registered (no ambiguous rescue). This also runs when (1)
+//     or (2) fail — e.g. the model uses a wrong absolute path like
+//     D:\Repo\file.go after Read succeeded with D:\deep\Repo\file.go.
 //
 // rescued is true when strategy 0 or 3 was needed, so the caller can surface a
 // hint in the UI.
@@ -148,23 +150,36 @@ func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
 		if _, err := os.Stat(p); err == nil {
 			return p, false, true
 		}
-		return p, false, false
-	}
-	if joined := filepath.Join(m.cwd, p); joined != "" {
+	} else if joined := filepath.Join(m.cwd, p); joined != "" {
 		if _, err := os.Stat(joined); err == nil {
 			return joined, false, true
 		}
 	}
-	base := filepath.Base(p)
-	m.mu.Lock()
-	candidates := m.byName[base]
-	m.mu.Unlock()
-	if len(candidates) == 1 {
-		for c := range candidates {
-			return c, true, true
-		}
+	if c, ok := m.rescueUniqueBasename(p); ok {
+		return c, true, true
+	}
+	if filepath.IsAbs(p) {
+		return p, false, false
 	}
 	return "", false, false
+}
+
+// rescueUniqueBasename returns the only indexed absolute path for filepath.Base(p).
+func (m *pathMemory) rescueUniqueBasename(p string) (string, bool) {
+	base := filepath.Base(p)
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return "", false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	candidates := m.byName[base]
+	if len(candidates) != 1 {
+		return "", false
+	}
+	for c := range candidates {
+		return c, true
+	}
+	return "", false
 }
 
 // Candidates returns every absolute path indexed under the basename of p,

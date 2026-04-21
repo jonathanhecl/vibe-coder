@@ -92,6 +92,31 @@ func TestReadRejectsProtectedPath(t *testing.T) {
 	}
 }
 
+func TestReadLongSingleLine(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "huge-line.txt")
+	// Default bufio.Scanner fails around 64KB; Godot .tscn lines can be far larger.
+	longLine := strings.Repeat("x", 100*1024)
+	if err := os.WriteFile(p, []byte(longLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := NewReadTool().Execute(context.Background(), map[string]any{"file_path": p})
+	if res.IsError {
+		t.Fatalf("read long line: %s", res.Output)
+	}
+	if !strings.HasPrefix(res.Output, "     1|") || !strings.Contains(res.Output, strings.Repeat("x", 1024)) {
+		t.Fatalf("expected numbered long line in output: %s", truncate(res.Output, 200))
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 func TestGrepModes(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()

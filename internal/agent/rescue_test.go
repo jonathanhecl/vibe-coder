@@ -143,6 +143,27 @@ func TestPathMemorySkipsErrors(t *testing.T) {
 	}
 }
 
+func TestPathMemoryRescuesWrongAbsoluteSameBasename(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	nested := filepath.Join(tmp, "a", "b", "ArgentumOnlineGodot")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(nested, "MapContainer.gd")
+	if err := os.WriteFile(target, []byte("#"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mem := newPathMemory(tmp)
+	mem.RememberToolResult("Read", map[string]any{"file_path": target}, "ok", false)
+	// Model "shortens" to repo root under tmp, skipping a/b — path does not exist.
+	wrongAbs := filepath.Join(tmp, "ArgentumOnlineGodot", "MapContainer.gd")
+	abs, rescued, ok := mem.Resolve(wrongAbs)
+	if !ok || !rescued || abs != target {
+		t.Fatalf("Resolve(%q) = %q rescued=%v ok=%v want %q", wrongAbs, abs, rescued, ok, target)
+	}
+}
+
 func TestPathMemoryResolvesGodotResURI(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()

@@ -49,7 +49,10 @@ func (t *ReadTool) Execute(_ context.Context, params map[string]any) Result {
 	}
 	defer file.Close()
 
+	// Default bufio.Scanner caps each line at 64KB. Godot .tscn, minified JSON,
+	// and similar formats often use much longer single lines (tilemaps, embedded data).
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 8<<20) // up to 8 MiB per line
 	var out strings.Builder
 	lineNo := 1
 	for scanner.Scan() {
