@@ -62,9 +62,9 @@ const (
 
 // Backward-compatible aliases for older call sites and tests.
 const (
-	DecisionDeny       = DecisionDenyOnce
-	DecisionAllowAll   = DecisionAllowPersistent
-	DecisionDenyAll    = DecisionDenyPersistent
+	DecisionDeny     = DecisionDenyOnce
+	DecisionAllowAll = DecisionAllowPersistent
+	DecisionDenyAll  = DecisionDenyPersistent
 )
 
 const (
@@ -105,7 +105,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 
 	if !u.streamingAssistant {
 		if u.style.Enabled() {
-			fmt.Fprintf(u.out, "%s %s\n",
+			fmt.Fprintf(u.out, "%s %s > ",
 				u.style.BrightGreen(iconAssistant),
 				u.style.BoldGreen("assistant"),
 			)
@@ -397,8 +397,16 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 			b.WriteString(st.DimGreen("── "))
 			b.WriteString(st.BrightGreen(line))
 			b.WriteString(st.DimGreen(" ──"))
-		case strings.HasPrefix(line, "  ¶"):
-			b.WriteString(st.DimGreen(line))
+		case strings.HasPrefix(line, "+ "):
+			b.WriteString(st.Green(line))
+		case strings.HasPrefix(line, "- "):
+			b.WriteString(st.Red(line))
+		case strings.HasPrefix(line, "…"):
+			b.WriteString(st.Dim(line))
+		case line == "patch:" || line == "preview:":
+			b.WriteString(st.Yellow(line))
+		case strings.HasPrefix(line, "file:") || strings.HasPrefix(line, "change:") || strings.HasPrefix(line, "size:"):
+			b.WriteString(st.Yellow(line))
 		case strings.HasSuffix(line, ":") && !strings.HasPrefix(line, " "):
 			b.WriteString(st.Yellow(line))
 		default:

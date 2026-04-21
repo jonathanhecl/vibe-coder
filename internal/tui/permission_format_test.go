@@ -33,7 +33,7 @@ func TestPermissionPayloadLinesWraps(t *testing.T) {
 		"file_path": "README.md",
 		"contents":  strings.Repeat("Lorem ipsum dolor ", 40),
 	}
-	lines := permissionPayloadLines("Edit", p)
+	lines := permissionPayloadLines("Write", p)
 	if len(lines) < 4 {
 		t.Fatalf("expected several lines, got %d: %v", len(lines), lines)
 	}
