@@ -53,15 +53,15 @@ type recordingUI struct {
 	results []string
 }
 
-func (r *recordingUI) StartESCMonitor(func()) error                          { return nil }
-func (r *recordingUI) StopESCMonitor()                                       {}
-func (r *recordingUI) StreamAssistant(string)                                {}
-func (r *recordingUI) EndAssistant()                                         {}
-func (r *recordingUI) StreamThinking(string)                                 {}
-func (r *recordingUI) EndThinking()                                          {}
-func (r *recordingUI) StartWaiting(string)                                   {}
-func (r *recordingUI) StopWaiting()                                          {}
-func (r *recordingUI) ShowToolCall(string, map[string]any)                   {}
+func (r *recordingUI) StartESCMonitor(func()) error        { return nil }
+func (r *recordingUI) StopESCMonitor()                     {}
+func (r *recordingUI) StreamAssistant(string)              {}
+func (r *recordingUI) EndAssistant()                       {}
+func (r *recordingUI) StreamThinking(string)               {}
+func (r *recordingUI) EndThinking()                        {}
+func (r *recordingUI) StartWaiting(string)                 {}
+func (r *recordingUI) StopWaiting()                        {}
+func (r *recordingUI) ShowToolCall(string, map[string]any) {}
 func (r *recordingUI) ShowToolResult(name, output string, isError bool) {
 	r.results = append(r.results, output)
 }
@@ -90,7 +90,7 @@ func newTestAgent(t *testing.T, sideModel string, client ollama.Client) (*Agent,
 func TestRecordToolObservationSummarisesWhenSidecarEnabled(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{reply: "- big file\n- many lines"}
-	a, _ := newTestAgent(t, "qwen2.5:3b", sc)
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
 	a.recordToolObservation(context.Background(), "Read", strings.Repeat("payload\n", 500))
@@ -114,7 +114,7 @@ func TestRecordToolObservationSummarisesWhenSidecarEnabled(t *testing.T) {
 func TestRecordToolObservationSkipsSummariseForSmallOutput(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{reply: "should not be used"}
-	a, _ := newTestAgent(t, "qwen2.5:3b", sc)
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10_000)))
 
 	a.recordToolObservation(context.Background(), "Read", "short")
@@ -134,7 +134,7 @@ func TestRecordToolObservationSkipsSummariseForSmallOutput(t *testing.T) {
 func TestRecordToolObservationFallsBackOnSidecarError(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{err: errors.New("boom")}
-	a, _ := newTestAgent(t, "qwen2.5:3b", sc)
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
 	a.recordToolObservation(context.Background(), "Read", strings.Repeat("z", 4096))
@@ -151,7 +151,7 @@ func TestRecordToolObservationFallsBackOnSidecarError(t *testing.T) {
 func TestRescuePathParamUsesSidecarOnAmbiguity(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{reply: "PICK: 2"}
-	a, _ := newTestAgent(t, "qwen2.5:3b", sc)
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc))
 
 	// Seed two candidates with the same basename, in different dirs.
@@ -187,7 +187,7 @@ func TestRescuePathParamUsesSidecarOnAmbiguity(t *testing.T) {
 func TestRescuePathParamSkipsSidecarWhenSinglyResolvable(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{reply: "should not be invoked"}
-	a, _ := newTestAgent(t, "qwen2.5:3b", sc)
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc))
 
 	tmp := a.cfg.Cwd

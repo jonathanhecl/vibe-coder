@@ -26,6 +26,10 @@ type Config struct {
 	OllamaHost    string
 	Model         string
 	SidecarModel  string
+	// SidecarDisabled, when true, turns off the sidecar until changed in config (SIDECAR_DISABLED / SIDECAR_ENABLED).
+	SidecarDisabled bool
+	// SidecarSkipSession skips the sidecar for this process only (--no-sidecar, /sidecar off); not persisted.
+	SidecarSkipSession bool
 	MaxTokens     int
 	Temperature   float64
 	ContextWindow int
@@ -150,6 +154,7 @@ Flags:
   -p string                 One-shot prompt
   -m, --model string        Model name
   --sidecar string          Sidecar model name
+  --no-sidecar              Disable sidecar for this session only
   -y                        Enable yes mode
   --debug                   Enable debug logs
   --resume                  Resume last session for this project
@@ -167,7 +172,7 @@ Flags:
   --rag-index string        Build/index RAG path and exit
 
 Special directive:
-  /save                     Persist model/sidecar/host to config.env
+  /save                     Persist model, sidecar, host to config.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 
@@ -223,6 +228,16 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_MODEL", "VIBEGO_SIDECAR_MODEL")); v != "" {
 		cfg.SidecarModel = v
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_SIDECAR_DISABLED")); v != "" {
+		if b, ok := parseBoolish(v); ok {
+			cfg.SidecarDisabled = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_SIDECAR_ENABLED")); v != "" {
+		if b, ok := parseBoolish(v); ok {
+			cfg.SidecarDisabled = !b
+		}
+	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DEBUG", "VIBEGO_DEBUG")); v != "" {
 		if parsed, err := strconv.ParseBool(v); err == nil {
 			cfg.Debug = parsed
@@ -272,6 +287,14 @@ func applyConfigFile(cfg *Config, path string) error {
 			cfg.Model = value
 		case "SIDECAR_MODEL":
 			cfg.SidecarModel = value
+		case "SIDECAR_DISABLED":
+			if b, ok := parseBoolish(value); ok {
+				cfg.SidecarDisabled = b
+			}
+		case "SIDECAR_ENABLED":
+			if b, ok := parseBoolish(value); ok {
+				cfg.SidecarDisabled = !b
+			}
 		case "OLLAMA_HOST":
 			cfg.OllamaHost = value
 		case "MAX_TOKENS":
@@ -295,10 +318,24 @@ func applyConfigFile(cfg *Config, path string) error {
 	return nil
 }
 
+// parseBoolish parses common truthy/falsey strings for env/config keys.
+func parseBoolish(s string) (value bool, ok bool) {
+	v := strings.ToLower(strings.TrimSpace(s))
+	switch v {
+	case "1", "true", "yes", "y", "on":
+		return true, true
+	case "0", "false", "no", "n", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
 type cliOptions struct {
 	prompt        optionalString
 	model         optionalString
 	sidecar       optionalString
+	noSidecar     bool
 	yesMode       optionalBool
 	debug         optionalBool
 	resume        optionalBool
@@ -328,6 +365,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.model, "m", "model")
 	fs.Var(&opts.model, "model", "model")
 	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
+	fs.BoolVar(&opts.noSidecar, "no-sidecar", false, "disable sidecar for this session only")
 	fs.Var(&opts.yesMode, "y", "yes mode")
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.resume, "resume", "resume session")
@@ -364,6 +402,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.sidecar.set {
 		cfg.SidecarModel = cli.sidecar.value
+	}
+	if cli.noSidecar {
+		cfg.SidecarSkipSession = true
 	}
 	if cli.yesMode.set {
 		cfg.YesMode = cli.yesMode.value
@@ -482,7 +523,7 @@ func (o *optionalFloat) String() string {
 }
 
 // SaveModelSettings persists runtime model settings to the vibe-coder config file.
-// It updates MODEL, SIDECAR_MODEL, and OLLAMA_HOST while preserving other keys/comments.
+// It updates MODEL, SIDECAR_MODEL, OLLAMA_HOST, and SIDECAR_DISABLED while preserving other keys/comments.
 func SaveModelSettings(cfg *Config) error {
 	path := strings.TrimSpace(cfg.ConfigFile)
 	if path == "" {
@@ -506,7 +547,7 @@ func SaveModelSettings(cfg *Config) error {
 		"OLLAMA_HOST":   strings.TrimSpace(cfg.OllamaHost),
 	}
 	seen := map[string]bool{}
-	out := make([]string, 0, len(lines)+3)
+	out := make([]string, 0, len(lines)+4)
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -519,6 +560,10 @@ func SaveModelSettings(cfg *Config) error {
 			continue
 		}
 		key = strings.TrimSpace(key)
+		if key == "SIDECAR_DISABLED" {
+			// Strip; re-added below when SidecarDisabled is true.
+			continue
+		}
 		value, shouldUpdate := updates[key]
 		if !shouldUpdate {
 			out = append(out, line)
@@ -537,6 +582,9 @@ func SaveModelSettings(cfg *Config) error {
 		if value := updates[key]; value != "" {
 			out = append(out, key+"="+value)
 		}
+	}
+	if cfg.SidecarDisabled {
+		out = append(out, "SIDECAR_DISABLED=true")
 	}
 
 	content := strings.TrimRight(strings.Join(out, "\n"), "\n")

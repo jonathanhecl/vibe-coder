@@ -10,8 +10,8 @@
 //   - a small bounded LRU cache so the same (model, prompt, body) tuple is
 //     never sent twice in a session.
 //
-// Every operation is a no-op when cfg.SidecarModel is empty, mirroring the
-// historical behaviour of Session.Compact.
+// Every operation is a no-op when config.SidecarInUse() is false (no model,
+// disabled in config, or skipped for this session).
 package sidecar
 
 import (
@@ -119,7 +119,7 @@ func (p *Pool) Enabled() bool {
 	if p == nil || p.client == nil || p.cfg == nil {
 		return false
 	}
-	return strings.TrimSpace(p.cfg.SidecarModel) != ""
+	return p.cfg.SidecarInUse()
 }
 
 // Threshold exposes the configured byte threshold so callers can decide

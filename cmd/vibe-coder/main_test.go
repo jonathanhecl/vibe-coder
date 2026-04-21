@@ -83,7 +83,7 @@ func TestStartupBanner(t *testing.T) {
 	if !strings.Contains(out, "Model: llama3.2:3b") {
 		t.Fatalf("missing model line: %q", out)
 	}
-	if !strings.Contains(out, "Sidecar: (disabled)") {
+	if !strings.Contains(out, "Sidecar:") || !strings.Contains(out, "SIDECAR_MODEL") {
 		t.Fatalf("missing sidecar line: %q", out)
 	}
 	if !strings.Contains(out, "Ollama host: http://localhost:11434") {
@@ -95,15 +95,15 @@ func TestExtractPersistDirective(t *testing.T) {
 	t.Parallel()
 
 	args, persist := extractPersistDirective([]string{
-		"-model", "qwen2.5-coder:7b",
-		"-sidecar", "llama3.2:3b",
+		"-model", "qwen3.5:9b",
+		"-sidecar", "qwen3.5:4b",
 		"-ollama-host", "http://192.168.1.50:11434",
 		"/save",
 	})
 	if !persist {
 		t.Fatal("expected persist directive to be detected")
 	}
-	if strings.Join(args, " ") != "-model qwen2.5-coder:7b -sidecar llama3.2:3b -ollama-host http://192.168.1.50:11434" {
+	if strings.Join(args, " ") != "-model qwen3.5:9b -sidecar qwen3.5:4b -ollama-host http://192.168.1.50:11434" {
 		t.Fatalf("unexpected args after filter: %v", args)
 	}
 }

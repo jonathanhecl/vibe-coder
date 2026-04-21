@@ -53,7 +53,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		return true, true, nil
 	case "/help":
-		fmt.Fprintln(c.Out, "Commands: /exit /quit /q /help /clear /status /save /yes /no /compact /model /tokens /commit /plan /approve")
+		fmt.Fprintln(c.Out, "Commands: /exit /quit /q /help /clear /status /save /yes /no /compact /model /tokens /commit /plan /approve /sidecar")
 		return true, false, nil
 	case "/clear":
 		if err := c.Session.Save(); err != nil {
@@ -74,6 +74,58 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Messages: %d\n", c.Session.MessageCount())
 		fmt.Fprintf(c.Out, "Session: %s\n", c.Session.ID())
 		fmt.Fprintf(c.Out, "Yes mode: %t\n", c.Cfg.YesMode)
+		fmt.Fprintf(c.Out, "Sidecar model: %s\n", strings.TrimSpace(c.Cfg.SidecarModel))
+		if c.Cfg.SidecarDisabled {
+			fmt.Fprintln(c.Out, "Sidecar: off (SIDECAR_DISABLED in config)")
+		} else if c.Cfg.SidecarSkipSession {
+			fmt.Fprintln(c.Out, "Sidecar: off for this session (/sidecar on)")
+		} else if c.Cfg.SidecarInUse() {
+			fmt.Fprintln(c.Out, "Sidecar: on")
+		} else {
+			fmt.Fprintln(c.Out, "Sidecar: off (no SIDECAR_MODEL)")
+		}
+		return true, false, nil
+	case "/sidecar":
+		sub := "status"
+		if len(fields) > 1 {
+			sub = strings.ToLower(strings.TrimSpace(fields[1]))
+		}
+		switch sub {
+		case "off", "disable":
+			c.Cfg.SidecarSkipSession = true
+			fmt.Fprintln(c.Out, "Sidecar disabled for this session. Use /sidecar on to re-enable.")
+		case "on", "enable":
+			c.Cfg.SidecarSkipSession = false
+			if c.Cfg.SidecarDisabled {
+				fmt.Fprintln(c.Out, "Sidecar is still off in config (SIDECAR_DISABLED). Use /sidecar perm-on or edit config.env.")
+			} else {
+				fmt.Fprintln(c.Out, "Sidecar enabled for this session (if SIDECAR_MODEL is set).")
+			}
+		case "perm-off", "permanent-off", "config-off":
+			c.Cfg.SidecarDisabled = true
+			if err := config.SaveModelSettings(c.Cfg); err != nil {
+				return true, false, err
+			}
+			fmt.Fprintf(c.Out, "Saved SIDECAR_DISABLED=true to %s\n", c.Cfg.ConfigFile)
+		case "perm-on", "permanent-on", "config-on":
+			c.Cfg.SidecarDisabled = false
+			if err := config.SaveModelSettings(c.Cfg); err != nil {
+				return true, false, err
+			}
+			fmt.Fprintf(c.Out, "Removed SIDECAR_DISABLED from %s (sidecar allowed when SIDECAR_MODEL is set).\n", c.Cfg.ConfigFile)
+		case "status", "":
+			if c.Cfg.SidecarDisabled {
+				fmt.Fprintln(c.Out, "Sidecar: permanently off in config (SIDECAR_DISABLED=true). Remove it or set SIDECAR_ENABLED=true, then /save if you use that flow.")
+			} else if c.Cfg.SidecarSkipSession {
+				fmt.Fprintln(c.Out, "Sidecar: off for this session. Model: " + strings.TrimSpace(c.Cfg.SidecarModel))
+			} else if strings.TrimSpace(c.Cfg.SidecarModel) == "" {
+				fmt.Fprintln(c.Out, "Sidecar: no model configured (SIDECAR_MODEL).")
+			} else {
+				fmt.Fprintln(c.Out, "Sidecar: on (" + strings.TrimSpace(c.Cfg.SidecarModel) + ")")
+			}
+		default:
+			fmt.Fprintln(c.Out, "Usage: /sidecar on|off|status|perm-on|perm-off")
+		}
 		return true, false, nil
 	case "/save":
 		if err := c.Session.Save(); err != nil {

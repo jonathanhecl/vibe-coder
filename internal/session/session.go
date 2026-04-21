@@ -151,7 +151,7 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 	recent := append([]Message(nil), s.messages[cut:]...)
 
 	var summary string
-	if s.client != nil && strings.TrimSpace(s.cfg.SidecarModel) != "" {
+	if s.client != nil && s.cfg.SidecarInUse() {
 		text := renderMessagesForSummary(old)
 		resp, err := s.client.ChatSync(ctx, ollama.ChatRequest{
 			Model: s.cfg.SidecarModel,

@@ -32,6 +32,7 @@ func main() {
 	}
 
 	if persistModelSettings {
+		cfg.PersistSidecarOffFromSave(true)
 		if err := config.SaveModelSettings(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "error: failed to save model settings: %v\n", err)
 			os.Exit(1)
@@ -202,10 +203,7 @@ func main() {
 }
 
 func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {
-	sidecar := strings.TrimSpace(cfg.SidecarModel)
-	if sidecar == "" {
-		sidecar = "(disabled)"
-	}
+	sidecar := formatSidecarBanner(cfg)
 	if !style.Enabled() {
 		return fmt.Sprintf(
 			"vibe-coder %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
@@ -224,6 +222,27 @@ func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string
 		label("Model", cfg.Model) +
 		label("Sidecar", sidecar) +
 		label("Ollama host", cfg.OllamaHost)
+}
+
+func formatSidecarBanner(cfg *config.Config) string {
+	if cfg == nil {
+		return "(disabled)"
+	}
+	if cfg.SidecarDisabled {
+		return "(off in config — remove SIDECAR_DISABLED or set SIDECAR_ENABLED=true)"
+	}
+	if cfg.SidecarSkipSession {
+		m := strings.TrimSpace(cfg.SidecarModel)
+		if m == "" {
+			return "(session off — no SIDECAR_MODEL)"
+		}
+		return fmt.Sprintf("%s (session off — /sidecar on)", m)
+	}
+	m := strings.TrimSpace(cfg.SidecarModel)
+	if m == "" {
+		return "(disabled — set SIDECAR_MODEL)"
+	}
+	return m
 }
 
 // installSignalHandler ensures the terminal is always restored on exit, so a

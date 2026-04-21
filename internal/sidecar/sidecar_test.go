@@ -64,21 +64,29 @@ func TestEnabledRequiresClientAndModel(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name   string
-		client ollama.Client
-		model  string
-		want   bool
+		name            string
+		client          ollama.Client
+		model           string
+		sidecarDisabled bool
+		skipSession     bool
+		want            bool
 	}{
-		{"all set", &fakeClient{}, "qwen2.5:3b", true},
-		{"empty model", &fakeClient{}, "", false},
-		{"whitespace model", &fakeClient{}, "   ", false},
-		{"nil client", nil, "qwen2.5:3b", false},
+		{"all set", &fakeClient{}, "qwen3.5:4b", false, false, true},
+		{"disabled in config", &fakeClient{}, "qwen3.5:4b", true, false, false},
+		{"session skip", &fakeClient{}, "qwen3.5:4b", false, true, false},
+		{"empty model", &fakeClient{}, "", false, false, false},
+		{"whitespace model", &fakeClient{}, "   ", false, false, false},
+		{"nil client", nil, "qwen3.5:4b", false, false, false},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			p := New(&config.Config{SidecarModel: tc.model}, tc.client)
+			p := New(&config.Config{
+				SidecarModel:       tc.model,
+				SidecarDisabled:    tc.sidecarDisabled,
+				SidecarSkipSession: tc.skipSession,
+			}, tc.client)
 			if got := p.Enabled(); got != tc.want {
 				t.Fatalf("Enabled = %v, want %v", got, tc.want)
 			}
@@ -89,7 +97,7 @@ func TestEnabledRequiresClientAndModel(t *testing.T) {
 func TestSummariseShortOutputIsSkipped(t *testing.T) {
 	t.Parallel()
 	fc := &fakeClient{reply: "should not be called"}
-	p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc, WithSummariseThreshold(1024))
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc, WithSummariseThreshold(1024))
 	out, used, err := p.SummariseToolOutput(context.Background(), "Read", "small body")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -118,7 +126,7 @@ func TestSummariseDisabledShortCircuits(t *testing.T) {
 func TestSummariseWrapsAndCaches(t *testing.T) {
 	t.Parallel()
 	fc := &fakeClient{reply: "- file foo.go\n- func Bar()"}
-	p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc, WithSummariseThreshold(10))
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc, WithSummariseThreshold(10))
 
 	long := strings.Repeat("payload\n", 500)
 	out, used, err := p.SummariseToolOutput(context.Background(), "Read", long)
@@ -147,7 +155,7 @@ func TestSummariseSingleflightDeduplicates(t *testing.T) {
 		delay: 80 * time.Millisecond,
 		reply: "- ok",
 	}
-	p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc, WithSummariseThreshold(10))
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc, WithSummariseThreshold(10))
 	long := strings.Repeat("x", 4096)
 
 	const N = 6
@@ -168,7 +176,7 @@ func TestSummariseSingleflightDeduplicates(t *testing.T) {
 func TestSummariseRespectsContextCancel(t *testing.T) {
 	t.Parallel()
 	fc := &fakeClient{delay: 5 * time.Second, reply: "late"}
-	p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc, WithSummariseThreshold(10))
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc, WithSummariseThreshold(10))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -184,7 +192,7 @@ func TestSummariseRespectsContextCancel(t *testing.T) {
 func TestDisambiguatePathSinglyTrivial(t *testing.T) {
 	t.Parallel()
 	fc := &fakeClient{reply: "PICK: 1"}
-	p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc)
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc)
 
 	got, ok, err := p.DisambiguatePath(context.Background(), "config", []string{"/abs/only.go"})
 	if err != nil || !ok || got != "/abs/only.go" {
@@ -198,7 +206,7 @@ func TestDisambiguatePathSinglyTrivial(t *testing.T) {
 func TestDisambiguatePathPicksByNumber(t *testing.T) {
 	t.Parallel()
 	fc := &fakeClient{reply: "PICK: 2"}
-	p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc)
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc)
 
 	cands := []string{"/a/config.go", "/b/config.go", "/c/config.go"}
 	got, ok, err := p.DisambiguatePath(context.Background(), "user mentioned 'b config'", cands)
@@ -222,7 +230,7 @@ func TestDisambiguatePathRejectsBogusReply(t *testing.T) {
 		t.Run(reply, func(t *testing.T) {
 			t.Parallel()
 			fc := &fakeClient{reply: reply}
-			p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc)
+			p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc)
 			got, ok, _ := p.DisambiguatePath(context.Background(), "x", []string{"/a", "/b"})
 			if ok || got != "" {
 				t.Fatalf("expected decline for reply %q, got %q ok=%v", reply, got, ok)
@@ -238,7 +246,7 @@ func TestPoolNoOpWhenSidecarErrors(t *testing.T) {
 			return "", errors.New("sidecar exploded")
 		},
 	}
-	p := New(&config.Config{SidecarModel: "qwen2.5:3b"}, fc, WithSummariseThreshold(10))
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b"}, fc, WithSummariseThreshold(10))
 	out, used, err := p.SummariseToolOutput(context.Background(), "Read", strings.Repeat("z", 4096))
 	if err != nil {
 		t.Fatalf("error must stay internal, got %v", err)

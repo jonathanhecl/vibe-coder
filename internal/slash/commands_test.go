@@ -72,8 +72,8 @@ func TestDispatchMinimumCommands(t *testing.T) {
 		t.Fatalf("unexpected /model inspect result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 
-	handled, shouldExit, err = Dispatch(ctx, "/model qwen2.5:7b")
-	if err != nil || !handled || shouldExit || cfg.Model != "qwen2.5:7b" {
+	handled, shouldExit, err = Dispatch(ctx, "/model qwen3.5:9b")
+	if err != nil || !handled || shouldExit || cfg.Model != "qwen3.5:9b" {
 		t.Fatalf("unexpected /model set result: handled=%t exit=%t err=%v model=%s", handled, shouldExit, err, cfg.Model)
 	}
 

@@ -139,7 +139,7 @@ through tool-result hints like `sidecar condensed 12345 bytes → summary
 stored in context` or `sidecar disambiguated "config.go" → <abs>`.
 
 Pick a sidecar that is **fast and cheap** (e.g. `llama3.2:3b`,
-`qwen2.5:3b`, `phi3:mini`). Leave it empty to disable all three
+`qwen3.5:4b`, `phi3:mini`). Leave it empty to disable all three
 behaviours: compaction will truncate to a static "Earlier conversation
 truncated…" note, large tool outputs will be inserted verbatim into the
 context, and ambiguous paths will not be rescued.
@@ -150,7 +150,7 @@ If Ollama runs on another machine in your network, you can configure `vibe-coder
 those settings in one command, without changing global environment variables:
 
 ```powershell
-.\vibe-coder.exe -model "qwen2.5-coder:7b" -sidecar "llama3.2:3b" -ollama-host "http://192.168.1.50:11434" /save
+.\vibe-coder.exe -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" /save
 ```
 
 What this does:
@@ -169,7 +169,7 @@ Next runs can simply use:
 If you use PowerShell and want to run from source with the same flags:
 
 ```powershell
-.\run.ps1 -model "qwen2.5-coder:7b" -sidecar "llama3.2:3b" -ollama-host "http://192.168.1.50:11434" /save
+.\run.ps1 -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" /save
 ```
 
 ## CLI Flags
@@ -180,7 +180,8 @@ Current top-level flags:
 - `--help` show help
 - `-p` one-shot prompt
 - `-m, --model` model name
-- `--sidecar` sidecar model name
+- `--sidecar` sidecar model name (`SIDECAR_MODEL` in `config.env`)
+- `--no-sidecar` do not use the sidecar; with `/save`, writes `SIDECAR_DISABLED=true` to `config.env` so it stays off on future runs
 - `-y` yes mode
 - `--debug` debug logs
 - `--resume` resume last project session
@@ -196,7 +197,7 @@ Current top-level flags:
 - `--rag-topk` RAG top-k chunks
 - `--rag-model` RAG embedding model
 - `--rag-index` build/index RAG path and exit
-- `/save` persist current model/sidecar/host into `config.env`
+- `/save` persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`; if combined with `--no-sidecar`, also persists `SIDECAR_DISABLED=true`
 
 ## RAG Usage
 

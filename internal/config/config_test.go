@@ -191,8 +191,8 @@ func TestSaveModelSettingsPreservesOtherConfig(t *testing.T) {
 	cfg := &Config{
 		ConfigDir:    tmp,
 		ConfigFile:   cfgPath,
-		Model:        "qwen2.5-coder:7b",
-		SidecarModel: "llama3.2:3b",
+		Model:        "qwen3.5:9b",
+		SidecarModel: "qwen3.5:4b",
 		OllamaHost:   "http://192.168.1.50:11434",
 	}
 	if err := SaveModelSettings(cfg); err != nil {
@@ -207,12 +207,47 @@ func TestSaveModelSettingsPreservesOtherConfig(t *testing.T) {
 	for _, want := range []string{
 		"# keep this comment",
 		"MAX_TOKENS=2048",
-		"MODEL=qwen2.5-coder:7b",
-		"SIDECAR_MODEL=llama3.2:3b",
+		"MODEL=qwen3.5:9b",
+		"SIDECAR_MODEL=qwen3.5:4b",
 		"OLLAMA_HOST=http://192.168.1.50:11434",
 	} {
 		if !strings.Contains(saved, want) {
 			t.Fatalf("saved config missing %q:\n%s", want, saved)
 		}
+	}
+	if strings.Contains(saved, "SIDECAR_DISABLED") {
+		t.Fatalf("did not expect SIDECAR_DISABLED when SidecarDisabled is false:\n%s", saved)
+	}
+}
+
+func TestSaveModelSettingsSidecarDisabled(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.env")
+	if err := os.WriteFile(cfgPath, []byte("MODEL=a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{
+		ConfigDir:       tmp,
+		ConfigFile:      cfgPath,
+		Model:           "a",
+		SidecarModel:    "s",
+		OllamaHost:      "http://localhost:11434",
+		SidecarDisabled: true,
+	}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(data), "SIDECAR_DISABLED=true") {
+		t.Fatalf("expected SIDECAR_DISABLED=true, got:\n%s", string(data))
+	}
+	cfg.SidecarDisabled = false
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(cfgPath)
+	if strings.Contains(string(data), "SIDECAR_DISABLED") {
+		t.Fatalf("expected SIDECAR_DISABLED removed, got:\n%s", string(data))
 	}
 }
