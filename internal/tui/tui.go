@@ -360,43 +360,19 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	u.flushPendingToolLocked()
 
 	st := u.style
-	const innerBar = 60
-	bar := strings.Repeat("═", innerBar)
 	payload := permissionPayloadLines(tool, params)
 
 	var b strings.Builder
 	b.WriteString("\n")
-	// Outer “matrix / gate” frame (double-line, green accent)
-	b.WriteString(st.Dim("  "))
-	b.WriteString(st.BoldBrightGreen("╔"))
-	b.WriteString(st.DimGreen(bar))
-	b.WriteString(st.BoldBrightGreen("╗\n"))
-
-	b.WriteString(st.Dim("  "))
-	b.WriteString(st.BoldBrightGreen("║ "))
-	b.WriteString(st.BoldBrightGreen(":: "))
-	b.WriteString(st.DimGreen("ACCESS_GATE"))
-	b.WriteString(st.Dim(" // "))
-	b.WriteString(st.BrightGreen("exec_clearance"))
-	b.WriteString(st.Dim(" ::"))
-	b.WriteString(st.BoldBrightGreen(" ║\n"))
-
-	b.WriteString(st.Dim("  "))
-	b.WriteString(st.DimGreen("╠"))
-	b.WriteString(st.DimGreen(bar))
-	b.WriteString(st.DimGreen("╣\n"))
-
 	for _, raw := range payload {
-		line := fitGateLine(raw, gateContentMaxRunes)
+		line := fitGateLine(raw, permissionDisplayMaxRunes)
 		b.WriteString(st.Dim("  "))
-		b.WriteString(st.BoldBrightGreen("║ "))
 		switch {
 		case strings.HasPrefix(line, "TARGET"):
 			b.WriteString(st.BoldCyan(line))
 		case line == "PAYLOAD":
-			b.WriteString(st.DimGreen("── "))
+			b.WriteString(st.DimGreen("— "))
 			b.WriteString(st.BrightGreen(line))
-			b.WriteString(st.DimGreen(" ──"))
 		case strings.HasPrefix(line, "+ "):
 			b.WriteString(st.Green(line))
 		case strings.HasPrefix(line, "- "):
@@ -412,18 +388,13 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 		default:
 			b.WriteString(st.Dim(line))
 		}
-		b.WriteString(st.BoldBrightGreen(" ║\n"))
+		b.WriteString("\n")
 	}
 
-	b.WriteString(st.Dim("  "))
-	b.WriteString(st.BoldBrightGreen("╚"))
-	b.WriteString(st.DimGreen(bar))
-	b.WriteString(st.BoldBrightGreen("╝\n"))
-
 	b.WriteString("\n")
-	b.WriteString(st.Dim("  ;; "))
-	b.WriteString(st.DimGreen("POLICY_SELECT"))
-	b.WriteString(st.Dim(" ;;\n"))
+	b.WriteString(st.Dim("  "))
+	b.WriteString(st.DimGreen("Choose"))
+	b.WriteString(st.Dim(":\n"))
 
 	writeOpt := func(n string, label, desc string, color func(string) string) {
 		b.WriteString(st.Dim("      "))

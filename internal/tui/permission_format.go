@@ -9,8 +9,8 @@ import (
 
 const permissionValueWrap = 52
 
-// gateContentMaxRunes is the max text between "║ " and " ║" for a 60-column inner bar.
-const gateContentMaxRunes = 56
+// permissionDisplayMaxRunes caps a single payload line width in the permission prompt (no box).
+const permissionDisplayMaxRunes = 96
 
 const (
 	permMaxPatchLines  = 16 // total − / + lines budget for Edit preview
@@ -18,7 +18,7 @@ const (
 	permMaxGenericRunes = 400
 )
 
-// fitGateLine trims a line to fit the permission box without breaking UTF-8.
+// fitGateLine trims a line to maxRunes without breaking UTF-8 (used for permission lines).
 func fitGateLine(s string, maxRunes int) string {
 	if maxRunes < 4 {
 		maxRunes = 4
