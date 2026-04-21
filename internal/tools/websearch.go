@@ -34,14 +34,25 @@ func (t *WebSearchTool) Schema() Schema {
 	}
 }
 
-func (t *WebSearchTool) Execute(_ context.Context, params map[string]any) Result {
+// ddgUserAgent is a generic browser User-Agent. DuckDuckGo serves a bot challenge
+// (no result markup) for the default Go client User-Agent, which makes parsing return zero hits.
+const ddgUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+func (t *WebSearchTool) Execute(ctx context.Context, params map[string]any) Result {
 	query, ok := params["query"].(string)
 	if !ok || strings.TrimSpace(query) == "" {
 		return errResult("query is required")
 	}
 	searchURL := "https://duckduckgo.com/html/?q=" + url.QueryEscape(query)
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(searchURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return errResult(fmt.Sprintf("search request build failed: %v", err))
+	}
+	req.Header.Set("User-Agent", ddgUserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	resp, err := client.Do(req)
 	if err != nil {
 		return errResult(fmt.Sprintf("search request failed: %v", err))
 	}
