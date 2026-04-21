@@ -190,7 +190,9 @@ func TestTryAutoPullModelDeniedAndCancelledChat(t *testing.T) {
 
 	cancelAgent := newCoverageAgent(t, cancelClient{}, tui.DecisionAllowOnce, true)
 	cancelAgent.sess.AddUser("hello")
-	reply, err := cancelAgent.chatOnce(context.Background())
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	rootCancel()
+	reply, err := cancelAgent.chatOnce(rootCtx)
 	if err != nil {
 		t.Fatalf("chatOnce canceled should not error: %v", err)
 	}

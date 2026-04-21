@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -83,7 +82,7 @@ func (t *SubAgentTool) Execute(ctx context.Context, params map[string]any) Resul
 }
 
 func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (string, error) {
-	ctx, cancel := context.WithTimeout(root, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(root, t.cfg.EffectiveChatTimeout())
 	defer cancel()
 	stream, err := t.client.Chat(ctx, ollama.ChatRequest{
 		Model: t.cfg.Model,

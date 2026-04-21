@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestResolveDirs(t *testing.T) {
@@ -152,7 +153,7 @@ func TestAutoDetectModelWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.Model != "llama3.1:8b" {
+	if cfg.Model != "qwen3.5:9b" {
 		t.Fatalf("unexpected auto model: %q", cfg.Model)
 	}
 }
@@ -249,5 +250,32 @@ func TestSaveModelSettingsSidecarDisabled(t *testing.T) {
 	data, _ = os.ReadFile(cfgPath)
 	if strings.Contains(string(data), "SIDECAR_DISABLED") {
 		t.Fatalf("expected SIDECAR_DISABLED removed, got:\n%s", string(data))
+	}
+}
+
+func TestEffectiveChatTimeout(t *testing.T) {
+	t.Parallel()
+	if d := (&Config{}).EffectiveChatTimeout(); d != 15*time.Minute {
+		t.Fatalf("default: got %v want 15m", d)
+	}
+	if d := (&Config{ChatTimeout: 30 * time.Second}).EffectiveChatTimeout(); d != 30*time.Second {
+		t.Fatalf("custom: got %v", d)
+	}
+}
+
+func TestLoadChatTimeoutFromEnv(t *testing.T) {
+	tmp := t.TempDir()
+	localAppData := filepath.Join(tmp, "localapp")
+	t.Setenv("LOCALAPPDATA", localAppData)
+	t.Setenv("VIBE_CODER_CHAT_TIMEOUT", "45s")
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ChatTimeout != 45*time.Second {
+		t.Fatalf("ChatTimeout: got %v", cfg.ChatTimeout)
+	}
+	if cfg.EffectiveChatTimeout() != 45*time.Second {
+		t.Fatalf("EffectiveChatTimeout: got %v", cfg.EffectiveChatTimeout())
 	}
 }

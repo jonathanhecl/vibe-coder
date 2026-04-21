@@ -50,6 +50,10 @@ func RenderPromptBlock(reg *Registry) string {
 	b.WriteString("  and the next one to \"in_progress\". Add new items as they appear.\n")
 	b.WriteString("- Skip TodoWrite for trivial single-step tasks (one Read, one Bash, a\n")
 	b.WriteString("  short answer); the panel only adds noise there.\n\n")
+	b.WriteString("AskUserQuestion (multiple choice in the terminal):\n")
+	b.WriteString("- \"questions\" must be an array of objects, each with \"prompt\" and \"options\".\n")
+	b.WriteString("- \"options\" is a non-empty array: either strings [\"A\",\"B\"] or objects with \"label\".\n")
+	b.WriteString("- Do not send {\"questions\":[\"text?\",\"more?\"]} — that shape is invalid.\n\n")
 	b.WriteString("Available tools:\n")
 	for _, name := range names {
 		t := reg.Get(name)

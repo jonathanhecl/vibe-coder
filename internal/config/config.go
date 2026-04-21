@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -55,6 +56,8 @@ type Config struct {
 	SessionsDir string
 	PermFile    string
 	HistoryFile string
+	// ChatTimeout caps one streaming chat call to Ollama (0 = use default, see EffectiveChatTimeout).
+	ChatTimeout time.Duration
 }
 
 func Load(args []string) (*Config, error) {
@@ -243,6 +246,11 @@ func applyEnv(cfg *Config) {
 			cfg.Debug = parsed
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_CHAT_TIMEOUT")); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
+			cfg.ChatTimeout = parsed
+		}
+	}
 }
 
 func applyConfigFile(cfg *Config, path string) error {
@@ -308,6 +316,10 @@ func applyConfigFile(cfg *Config, path string) error {
 		case "CONTEXT_WINDOW":
 			if parsed, err := strconv.Atoi(value); err == nil {
 				cfg.ContextWindow = parsed
+			}
+		case "CHAT_TIMEOUT":
+			if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
+				cfg.ChatTimeout = parsed
 			}
 		}
 	}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -527,7 +528,7 @@ func (a *Agent) buildOllamaMessages(systemPrompt string) []ollama.Message {
 func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
-		ctx, cancel := context.WithTimeout(rootCtx, 2*time.Minute)
+		ctx, cancel := context.WithTimeout(rootCtx, a.cfg.EffectiveChatTimeout())
 		systemPrompt := prompt.Build(a.cfg)
 		if toolsBlock := tools.RenderPromptBlock(a.reg); toolsBlock != "" {
 			systemPrompt = systemPrompt + "\n\n" + toolsBlock
@@ -561,6 +562,9 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 		if err != nil {
 			a.ui.StopWaiting()
 			cancel()
+			if isCancelledByUser(rootCtx, err) {
+				return "[Cancelled by user]", nil
+			}
 			if strings.Contains(strings.ToLower(err.Error()), "model not found") {
 				if pulled := a.tryAutoPullModel(rootCtx); pulled {
 					attempt--
@@ -577,7 +581,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 					if thinkingSeen {
 						a.ui.EndThinking()
 					}
-					if chunk.Err == context.Canceled {
+					if isCancelledByUser(rootCtx, chunk.Err) {
 						cancel()
 						return "[Cancelled by user]", nil
 					}
@@ -639,6 +643,19 @@ func (a *Agent) tryAutoPullModel(ctx context.Context) bool {
 		a.ui.StartWaiting("pulling " + short + " — " + progress)
 	})
 	return pullErr == nil
+}
+
+func isCancelledByUser(rootCtx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if !errors.Is(err, context.Canceled) {
+		return false
+	}
+	if rootCtx == nil {
+		return false
+	}
+	return errors.Is(rootCtx.Err(), context.Canceled)
 }
 
 func permissionDeniedNote(m *permissions.Manager) string {

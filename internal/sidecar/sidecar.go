@@ -40,7 +40,7 @@ const DefaultSummariseThreshold = 6 * 1024
 // CallTimeout caps any individual sidecar request. Local models can stall
 // when loading; we'd rather degrade gracefully (return the raw output)
 // than block the user's turn forever.
-const CallTimeout = 45 * time.Second
+const CallTimeout = 90 * time.Second
 
 const (
 	defaultMaxParallel = 2

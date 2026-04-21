@@ -11,11 +11,12 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
 
 const (
-	defaultHTTPTimeout = 5 * time.Minute
+	// No fixed upper bound on the HTTP client: streaming /api/chat can run for a long time.
+	// Per-request deadlines come from context (see config EffectiveChatTimeout).
+	defaultHTTPTimeout = 0
 	maxStreamBuffer    = 1024 * 1024
 )
 
@@ -181,13 +182,14 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 		return nil, fmt.Errorf("marshal chat request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("build chat request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(httpReq)
+	resp, err := doPOSTWithRetry(ctx, c.http, func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		return httpReq, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("ollama chat: %w", err)
 	}
