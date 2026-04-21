@@ -223,8 +223,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		if toolName, toolParams, ok := parseXMLFallback(reply); ok {
 			tool := a.reg.Get(toolName)
 			if tool == nil {
-				a.ui.StreamAssistant(reply)
-				a.ui.EndAssistant()
 				a.sess.AddAssistant(reply)
 				_ = a.sess.Compact(ctx, false)
 				return nil
@@ -266,8 +264,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			_ = a.sess.Compact(ctx, false)
 			continue
 		}
-		a.ui.StreamAssistant(reply)
-		a.ui.EndAssistant()
 		a.sess.AddAssistant(reply)
 		_ = a.sess.Compact(ctx, false)
 		return nil
@@ -583,9 +579,11 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 					}
 					if isCancelledByUser(rootCtx, chunk.Err) {
 						cancel()
+						a.ui.EndAssistant()
 						return "[Cancelled by user]", nil
 					}
 					lastErr = chunk.Err
+					a.ui.EndAssistant()
 					break
 				}
 				if chunk.Thinking != "" {
@@ -593,15 +591,21 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 					a.ui.StreamThinking(chunk.Thinking)
 				}
 				if chunk.Delta != "" {
+					if thinkingSeen {
+						a.ui.EndThinking()
+						thinkingSeen = false
+					}
 					a.ui.StopWaiting()
+					a.ui.StreamAssistant(chunk.Delta)
+					b.WriteString(chunk.Delta)
 				}
-				b.WriteString(chunk.Delta)
 				if chunk.Done {
 					a.ui.StopWaiting()
 					if thinkingSeen {
 						a.ui.EndThinking()
 					}
 					cancel()
+					a.ui.EndAssistant()
 					return b.String(), nil
 				}
 			}
@@ -611,6 +615,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 			}
 			if b.Len() > 0 && lastErr == nil {
 				cancel()
+				a.ui.EndAssistant()
 				return b.String(), nil
 			}
 		}
