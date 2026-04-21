@@ -83,6 +83,8 @@ func (s Style) BoldYellow(text string) string  { return s.wrap(cBold+cYellow, te
 func (s Style) BoldCyan(text string) string     { return s.wrap(cBold+cCyan, text) }
 func (s Style) BoldMagenta(text string) string { return s.wrap(cBold+cMagenta, text) }
 func (s Style) BoldRed(text string) string     { return s.wrap(cBold+cRed, text) }
+// BoldBrightGreen is used for high-contrast “matrix” accents (e.g. permission gate).
+func (s Style) BoldBrightGreen(text string) string { return s.wrap(cBold+cBrightGreen, text) }
 
 // ClearPendingLine returns the escape sequence used to wipe a previously
 // printed line so it can be redrawn with the final state.

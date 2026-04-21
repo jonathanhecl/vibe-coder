@@ -62,7 +62,7 @@ func (r *recordingUI) EndThinking()                        {}
 func (r *recordingUI) StartWaiting(string)                 {}
 func (r *recordingUI) StopWaiting()                        {}
 func (r *recordingUI) ShowToolCall(string, map[string]any) {}
-func (r *recordingUI) ShowToolResult(name, output string, isError bool) {
+func (r *recordingUI) ShowToolResult(name, output string, isError bool, _ map[string]any) {
 	r.results = append(r.results, output)
 }
 func (r *recordingUI) ShowTodos([]tui.TodoItem) {}

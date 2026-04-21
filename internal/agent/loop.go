@@ -58,7 +58,7 @@ type uiPort interface {
 	StartWaiting(label string)
 	StopWaiting()
 	ShowToolCall(name string, params map[string]any)
-	ShowToolResult(name, output string, isError bool)
+	ShowToolResult(name, output string, isError bool, toolParams map[string]any)
 	ShowTodos(items []tui.TodoItem)
 	AskPermission(tool string, params map[string]any) tui.Decision
 }
@@ -164,7 +164,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if a.perm.Check("ParallelAgents", params, a.ui) {
 				a.ui.ShowToolCall("ParallelAgents", params)
 				result := tool.Execute(ctx, params)
-				a.ui.ShowToolResult("ParallelAgents", result.Output, result.IsError)
+				a.ui.ShowToolResult("ParallelAgents", result.Output, result.IsError, nil)
 				a.recordToolObservation(ctx, "ParallelAgents", result.Output)
 				return nil
 			}
@@ -180,7 +180,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			}
 			if a.InPlanMode() && toolName == "Write" && !a.isWriteAllowedInPlan(toolParams) {
 				blockMsg := "Write blocked in plan mode. Allowed path: <cwd>/.vibe-coder/plans/"
-				a.ui.ShowToolResult(toolName, blockMsg, true)
+				a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
 				a.sess.AddSystemNote(blockMsg)
 				return nil
 			}
@@ -198,7 +198,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
-			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
+			a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
 			a.maybeShowTodos(toolName)
 			a.recordToolObservation(ctx, toolName, result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
@@ -206,7 +206,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					w.RefreshSnapshot()
 				}
 				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
-					a.ui.ShowToolResult("AUTO-TEST", auto, true)
+					a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
 					a.recordToolObservation(ctx, "AUTO-TEST", auto)
 				}
 			}
@@ -229,13 +229,13 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			}
 			if a.InPlanMode() && toolName == "Write" && !a.isWriteAllowedInPlan(toolParams) {
 				blockMsg := "Write blocked in plan mode. Allowed path: <cwd>/.vibe-coder/plans/"
-				a.ui.ShowToolResult(toolName, blockMsg, true)
+				a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
 				a.sess.AddSystemNote(blockMsg)
 				return nil
 			}
 			if !a.perm.Check(toolName, toolParams, a.ui) {
 				deny := permissionDeniedNote(a.perm)
-				a.ui.ShowToolResult(toolName, deny, true)
+				a.ui.ShowToolResult(toolName, deny, true, toolParams)
 				a.sess.AddSystemNote(deny)
 				return nil
 			}
@@ -248,7 +248,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
-			a.ui.ShowToolResult(toolName, result.Output, result.IsError)
+			a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
 			a.maybeShowTodos(toolName)
 			a.recordToolObservation(ctx, toolName, result.Output)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
@@ -256,7 +256,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					w.RefreshSnapshot()
 				}
 				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
-					a.ui.ShowToolResult("AUTO-TEST", auto, true)
+					a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
 					a.recordToolObservation(ctx, "AUTO-TEST", auto)
 				}
 			}
@@ -308,7 +308,7 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 		if abs != raw {
 			params[key] = abs
 			if rescued {
-				a.ui.ShowToolResult(toolName, fmt.Sprintf("rescued path %q → %s", raw, abs), false)
+				a.ui.ShowToolResult(toolName, fmt.Sprintf("rescued path %q → %s", raw, abs), false, nil)
 			}
 		}
 		return
@@ -341,7 +341,7 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 		return
 	}
 	params[key] = chosen
-	a.ui.ShowToolResult(toolName, fmt.Sprintf("sidecar disambiguated %q → %s", raw, chosen), false)
+	a.ui.ShowToolResult(toolName, fmt.Sprintf("sidecar disambiguated %q → %s", raw, chosen), false, nil)
 }
 
 // maybeShowTodos checks if the executed tool was TodoWrite and, if so,
@@ -405,7 +405,7 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output stri
 			a.sess.AddToolObservation(toolName, summary)
 			a.ui.ShowToolResult(toolName,
 				fmt.Sprintf("sidecar condensed %d bytes → summary stored in context", len(output)),
-				false)
+				false, nil)
 			return
 		}
 	}

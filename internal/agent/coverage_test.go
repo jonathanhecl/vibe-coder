@@ -31,7 +31,7 @@ func (c *coverageUI) StartWaiting(string)          {}
 func (c *coverageUI) StopWaiting()                 {}
 func (c *coverageUI) ShowToolCall(string, map[string]any) {
 }
-func (c *coverageUI) ShowToolResult(string, string, bool) {
+func (c *coverageUI) ShowToolResult(string, string, bool, map[string]any) {
 }
 func (c *coverageUI) ShowTodos([]tui.TodoItem) {}
 func (c *coverageUI) AskPermission(string, map[string]any) tui.Decision {

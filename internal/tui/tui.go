@@ -264,19 +264,18 @@ func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
 // ShowToolResult collapses the in-progress tool card into a final state,
 // printing a one-line summary of the output rather than dumping everything.
 // Long outputs are truncated; the user sees the same "✓ Read foo.go (1.2KB)"
-// style that Cursor uses.
-func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
+// style that Cursor uses. For Write/Edit, toolParams enables Cursor-like
+// +lines/−lines stats and a short diff preview (Edit only).
+func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams map[string]any) {
 	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
 	icon := u.style.BrightGreen(iconTool)
 	tag := u.style.DimGreen("done")
-	summaryColor := u.style.DimGreen
 	if isError {
 		icon = u.style.BoldRed(iconErr)
 		tag = u.style.Red("error")
-		summaryColor = u.style.Red
 	}
 
 	header := u.pendingHeader
@@ -284,12 +283,21 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool) {
 		header = u.style.BoldBlue(name)
 	}
 
-	summary := summarizeOutput(output)
+	summary := toolResultSummary(u.style, name, output, isError, toolParams)
 
 	if u.pendingActive {
 		fmt.Fprint(u.out, u.style.ClearPendingLine())
 	}
-	fmt.Fprintf(u.out, "%s %s %s %s\n", icon, header, tag, summaryColor("→ "+summary))
+	arrow := u.style.DimGreen("→ ")
+	if isError {
+		fmt.Fprintf(u.out, "%s %s %s %s%s\n", icon, header, tag, arrow, u.style.Red(summary))
+	} else {
+		fmt.Fprintf(u.out, "%s %s %s %s%s\n", icon, header, tag, arrow, summary)
+	}
+
+	if !isError && name == "Edit" && toolParams != nil {
+		printEditDiffPreview(u.out, u.style, toolParams)
+	}
 
 	if isError && strings.TrimSpace(output) != "" {
 		printIndented(u.out, u.style.Red(strings.TrimRight(output, "\n")))
@@ -352,42 +360,69 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	u.flushPendingToolLocked()
 
 	st := u.style
-	toolLine := st.BoldCyan(tool) + st.Yellow(formatParams(params))
-	paramDetail := formatParamsMultiline(params)
+	const innerBar = 60
+	bar := strings.Repeat("═", innerBar)
+	payload := permissionPayloadLines(tool, params)
 
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(st.BoldCyan("╭"))
-	b.WriteString(st.Cyan(strings.Repeat("─", 58)))
-	b.WriteString(st.BoldCyan("╮\n"))
-	b.WriteString(st.Cyan("│ "))
-	b.WriteString(st.BoldYellow("Permission required"))
-	b.WriteString(st.Dim(" — choose how to proceed"))
-	b.WriteString(st.Cyan("│\n"))
-	b.WriteString(st.Cyan("│ "))
-	b.WriteString(st.Magenta("⏵ "))
-	b.WriteString(st.BoldYellow("Tool "))
-	b.WriteString(toolLine)
-	b.WriteString(st.Cyan("│\n"))
-	if paramDetail != "" {
-		for _, ln := range strings.Split(paramDetail, "\n") {
-			b.WriteString(st.Cyan("│   "))
-			b.WriteString(st.Dim(ln))
-			b.WriteString(st.Cyan("│\n"))
+	// Outer “matrix / gate” frame (double-line, green accent)
+	b.WriteString(st.Dim("  "))
+	b.WriteString(st.BoldBrightGreen("╔"))
+	b.WriteString(st.DimGreen(bar))
+	b.WriteString(st.BoldBrightGreen("╗\n"))
+
+	b.WriteString(st.Dim("  "))
+	b.WriteString(st.BoldBrightGreen("║ "))
+	b.WriteString(st.BoldBrightGreen(":: "))
+	b.WriteString(st.DimGreen("ACCESS_GATE"))
+	b.WriteString(st.Dim(" // "))
+	b.WriteString(st.BrightGreen("exec_clearance"))
+	b.WriteString(st.Dim(" ::"))
+	b.WriteString(st.BoldBrightGreen(" ║\n"))
+
+	b.WriteString(st.Dim("  "))
+	b.WriteString(st.DimGreen("╠"))
+	b.WriteString(st.DimGreen(bar))
+	b.WriteString(st.DimGreen("╣\n"))
+
+	for _, raw := range payload {
+		line := fitGateLine(raw, gateContentMaxRunes)
+		b.WriteString(st.Dim("  "))
+		b.WriteString(st.BoldBrightGreen("║ "))
+		switch {
+		case strings.HasPrefix(line, "TARGET"):
+			b.WriteString(st.BoldCyan(line))
+		case line == "PAYLOAD":
+			b.WriteString(st.DimGreen("── "))
+			b.WriteString(st.BrightGreen(line))
+			b.WriteString(st.DimGreen(" ──"))
+		case strings.HasPrefix(line, "  ¶"):
+			b.WriteString(st.DimGreen(line))
+		case strings.HasSuffix(line, ":") && !strings.HasPrefix(line, " "):
+			b.WriteString(st.Yellow(line))
+		default:
+			b.WriteString(st.Dim(line))
 		}
+		b.WriteString(st.BoldBrightGreen(" ║\n"))
 	}
-	b.WriteString(st.Cyan("╰"))
-	b.WriteString(st.Cyan(strings.Repeat("─", 58)))
-	b.WriteString(st.BoldCyan("╯\n"))
+
+	b.WriteString(st.Dim("  "))
+	b.WriteString(st.BoldBrightGreen("╚"))
+	b.WriteString(st.DimGreen(bar))
+	b.WriteString(st.BoldBrightGreen("╝\n"))
 
 	b.WriteString("\n")
+	b.WriteString(st.Dim("  ;; "))
+	b.WriteString(st.DimGreen("POLICY_SELECT"))
+	b.WriteString(st.Dim(" ;;\n"))
+
 	writeOpt := func(n string, label, desc string, color func(string) string) {
-		b.WriteString("  ")
-		b.WriteString(st.BoldGreen(n))
-		b.WriteString("  ")
+		b.WriteString(st.Dim("      "))
+		b.WriteString(st.BoldBrightGreen("[" + n + "] "))
 		b.WriteString(color(label))
 		if desc != "" {
-			b.WriteString(st.Dim(" — " + desc))
+			b.WriteString(st.Dim("  // " + desc))
 		}
 		b.WriteString("\n")
 	}
@@ -400,18 +435,22 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	writeOpt("6", "Never allow (saved)", "written to permissions file", st.BoldRed)
 	writeOpt("7", "Cancel", "abort this run", st.Magenta)
 	b.WriteString("\n")
-	b.WriteString("  ")
-	b.WriteString(st.Dim("[s] "))
-	b.WriteString(st.Dim("Enable yes mode (auto-approve non-dangerous tools)\n"))
+	b.WriteString(st.Dim("      "))
+	b.WriteString(st.DimGreen("[s]"))
+	b.WriteString(st.Dim("  yes_mode  "))
+	b.WriteString(st.Dim("(auto-approve non-dangerous tools)"))
 	b.WriteString("\n")
-	b.WriteString(st.Dim("Enter 1–7, or letter shortcuts "))
+	b.WriteString("\n")
+	b.WriteString(st.Dim("  ;; "))
+	b.WriteString(st.DimGreen("stdin"))
+	b.WriteString(st.Dim(" › 1–7 | "))
 	b.WriteString(st.DimGreen("y"))
 	b.WriteString(st.Dim("/"))
 	b.WriteString(st.DimGreen("a"))
 	b.WriteString(st.Dim("/"))
 	b.WriteString(st.DimGreen("d"))
-	b.WriteString(st.Dim("… "))
-	b.WriteString(st.BoldYellow("› "))
+	b.WriteString(st.Dim(" … "))
+	b.WriteString(st.BoldBrightGreen("▸ "))
 
 	_, _ = io.WriteString(u.out, b.String())
 	u.mu.Unlock()
@@ -445,27 +484,6 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	default:
 		return DecisionDenyOnce
 	}
-}
-
-func formatParamsMultiline(params map[string]any) string {
-	if len(params) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var lines []string
-	for _, k := range keys {
-		val := fmt.Sprintf("%v", params[k])
-		val = strings.ReplaceAll(val, "\n", " ")
-		if len(val) > 120 {
-			val = val[:119] + "…"
-		}
-		lines = append(lines, fmt.Sprintf("%s: %s", k, val))
-	}
-	return strings.Join(lines, "\n")
 }
 
 // StartESCMonitor is a no-op kept for backwards compatibility with the
