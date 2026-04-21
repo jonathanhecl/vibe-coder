@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 const (
@@ -31,6 +32,9 @@ type Client interface {
 type HTTPClient struct {
 	baseURL string
 	http    *http.Client
+
+	mu                  sync.Mutex
+	thinkDisabledModels map[string]bool // by model name: Ollama rejected think for this model in-process
 }
 
 type Message struct {
@@ -108,7 +112,33 @@ func NewHTTP(baseURL string) Client {
 		http: &http.Client{
 			Timeout: defaultHTTPTimeout,
 		},
+		thinkDisabledModels: make(map[string]bool),
 	}
+}
+
+func (c *HTTPClient) applyThinkSessionOverride(req *ChatRequest) {
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.thinkDisabledModels[model] {
+		req.Think = false
+	}
+}
+
+func (c *HTTPClient) markThinkUnsupported(model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.thinkDisabledModels == nil {
+		c.thinkDisabledModels = make(map[string]bool)
+	}
+	c.thinkDisabledModels[model] = true
 }
 
 func (c *HTTPClient) Tags(ctx context.Context) ([]Model, error) {
@@ -159,6 +189,49 @@ func (c *HTTPClient) Version(ctx context.Context) (string, error) {
 	return out.Version, nil
 }
 
+// isThinkingUnsupportedBody detects Ollama's 400 when the model cannot run with "think": true.
+func isThinkingUnsupportedBody(body string) bool {
+	b := strings.ToLower(body)
+	if !strings.Contains(b, "thinking") {
+		return false
+	}
+	return strings.Contains(b, "does not support") || strings.Contains(b, "not support")
+}
+
+// postChat calls /api/chat; on 400 "does not support thinking" it retries once with think disabled.
+func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Response, error) {
+	attempt := req
+	for {
+		payload, err := json.Marshal(attempt)
+		if err != nil {
+			return nil, fmt.Errorf("marshal chat request: %w", err)
+		}
+		resp, err := doPOSTWithRetry(ctx, c.http, func() (*http.Request, error) {
+			httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", bytes.NewReader(payload))
+			if err != nil {
+				return nil, err
+			}
+			httpReq.Header.Set("Content-Type", "application/json")
+			return httpReq, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+		_ = resp.Body.Close()
+		bodyStr := string(body)
+		if resp.StatusCode == http.StatusBadRequest && attempt.Think && isThinkingUnsupportedBody(bodyStr) {
+			c.markThinkUnsupported(attempt.Model)
+			attempt.Think = false
+			continue
+		}
+		return nil, mapChatError(resp.StatusCode, bodyStr)
+	}
+}
+
 func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, error) {
 	if req.Model == "" {
 		return nil, errors.New("chat model is required")
@@ -177,27 +250,11 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 		req.KeepAlive = -1
 	}
 
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal chat request: %w", err)
-	}
+	c.applyThinkSessionOverride(&req)
 
-	resp, err := doPOSTWithRetry(ctx, c.http, func() (*http.Request, error) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", bytes.NewReader(payload))
-		if err != nil {
-			return nil, err
-		}
-		httpReq.Header.Set("Content-Type", "application/json")
-		return httpReq, nil
-	})
+	resp, err := c.postChat(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("ollama chat: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
-		return nil, fmt.Errorf("ollama chat: %w", mapChatError(resp.StatusCode, string(body)))
 	}
 
 	if !streamRequested {

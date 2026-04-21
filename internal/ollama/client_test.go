@@ -175,3 +175,117 @@ func TestChatErrorMapping(t *testing.T) {
 	}
 }
 
+func TestIsThinkingUnsupportedBody(t *testing.T) {
+	t.Parallel()
+	if !isThinkingUnsupportedBody(`{"error":"\"x\" does not support thinking"}`) {
+		t.Fatal("expected true for Ollama thinking error")
+	}
+	if isThinkingUnsupportedBody(`{"error":"bad request"}`) {
+		t.Fatal("expected false")
+	}
+}
+
+func TestChatRetriesWithoutThinkOnUnsupported(t *testing.T) {
+	t.Parallel()
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			http.NotFound(w, r)
+			return
+		}
+		n++
+		if n == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"\"m\" does not support thinking"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"content":"ok"},"done":true}` + "\n"))
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	ch, err := client.Chat(context.Background(), ChatRequest{
+		Model: "m",
+		Messages: []Message{
+			{Role: "user", Content: "hi"},
+		},
+		Stream: true,
+		Think:  true,
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	var got strings.Builder
+	for c := range ch {
+		if c.Err != nil {
+			t.Fatal(c.Err)
+		}
+		got.WriteString(c.Delta)
+	}
+	if got.String() != "ok" {
+		t.Fatalf("got %q", got.String())
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 HTTP requests, got %d", n)
+	}
+}
+
+func TestChatSkipsThinkAfterModelMarkedUnsupported(t *testing.T) {
+	t.Parallel()
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			http.NotFound(w, r)
+			return
+		}
+		n++
+		if n == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"\"m\" does not support thinking"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"content":"second"},"done":true}` + "\n"))
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	ctx := context.Background()
+
+	ch1, err := client.Chat(ctx, ChatRequest{
+		Model:    "m",
+		Messages: []Message{{Role: "user", Content: "a"}},
+		Stream:   true,
+		Think:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch1 {
+	}
+
+	ch2, err := client.Chat(ctx, ChatRequest{
+		Model:    "m",
+		Messages: []Message{{Role: "user", Content: "b"}},
+		Stream:   true,
+		Think:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got strings.Builder
+	for c := range ch2 {
+		if c.Err != nil {
+			t.Fatal(c.Err)
+		}
+		got.WriteString(c.Delta)
+	}
+	if got.String() != "second" {
+		t.Fatalf("got %q", got.String())
+	}
+	if n != 3 {
+		t.Fatalf("expected 3 HTTP requests (fail+ok, ok), got %d", n)
+	}
+}
+
