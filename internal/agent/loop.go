@@ -184,7 +184,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				return nil
 			}
 			if !a.perm.Check(toolName, toolParams, a.ui) {
-				a.sess.AddSystemNote("Permission denied.")
+				a.sess.AddSystemNote(permissionDeniedNote(a.perm))
 				a.ui.EndAssistant()
 				return nil
 			}
@@ -235,7 +235,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				return nil
 			}
 			if !a.perm.Check(toolName, toolParams, a.ui) {
-				deny := "Permission denied."
+				deny := permissionDeniedNote(a.perm)
 				a.ui.ShowToolResult(toolName, deny, true)
 				a.sess.AddSystemNote(deny)
 				return nil
@@ -639,6 +639,13 @@ func (a *Agent) tryAutoPullModel(ctx context.Context) bool {
 		a.ui.StartWaiting("pulling " + short + " — " + progress)
 	})
 	return pullErr == nil
+}
+
+func permissionDeniedNote(m *permissions.Manager) string {
+	if m.WasCancelled() {
+		return "Cancelled."
+	}
+	return "Permission denied."
 }
 
 // shortModelName trims long Ollama identifiers (e.g.

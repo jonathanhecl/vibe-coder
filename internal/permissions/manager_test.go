@@ -42,14 +42,55 @@ func TestAlwaysConfirmBashEvenWithYesMode(t *testing.T) {
 	}
 }
 
+func TestAllowSessionDoesNotWritePermFile(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.env")
+	if err := os.WriteFile(cfgPath, []byte("MODEL=test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(&config.Config{PermFile: cfgPath})
+	if !m.Check("Write", map[string]any{"file_path": "a", "contents": "b"}, fakeUI{decision: tui.DecisionAllowSession}) {
+		t.Fatal("expected allow-session to permit write")
+	}
+	raw, _ := os.ReadFile(cfgPath)
+	if strings.Contains(string(raw), config.ToolPermissionsKey) {
+		t.Fatalf("allow-session must not write TOOL_PERMISSIONS, got %q", string(raw))
+	}
+	m2 := NewManager(&config.Config{PermFile: cfgPath})
+	if m2.Check("Write", map[string]any{"file_path": "a", "contents": "b"}, nil) {
+		t.Fatal("expected fresh manager to deny write without persisted rule")
+	}
+}
+
+func TestCancelSetsWasCancelled(t *testing.T) {
+	t.Parallel()
+	m := NewManager(&config.Config{})
+	if m.Check("Write", map[string]any{"file_path": "a", "contents": "b"}, fakeUI{decision: tui.DecisionCancel}) {
+		t.Fatal("cancel should deny")
+	}
+	if !m.WasCancelled() {
+		t.Fatal("expected WasCancelled true")
+	}
+	if !m.Check("Write", map[string]any{"file_path": "a", "contents": "b"}, fakeUI{decision: tui.DecisionAllowOnce}) {
+		t.Fatal("expected allow once after cancel")
+	}
+	if m.WasCancelled() {
+		t.Fatal("WasCancelled should reset on next Check")
+	}
+}
+
 func TestPersistentRulesLoadAndSave(t *testing.T) {
 	tmp := t.TempDir()
-	permFile := filepath.Join(tmp, "permissions.json")
-	if err := os.WriteFile(permFile, []byte(`{"write":"allow","bash":"allow","edit":"deny"}`), 0o644); err != nil {
-		t.Fatalf("write seed permissions: %v", err)
+	cfgPath := filepath.Join(tmp, "config.env")
+	seed := `MODEL=test
+TOOL_PERMISSIONS={"write":"allow","bash":"allow","edit":"deny"}
+`
+	if err := os.WriteFile(cfgPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("write seed config: %v", err)
 	}
 
-	m := NewManager(&config.Config{PermFile: permFile})
+	m := NewManager(&config.Config{PermFile: cfgPath})
 	if !m.Check("Write", map[string]any{}, nil) {
 		t.Fatalf("expected write allowed from persistent rules")
 	}
@@ -62,11 +103,14 @@ func TestPersistentRulesLoadAndSave(t *testing.T) {
 	}
 
 	m.AllowAll("Write")
-	raw, err := os.ReadFile(permFile)
+	raw, err := os.ReadFile(cfgPath)
 	if err != nil {
-		t.Fatalf("read permissions file: %v", err)
+		t.Fatalf("read config file: %v", err)
 	}
 	if strings.Contains(strings.ToLower(string(raw)), `"bash":"allow"`) {
 		t.Fatalf("bash allow must not be persisted: %s", string(raw))
+	}
+	if !strings.Contains(string(raw), "TOOL_PERMISSIONS=") {
+		t.Fatalf("expected TOOL_PERMISSIONS in config.env")
 	}
 }

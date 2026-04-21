@@ -2,7 +2,6 @@ package permissions
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +11,8 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
+
+const legacyPermissionsFile = "permissions.json"
 
 type Tier int
 
@@ -34,6 +35,9 @@ type Manager struct {
 	file    string
 
 	persistent map[string]string
+
+	// permissionCancelled is set when the user picks Cancel in the permission UI.
+	permissionCancelled bool
 }
 
 var (
@@ -77,6 +81,15 @@ func (m *Manager) SetYesMode(on bool) {
 	m.yesMode = on
 }
 
+// AllowSession remembers allow for this process only (not written to disk).
+func (m *Manager) AllowSession(tool string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	norm := normalizeTool(tool)
+	delete(m.deny, norm)
+	m.allow[norm] = struct{}{}
+}
+
 func (m *Manager) AllowAll(tool string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -89,6 +102,15 @@ func (m *Manager) AllowAll(tool string) {
 	}
 }
 
+// DenySession blocks the tool for this process only (not written to disk).
+func (m *Manager) DenySession(tool string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	norm := normalizeTool(tool)
+	delete(m.allow, norm)
+	m.deny[norm] = struct{}{}
+}
+
 func (m *Manager) DenyAll(tool string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -99,10 +121,18 @@ func (m *Manager) DenyAll(tool string) {
 	_ = m.savePersistentLocked()
 }
 
+// WasCancelled reports whether the last Check ended with an explicit Cancel choice.
+func (m *Manager) WasCancelled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.permissionCancelled
+}
+
 func (m *Manager) Check(toolName string, params map[string]any, ui prompter) bool {
 	tool := normalizeTool(toolName)
 
 	m.mu.Lock()
+	m.permissionCancelled = false
 	_, denied := m.deny[tool]
 	if denied {
 		m.mu.Unlock()
@@ -147,15 +177,26 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	switch decision {
 	case tui.DecisionAllowOnce:
 		return true
-	case tui.DecisionAllowAll:
+	case tui.DecisionAllowSession:
+		m.AllowSession(tool)
+		return true
+	case tui.DecisionAllowPersistent:
 		m.AllowAll(tool)
 		return true
-	case tui.DecisionDenyAll:
+	case tui.DecisionDenySession:
+		m.DenySession(tool)
+		return false
+	case tui.DecisionDenyPersistent:
 		m.DenyAll(tool)
 		return false
 	case tui.DecisionYesMode:
 		m.SetYesMode(true)
 		return true
+	case tui.DecisionCancel:
+		m.mu.Lock()
+		m.permissionCancelled = true
+		m.mu.Unlock()
+		return false
 	default:
 		return false
 	}
@@ -203,6 +244,7 @@ func (m *Manager) loadPersistent() {
 	}
 	info, err := os.Lstat(m.file)
 	if err != nil {
+		m.tryLoadLegacyPermissionsFile()
 		return
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
@@ -210,12 +252,33 @@ func (m *Manager) loadPersistent() {
 	}
 	data, err := os.ReadFile(m.file)
 	if err != nil {
+		m.tryLoadLegacyPermissionsFile()
 		return
+	}
+	if p, ok := config.ParseToolPermissionsFromEnvContent(data); ok {
+		m.mergePersistentMap(p)
+	} else if raw := parseLegacyJSONPermissionsFile(data); len(raw) > 0 {
+		// Standalone JSON file (old layout or misnamed config).
+		m.mergePersistentMap(raw)
+	}
+	if !strings.Contains(string(data), config.ToolPermissionsKey+"=") {
+		m.tryLoadLegacyPermissionsFile()
+	}
+}
+
+func parseLegacyJSONPermissionsFile(data []byte) map[string]string {
+	trim := strings.TrimSpace(string(data))
+	if !strings.HasPrefix(trim, "{") {
+		return nil
 	}
 	raw := map[string]string{}
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return
+		return nil
 	}
+	return raw
+}
+
+func (m *Manager) mergePersistentMap(raw map[string]string) {
 	for k, v := range raw {
 		k = normalizeTool(k)
 		v = strings.ToLower(strings.TrimSpace(v))
@@ -229,13 +292,34 @@ func (m *Manager) loadPersistent() {
 	}
 }
 
+// tryLoadLegacyPermissionsFile loads permissions.json next to config.env once,
+// so existing installs keep their rules until the next save (which writes TOOL_PERMISSIONS).
+func (m *Manager) tryLoadLegacyPermissionsFile() {
+	if strings.TrimSpace(m.file) == "" {
+		return
+	}
+	legacy := filepath.Join(filepath.Dir(m.file), legacyPermissionsFile)
+	info, err := os.Lstat(legacy)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	data, err := os.ReadFile(legacy)
+	if err != nil {
+		return
+	}
+	raw := map[string]string{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	if len(raw) == 0 {
+		return
+	}
+	m.mergePersistentMap(raw)
+}
+
 func (m *Manager) savePersistentLocked() error {
 	if strings.TrimSpace(m.file) == "" {
 		return nil
-	}
-	parent := filepath.Dir(m.file)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return err
 	}
 	out := map[string]string{}
 	for k, v := range m.persistent {
@@ -244,31 +328,13 @@ func (m *Manager) savePersistentLocked() error {
 		}
 		out[k] = v
 	}
-	raw, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
+	if err := config.UpsertToolPermissions(m.file, out); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(parent, "*.permissions.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := os.Rename(tmpPath, m.file); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("save permissions: %w", err)
+	// One-time migration: stop using a separate permissions.json next to config.
+	legacy := filepath.Join(filepath.Dir(m.file), legacyPermissionsFile)
+	if st, err := os.Lstat(legacy); err == nil && !st.IsDir() {
+		_ = os.Remove(legacy)
 	}
 	return nil
 }

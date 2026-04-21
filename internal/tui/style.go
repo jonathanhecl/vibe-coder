@@ -80,6 +80,8 @@ func (s Style) DimBlue(text string) string     { return s.wrap(cDimBlue, text) }
 func (s Style) BoldGreen(text string) string   { return s.wrap(cBold+cGreen, text) }
 func (s Style) BoldBlue(text string) string    { return s.wrap(cBold+cBlue, text) }
 func (s Style) BoldYellow(text string) string  { return s.wrap(cBold+cYellow, text) }
+func (s Style) BoldCyan(text string) string     { return s.wrap(cBold+cCyan, text) }
+func (s Style) BoldMagenta(text string) string { return s.wrap(cBold+cMagenta, text) }
 func (s Style) BoldRed(text string) string     { return s.wrap(cBold+cRed, text) }
 
 // ClearPendingLine returns the escape sequence used to wipe a previously

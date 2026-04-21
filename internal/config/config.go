@@ -76,6 +76,9 @@ func Load(args []string) (*Config, error) {
 		configPath = filepath.Join(cfg.ConfigDir, "config.env")
 	}
 	cfg.ConfigFile = configPath
+	if strings.TrimSpace(cfg.PermFile) == "" {
+		cfg.PermFile = cfg.ConfigFile
+	}
 
 	if err := applyConfigFile(cfg, configPath); err != nil {
 		return nil, err
@@ -114,13 +117,13 @@ func autoDetectModel() string {
 	ramGB := detectRAMGB()
 	switch {
 	case ramGB >= 48:
-		return "qwen2.5:14b"
+		return "qwen3.5:27b"
 	case ramGB >= 24:
-		return "llama3.1:8b"
+		return "qwen3.5:9b"
 	case ramGB >= 12:
-		return "qwen2.5:7b"
+		return "qwen3.5:4b"
 	default:
-		return "llama3.2:3b"
+		return "qwen3.5:2b"
 	}
 }
 
@@ -178,8 +181,9 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 		ConfigDir:     configDir,
 		StateDir:      stateDir,
 		SessionsDir:   filepath.Join(stateDir, "sessions"),
-		PermFile:      filepath.Join(configDir, "permissions.json"),
-		HistoryFile:   filepath.Join(stateDir, "history.txt"),
+		// PermFile is set in Load() to ConfigFile so permissions live in config.env.
+		PermFile:    "",
+		HistoryFile: filepath.Join(stateDir, "history.txt"),
 	}
 }
 

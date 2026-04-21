@@ -50,11 +50,21 @@ type PlainUI struct {
 type Decision int
 
 const (
-	DecisionDeny Decision = iota
+	DecisionDenyOnce Decision = iota
 	DecisionAllowOnce
-	DecisionAllowAll
-	DecisionDenyAll
+	DecisionAllowSession
+	DecisionAllowPersistent
+	DecisionDenySession
+	DecisionDenyPersistent
 	DecisionYesMode
+	DecisionCancel
+)
+
+// Backward-compatible aliases for older call sites and tests.
+const (
+	DecisionDeny       = DecisionDenyOnce
+	DecisionAllowAll   = DecisionAllowPersistent
+	DecisionDenyAll    = DecisionDenyPersistent
 )
 
 const (
@@ -335,36 +345,127 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// AskPermission prompts the user with a colored question for tool consent.
+// AskPermission prompts the user with a colored panel for tool consent (English labels).
 func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	u.stopSpinner()
 	u.mu.Lock()
 	u.flushPendingToolLocked()
-	question := fmt.Sprintf("%s %s%s",
-		u.style.BoldYellow("?"),
-		u.style.BoldYellow("Allow "+tool),
-		u.style.Yellow(formatParams(params)),
-	)
-	choices := u.style.DimGreen(" [y]es / [n]o / [a]ll / [d]eny-all / [s]kip-all-confirm: ")
-	_, _ = fmt.Fprint(u.out, question, choices)
+
+	st := u.style
+	toolLine := st.BoldCyan(tool) + st.Yellow(formatParams(params))
+	paramDetail := formatParamsMultiline(params)
+
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(st.BoldCyan("╭"))
+	b.WriteString(st.Cyan(strings.Repeat("─", 58)))
+	b.WriteString(st.BoldCyan("╮\n"))
+	b.WriteString(st.Cyan("│ "))
+	b.WriteString(st.BoldYellow("Permission required"))
+	b.WriteString(st.Dim(" — choose how to proceed"))
+	b.WriteString(st.Cyan("│\n"))
+	b.WriteString(st.Cyan("│ "))
+	b.WriteString(st.Magenta("⏵ "))
+	b.WriteString(st.BoldYellow("Tool "))
+	b.WriteString(toolLine)
+	b.WriteString(st.Cyan("│\n"))
+	if paramDetail != "" {
+		for _, ln := range strings.Split(paramDetail, "\n") {
+			b.WriteString(st.Cyan("│   "))
+			b.WriteString(st.Dim(ln))
+			b.WriteString(st.Cyan("│\n"))
+		}
+	}
+	b.WriteString(st.Cyan("╰"))
+	b.WriteString(st.Cyan(strings.Repeat("─", 58)))
+	b.WriteString(st.BoldCyan("╯\n"))
+
+	b.WriteString("\n")
+	writeOpt := func(n string, label, desc string, color func(string) string) {
+		b.WriteString("  ")
+		b.WriteString(st.BoldGreen(n))
+		b.WriteString("  ")
+		b.WriteString(color(label))
+		if desc != "" {
+			b.WriteString(st.Dim(" — " + desc))
+		}
+		b.WriteString("\n")
+	}
+	writeOpt("1", "Allow once", "this invocation only", st.BrightGreen)
+	writeOpt("2", "Always allow (this session)", "until you exit vibe-coder", st.Green)
+	writeOpt("3", "Always allow (saved)", "written to permissions file", st.BrightBlue)
+	b.WriteString("\n")
+	writeOpt("4", "Not now", "deny once; you may be asked again", st.Yellow)
+	writeOpt("5", "No — block for this session", "this tool stays off until exit", st.Red)
+	writeOpt("6", "Never allow (saved)", "written to permissions file", st.BoldRed)
+	writeOpt("7", "Cancel", "abort this run", st.Magenta)
+	b.WriteString("\n")
+	b.WriteString("  ")
+	b.WriteString(st.Dim("[s] "))
+	b.WriteString(st.Dim("Enable yes mode (auto-approve non-dangerous tools)\n"))
+	b.WriteString("\n")
+	b.WriteString(st.Dim("Enter 1–7, or letter shortcuts "))
+	b.WriteString(st.DimGreen("y"))
+	b.WriteString(st.Dim("/"))
+	b.WriteString(st.DimGreen("a"))
+	b.WriteString(st.Dim("/"))
+	b.WriteString(st.DimGreen("d"))
+	b.WriteString(st.Dim("… "))
+	b.WriteString(st.BoldYellow("› "))
+
+	_, _ = io.WriteString(u.out, b.String())
 	u.mu.Unlock()
 
 	line, err := u.reader.ReadString('\n')
 	if err != nil {
-		return DecisionDeny
+		return DecisionDenyOnce
 	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
+	s := strings.TrimSpace(strings.ToLower(trimLine(line)))
+	if s == "" {
+		return DecisionDenyOnce
+	}
+
+	switch s {
+	case "1", "y", "yes":
 		return DecisionAllowOnce
-	case "a", "all":
-		return DecisionAllowAll
-	case "d", "deny-all":
-		return DecisionDenyAll
-	case "s", "skip-all-confirm":
+	case "2":
+		return DecisionAllowSession
+	case "3", "a", "all":
+		return DecisionAllowPersistent
+	case "4", "n":
+		return DecisionDenyOnce
+	case "5":
+		return DecisionDenySession
+	case "6", "d", "deny-all", "denyall":
+		return DecisionDenyPersistent
+	case "7", "q", "quit", "c", "cancel":
+		return DecisionCancel
+	case "s", "skip", "skip-all-confirm":
 		return DecisionYesMode
 	default:
-		return DecisionDeny
+		return DecisionDenyOnce
 	}
+}
+
+func formatParamsMultiline(params map[string]any) string {
+	if len(params) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var lines []string
+	for _, k := range keys {
+		val := fmt.Sprintf("%v", params[k])
+		val = strings.ReplaceAll(val, "\n", " ")
+		if len(val) > 120 {
+			val = val[:119] + "…"
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", k, val))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // StartESCMonitor is a no-op kept for backwards compatibility with the
