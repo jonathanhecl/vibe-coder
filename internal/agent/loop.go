@@ -571,6 +571,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 		} else {
 			var b strings.Builder
 			thinkingSeen := false
+			lastShown := 0 // bytes of assistant text already streamed to the terminal (hides tool XML)
 			for chunk := range stream {
 				if chunk.Err != nil {
 					a.ui.StopWaiting()
@@ -596,17 +597,30 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 						thinkingSeen = false
 					}
 					a.ui.StopWaiting()
-					a.ui.StreamAssistant(chunk.Delta)
 					b.WriteString(chunk.Delta)
+					full := b.String()
+					cut := toolEnvelopeByteIndex(full)
+					end := len(full)
+					if cut >= 0 {
+						end = cut
+					}
+					if end > lastShown {
+						a.ui.StreamAssistant(full[lastShown:end])
+						lastShown = end
+					}
 				}
 				if chunk.Done {
 					a.ui.StopWaiting()
 					if thinkingSeen {
 						a.ui.EndThinking()
 					}
+					full := b.String()
+					if tail := assistantTextAfterFirstClosedTool(full); tail != "" {
+						a.ui.StreamAssistant(tail)
+					}
 					cancel()
 					a.ui.EndAssistant()
-					return b.String(), nil
+					return full, nil
 				}
 			}
 			a.ui.StopWaiting()
@@ -614,9 +628,13 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 				a.ui.EndThinking()
 			}
 			if b.Len() > 0 && lastErr == nil {
+				full := b.String()
+				if tail := assistantTextAfterFirstClosedTool(full); tail != "" {
+					a.ui.StreamAssistant(tail)
+				}
 				cancel()
 				a.ui.EndAssistant()
-				return b.String(), nil
+				return full, nil
 			}
 		}
 		cancel()
