@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -174,7 +175,7 @@ func main() {
 			if err := sess.Save(); err != nil {
 				fmt.Fprintf(os.Stderr, "error: failed to save session: %v\n", err)
 			}
-			fmt.Fprintln(os.Stdout, "\nBye.")
+			printByeOnInterrupt()
 			return
 		}
 		line = strings.TrimSpace(line)
@@ -264,7 +265,7 @@ func installSignalHandler(ui interface{ Stop() }, sess interface{ Save() error }
 		if sess != nil {
 			_ = sess.Save()
 		}
-		fmt.Fprintln(os.Stdout, "\nBye.")
+		printByeOnInterrupt()
 
 		go func() {
 			<-sigCh
@@ -280,6 +281,16 @@ func installSignalHandler(ui interface{ Stop() }, sess interface{ Save() error }
 		}
 		os.Exit(130)
 	}()
+}
+
+// printByeOnInterrupt prints the goodbye line at most once. Both the signal
+// handler and the read loop (stdin closed / interrupted) can run on Ctrl+C.
+var byeOnInterruptOnce sync.Once
+
+func printByeOnInterrupt() {
+	byeOnInterruptOnce.Do(func() {
+		fmt.Fprintln(os.Stdout, "\nBye.")
+	})
 }
 
 func extractPersistDirective(args []string) ([]string, bool) {
