@@ -13,6 +13,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
 type Ctx struct {
@@ -53,10 +54,10 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		return true, true, nil
 	case "/help":
-		fmt.Fprintln(c.Out, "Commands: /exit /quit /q /help /clear /status /save /yes /no /compact /model /tokens /commit /plan /approve /sidecar /sessions /resume")
+		printHelp(c)
 		return true, false, nil
 	case "/sessions":
-		return true, false, runSessionsList(c)
+		return true, false, runSessionsCommand(c, fields[1:])
 	case "/resume":
 		var id string
 		if len(fields) > 1 {
@@ -300,38 +301,187 @@ func runGit(cwd string, args ...string) (string, error) {
 	return string(out), nil
 }
 
-// runSessionsList prints a compact, human-readable table of saved
-// sessions (most recent first), highlighting the one already mapped to
-// the current cwd in project-index.json.
+// runSessionsCommand dispatches /sessions and its subcommands.
+// Supported forms:
+//   /sessions                    -> list (default)
+//   /sessions list               -> list (explicit)
+//   /sessions delete <id>        -> remove a single saved session
+//   /sessions delete --all       -> wipe every saved session + index
+//   /sessions rm <id>            -> alias for delete
+func runSessionsCommand(c *Ctx, args []string) error {
+	sub := "list"
+	if len(args) > 0 {
+		sub = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	switch sub {
+	case "", "list", "ls":
+		return runSessionsList(c)
+	case "delete", "del", "rm", "remove":
+		return runSessionsDelete(c, args[1:])
+	default:
+		fmt.Fprintln(c.Out, "Usage: /sessions [list | delete <id> | delete --all]")
+		return nil
+	}
+}
+
+// runSessionsList prints a compact, color-aware table of saved sessions
+// (most recent first), highlighting the one mapped to the current cwd.
+// Width of the id column is fixed at 16 chars (truncated) so the table
+// stays aligned even with long ids.
 func runSessionsList(c *Ctx) error {
 	infos, err := session.ListSessions(c.Cfg)
 	if err != nil {
 		return err
 	}
+	st := tui.NewStyle(c.Out)
 	if len(infos) == 0 {
-		fmt.Fprintf(c.Out, "No sessions found in %s\n", c.Cfg.SessionsDir)
+		fmt.Fprintf(c.Out, "%s %s\n",
+			st.Yellow("No sessions found in"),
+			st.Dim(c.Cfg.SessionsDir),
+		)
 		return nil
 	}
-	fmt.Fprintf(c.Out, "Sessions in %s (most recent first):\n", c.Cfg.SessionsDir)
+	fmt.Fprintf(c.Out, "%s %s\n",
+		st.BoldCyan("Sessions in"),
+		st.Dim(c.Cfg.SessionsDir),
+	)
+	header := fmt.Sprintf("  %-2s %-16s %-16s %-5s  %s", "", "ID", "MODIFIED", "MSGS", "PREVIEW")
+	fmt.Fprintln(c.Out, st.Dim(header))
 	for _, info := range infos {
-		marker := " "
+		marker := "  "
 		if info.IsCurrentProject {
-			marker = "*"
+			marker = st.BoldGreen("*")
+		}
+		idCol := info.ID
+		if len(idCol) > 16 {
+			idCol = idCol[:16]
 		}
 		preview := info.Preview
 		if preview == "" {
-			preview = "(no user message)"
+			preview = st.Dim("(no user message)")
 		}
-		fmt.Fprintf(c.Out, "%s %s  %s  msgs=%d  %s\n",
+		row := fmt.Sprintf("  %s %-16s %-16s %5d  %s",
 			marker,
-			info.ID,
-			info.ModTime.Local().Format("2006-01-02 15:04"),
+			st.Cyan(idCol),
+			st.Gray(info.ModTime.Local().Format("2006-01-02 15:04")),
 			info.MessageCount,
 			preview,
 		)
+		fmt.Fprintln(c.Out, row)
 	}
-	fmt.Fprintln(c.Out, "(* = session mapped to the current project path; use /resume <id> to load a specific one)")
+	fmt.Fprintln(c.Out, st.Dim("(* = current project path | use /resume <id> or /sessions delete <id>)"))
 	return nil
+}
+
+// runSessionsDelete handles "/sessions delete <id>" and
+// "/sessions delete --all". When the deleted session is the one currently
+// loaded in memory we also clear the live transcript so the REPL doesn't
+// keep silently writing to a freshly-deleted file on the next /save.
+func runSessionsDelete(c *Ctx, args []string) error {
+	st := tui.NewStyle(c.Out)
+	if len(args) == 0 {
+		fmt.Fprintln(c.Out, st.Yellow("Usage: /sessions delete <id> | --all"))
+		return nil
+	}
+	target := strings.TrimSpace(args[0])
+	if target == "--all" || target == "-a" || target == "all" {
+		removed, err := session.DeleteAllSessions(c.Cfg)
+		if err != nil {
+			return err
+		}
+		c.Session.Clear()
+		fmt.Fprintf(c.Out, "%s %s\n",
+			st.BoldRed("Deleted"),
+			st.Bold(fmt.Sprintf("%d session(s)", removed)),
+		)
+		fmt.Fprintf(c.Out, "%s %s\n",
+			st.Dim("Started a new in-memory session"),
+			st.Cyan("("+c.Session.ID()+")"),
+		)
+		return nil
+	}
+	if err := session.DeleteSession(c.Cfg, target); err != nil {
+		return fmt.Errorf("delete session %q: %w", target, err)
+	}
+	if c.Session.ID() == target {
+		c.Session.Clear()
+		fmt.Fprintf(c.Out, "%s %s %s %s\n",
+			st.BoldRed("Deleted"),
+			st.Cyan(target),
+			st.Dim("- started fresh in-memory session"),
+			st.Cyan("("+c.Session.ID()+")"),
+		)
+		return nil
+	}
+	fmt.Fprintf(c.Out, "%s %s\n", st.BoldRed("Deleted"), st.Cyan(target))
+	return nil
+}
+
+// printHelp renders a grouped, color-aware command reference. We keep the
+// layout single-column so it works in narrow terminals; the colors and
+// dim descriptions do the heavy lifting visually.
+func printHelp(c *Ctx) {
+	st := tui.NewStyle(c.Out)
+	fmt.Fprintln(c.Out, st.BoldCyan("vibe-coder commands"))
+	groups := []struct {
+		title string
+		items [][2]string
+	}{
+		{"Session", [][2]string{
+			{"/save", "persist the current session to disk"},
+			{"/clear", "save and start a brand new session"},
+			{"/sessions", "list saved sessions (* = current project)"},
+			{"/sessions delete <id>", "delete a specific session"},
+			{"/sessions delete --all", "delete every saved session"},
+			{"/resume", "resume the last session for this project path"},
+			{"/resume <id>", "resume a specific session by id"},
+			{"/compact", "force a sidecar-summarized compaction"},
+			{"/tokens", "show token usage vs the context window"},
+			{"/status", "model, cwd, session and sidecar status"},
+		}},
+		{"Model", [][2]string{
+			{"/model", "show the active model"},
+			{"/model <name>", "switch the active model for this run"},
+			{"/sidecar on|off", "toggle the sidecar for this session"},
+			{"/sidecar perm-on|perm-off", "persist sidecar state to config.env"},
+			{"/sidecar status", "show current sidecar state"},
+		}},
+		{"Mode", [][2]string{
+			{"/yes", "auto-approve subsequent permission prompts"},
+			{"/no", "require manual approval (default)"},
+			{"/plan", "enter plan mode (writes restricted to .vibe-coder/plans)"},
+			{"/approve", "exit plan mode and resume act mode"},
+		}},
+		{"Git", [][2]string{
+			{"/commit", "stage + commit current changes (LLM-suggested message)"},
+		}},
+		{"Misc", [][2]string{
+			{"/help", "show this help"},
+			{"/exit, /quit, /q", "save and exit"},
+		}},
+	}
+	maxCmd := 0
+	for _, g := range groups {
+		for _, it := range g.items {
+			if l := len(it[0]); l > maxCmd {
+				maxCmd = l
+			}
+		}
+	}
+	for i, g := range groups {
+		if i > 0 {
+			fmt.Fprintln(c.Out)
+		}
+		fmt.Fprintln(c.Out, st.BoldYellow(g.title))
+		for _, it := range g.items {
+			pad := strings.Repeat(" ", maxCmd-len(it[0]))
+			fmt.Fprintf(c.Out, "  %s%s  %s\n",
+				st.Green(it[0]),
+				pad,
+				st.Dim(it[1]),
+			)
+		}
+	}
 }
 
 // runResume loads a previously saved session into the live REPL state.

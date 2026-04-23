@@ -307,6 +307,151 @@ func (s *Session) LoadByProject() (bool, error) {
 	return true, nil
 }
 
+// DeleteSession removes a single saved session file by id and prunes any
+// project-index entry that points to it. It is safe to call for ids the
+// caller never created (returns os.ErrNotExist), and the index update is
+// skipped silently when the index file is missing or already clean.
+func DeleteSession(cfg *config.Config, id string) error {
+	if cfg == nil {
+		return fmt.Errorf("nil config")
+	}
+	sanitized := sanitizeSessionID(id)
+	if sanitized == "" {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	dir := strings.TrimSpace(cfg.SessionsDir)
+	if dir == "" {
+		return fmt.Errorf("sessions dir not configured")
+	}
+	dirAbs, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve sessions dir: %w", err)
+	}
+	target := filepath.Join(dir, sanitized+".jsonl")
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve session path: %w", err)
+	}
+	if !strings.HasPrefix(targetAbs, dirAbs+string(filepath.Separator)) {
+		return fmt.Errorf("invalid session path outside sessions dir")
+	}
+	if err := os.Remove(target); err != nil {
+		return fmt.Errorf("remove session file: %w", err)
+	}
+	if err := pruneProjectIndex(dir, sanitized); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeleteAllSessions removes every *.jsonl file in cfg.SessionsDir along
+// with project-index.json. Returns the number of session files removed.
+// Non-session files (logs, configs the user dropped here by mistake) are
+// left untouched.
+func DeleteAllSessions(cfg *config.Config) (int, error) {
+	if cfg == nil {
+		return 0, fmt.Errorf("nil config")
+	}
+	dir := strings.TrimSpace(cfg.SessionsDir)
+	if dir == "" {
+		return 0, fmt.Errorf("sessions dir not configured")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read sessions dir: %w", err)
+	}
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		id := sanitizeSessionID(strings.TrimSuffix(name, ".jsonl"))
+		if id == "" {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			return removed, fmt.Errorf("remove %s: %w", name, err)
+		}
+		removed++
+	}
+	indexPath := filepath.Join(dir, "project-index.json")
+	if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
+		return removed, fmt.Errorf("remove project index: %w", err)
+	}
+	return removed, nil
+}
+
+// pruneProjectIndex removes every entry whose value matches id. We rewrite
+// the file atomically to keep the existing crash-safety guarantees from
+// writeProjectIndex. When the index becomes empty we delete the file
+// entirely so a fresh project starts from a clean state.
+func pruneProjectIndex(dir, id string) error {
+	indexPath := filepath.Join(dir, "project-index.json")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read project index: %w", err)
+	}
+	index := map[string]string{}
+	if err := json.Unmarshal(raw, &index); err != nil {
+		// Corrupt index — nothing useful to prune; leave it for ListSessions
+		// to ignore so we don't accidentally erase recoverable state.
+		return nil
+	}
+	changed := false
+	for hash, mapped := range index {
+		if mapped == id {
+			delete(index, hash)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	if len(index) == 0 {
+		if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove empty project index: %w", err)
+		}
+		return nil
+	}
+	out, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode pruned project index: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "*.index.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp index file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(out); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("write temp index file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close temp index file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp index file: %w", err)
+	}
+	if err := os.Rename(tmpPath, indexPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("replace index file: %w", err)
+	}
+	return nil
+}
+
 // SessionInfo is a lightweight metadata view of a stored session, suitable
 // for listing/picking from the REPL without loading the full transcript.
 type SessionInfo struct {

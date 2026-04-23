@@ -131,8 +131,12 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 	if err != nil || !handled || shouldExit {
 		t.Fatalf("unexpected /sessions result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
-	if !strings.Contains(out.String(), prevID) {
-		t.Fatalf("expected /sessions output to mention seeded id %s, got %q", prevID, out.String())
+	idPrefix := prevID
+	if len(idPrefix) > 16 {
+		idPrefix = idPrefix[:16]
+	}
+	if !strings.Contains(out.String(), idPrefix) {
+		t.Fatalf("expected /sessions output to mention seeded id prefix %s, got %q", idPrefix, out.String())
 	}
 	if !strings.Contains(out.String(), "*") {
 		t.Fatalf("expected current-project marker (*) in /sessions output, got %q", out.String())
@@ -157,5 +161,92 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 	}
 	if live.ID() != prevID {
 		t.Fatalf("/resume <id> should keep id %s, got %s", prevID, live.ID())
+	}
+}
+
+func TestSessionsDeleteSpecificAndAll(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+
+	keep := session.New(cfg)
+	keep.AddUser("keep me")
+	if err := keep.Save(); err != nil {
+		t.Fatalf("save keep: %v", err)
+	}
+	doomed := session.New(cfg)
+	doomed.AddUser("delete me")
+	if err := doomed.Save(); err != nil {
+		t.Fatalf("save doomed: %v", err)
+	}
+	doomedID := doomed.ID()
+
+	live := session.New(cfg)
+	var out bytes.Buffer
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: live,
+		Agent:   &fakePlanAgent{},
+		Out:     &out,
+	}
+
+	handled, shouldExit, err := Dispatch(ctx, "/sessions delete "+doomedID)
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /sessions delete result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(out.String(), "Deleted") {
+		t.Fatalf("expected 'Deleted' confirmation, got %q", out.String())
+	}
+
+	infos, err := session.ListSessions(cfg)
+	if err != nil {
+		t.Fatalf("list after delete: %v", err)
+	}
+	if len(infos) != 1 || infos[0].ID != keep.ID() {
+		t.Fatalf("expected only %s left, got %#v", keep.ID(), infos)
+	}
+
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/sessions delete --all")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /sessions delete --all result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	infos, err = session.ListSessions(cfg)
+	if err != nil {
+		t.Fatalf("list after delete --all: %v", err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("expected zero sessions after delete --all, got %d", len(infos))
+	}
+}
+
+func TestHelpListsGroupedCommands(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	var out bytes.Buffer
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: session.New(cfg),
+		Agent:   &fakePlanAgent{},
+		Out:     &out,
+	}
+	handled, shouldExit, err := Dispatch(ctx, "/help")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /help result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	got := out.String()
+	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/resume", "/sessions delete --all"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected /help output to contain %q, got %q", want, got)
+		}
 	}
 }

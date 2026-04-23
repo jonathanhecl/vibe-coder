@@ -169,6 +169,90 @@ func TestListSessionsMissingDirReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionRemovesFileAndProjectIndexEntry(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: filepath.Join(tmp, "sessions"),
+	}
+	if err := os.MkdirAll(cfg.Cwd, 0o755); err != nil {
+		t.Fatalf("mkdir cwd: %v", err)
+	}
+	s := New(cfg)
+	s.AddUser("disposable session")
+	if err := s.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	indexPath := filepath.Join(cfg.SessionsDir, "project-index.json")
+	if _, err := os.Stat(indexPath); err != nil {
+		t.Fatalf("expected project index to exist before delete: %v", err)
+	}
+
+	if err := DeleteSession(cfg, s.ID()); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.SessionsDir, s.ID()+".jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("expected session file removed, got %v", err)
+	}
+	// Index had only this entry → file should be gone too.
+	if _, err := os.Stat(indexPath); !os.IsNotExist(err) {
+		t.Fatalf("expected empty project index removed, got %v", err)
+	}
+}
+
+func TestDeleteSessionRejectsTraversal(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:         t.TempDir(),
+		SessionsDir: t.TempDir(),
+	}
+	if err := DeleteSession(cfg, "../../../etc/passwd"); err == nil {
+		t.Fatalf("expected error for traversal id, got nil")
+	}
+}
+
+func TestDeleteAllSessionsClearsDirAndIndex(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: filepath.Join(tmp, "sessions"),
+	}
+	if err := os.MkdirAll(cfg.Cwd, 0o755); err != nil {
+		t.Fatalf("mkdir cwd: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		s := New(cfg)
+		s.AddUser("hello")
+		if err := s.Save(); err != nil {
+			t.Fatalf("save %d: %v", i, err)
+		}
+	}
+	// Drop a non-session file to confirm it survives the wipe.
+	keep := filepath.Join(cfg.SessionsDir, "notes.txt")
+	if err := os.WriteFile(keep, []byte("keep me"), 0o600); err != nil {
+		t.Fatalf("write notes: %v", err)
+	}
+
+	removed, err := DeleteAllSessions(cfg)
+	if err != nil {
+		t.Fatalf("delete all: %v", err)
+	}
+	if removed != 3 {
+		t.Fatalf("expected 3 sessions removed, got %d", removed)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.SessionsDir, "project-index.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected project index removed, got %v", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("expected non-session file kept, got %v", err)
+	}
+}
+
 func TestCompactFallbackAndSidecar(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
