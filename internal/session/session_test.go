@@ -92,6 +92,83 @@ func TestSaveLoadAndProjectIndex(t *testing.T) {
 	}
 }
 
+func TestListSessionsReturnsMetadataAndProjectFlag(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: filepath.Join(tmp, "sessions"),
+	}
+	if err := os.MkdirAll(cfg.Cwd, 0o755); err != nil {
+		t.Fatalf("mkdir cwd: %v", err)
+	}
+
+	current := New(cfg)
+	current.AddUser("first message please find me")
+	current.AddAssistant("ack")
+	if err := current.Save(); err != nil {
+		t.Fatalf("save current: %v", err)
+	}
+
+	otherCfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "other"),
+		SessionsDir: cfg.SessionsDir,
+	}
+	if err := os.MkdirAll(otherCfg.Cwd, 0o755); err != nil {
+		t.Fatalf("mkdir other cwd: %v", err)
+	}
+	other := New(otherCfg)
+	other.AddUser("unrelated session")
+	if err := other.Save(); err != nil {
+		t.Fatalf("save other: %v", err)
+	}
+
+	infos, err := ListSessions(cfg)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(infos) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(infos))
+	}
+
+	var foundCurrent bool
+	for _, info := range infos {
+		if info.ID == current.ID() {
+			foundCurrent = true
+			if !info.IsCurrentProject {
+				t.Fatalf("expected current session to be flagged as current project")
+			}
+			if info.MessageCount != 2 {
+				t.Fatalf("expected 2 messages, got %d", info.MessageCount)
+			}
+			if !strings.Contains(info.Preview, "first message please") {
+				t.Fatalf("expected preview to contain first user message, got %q", info.Preview)
+			}
+		} else if info.IsCurrentProject {
+			t.Fatalf("non-current session should not be flagged as current project: %s", info.ID)
+		}
+	}
+	if !foundCurrent {
+		t.Fatalf("current session %s not present in listing", current.ID())
+	}
+}
+
+func TestListSessionsMissingDirReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:         t.TempDir(),
+		SessionsDir: filepath.Join(t.TempDir(), "does-not-exist"),
+	}
+	infos, err := ListSessions(cfg)
+	if err != nil {
+		t.Fatalf("expected nil error for missing dir, got %v", err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("expected empty listing, got %d", len(infos))
+	}
+}
+
 func TestCompactFallbackAndSidecar(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{

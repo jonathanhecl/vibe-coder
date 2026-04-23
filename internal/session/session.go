@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -304,6 +305,129 @@ func (s *Session) LoadByProject() (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// SessionInfo is a lightweight metadata view of a stored session, suitable
+// for listing/picking from the REPL without loading the full transcript.
+type SessionInfo struct {
+	ID               string
+	Path             string
+	ModTime          time.Time
+	Size             int64
+	MessageCount     int
+	Preview          string
+	IsCurrentProject bool
+}
+
+// ListSessions enumerates persisted sessions in cfg.SessionsDir, returning
+// metadata sorted by most recent first. The IsCurrentProject flag is true
+// for the session id mapped to the current cwd in project-index.json.
+func ListSessions(cfg *config.Config) ([]SessionInfo, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("nil config")
+	}
+	dir := strings.TrimSpace(cfg.SessionsDir)
+	if dir == "" {
+		return nil, fmt.Errorf("sessions dir not configured")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read sessions dir: %w", err)
+	}
+
+	currentProjectID := ""
+	if hash, err := cwdHash(cfg.Cwd); err == nil {
+		indexPath := filepath.Join(dir, "project-index.json")
+		if raw, err := os.ReadFile(indexPath); err == nil {
+			index := map[string]string{}
+			if json.Unmarshal(raw, &index) == nil {
+				currentProjectID = sanitizeSessionID(index[hash])
+			}
+		}
+	}
+
+	out := make([]SessionInfo, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		id := sanitizeSessionID(strings.TrimSuffix(name, ".jsonl"))
+		if id == "" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		full := filepath.Join(dir, name)
+		count, preview := scanSessionMeta(full)
+		out = append(out, SessionInfo{
+			ID:               id,
+			Path:             full,
+			ModTime:          info.ModTime(),
+			Size:             info.Size(),
+			MessageCount:     count,
+			Preview:          preview,
+			IsCurrentProject: id == currentProjectID,
+		})
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ModTime.After(out[j].ModTime)
+	})
+	return out, nil
+}
+
+// scanSessionMeta reads a session JSONL file once and returns a message
+// count plus the first user message preview (trimmed to ~80 chars). It is
+// best-effort: any decode error short-circuits with what was collected so
+// far so the listing never crashes on a partially-written file.
+func scanSessionMeta(path string) (int, string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, ""
+	}
+	defer file.Close()
+
+	count := 0
+	preview := ""
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var msg Message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+		count++
+		if preview == "" && msg.Role == "user" {
+			text := strings.TrimSpace(msg.Content)
+			if !strings.HasPrefix(text, "[tool_result") &&
+				!strings.HasPrefix(text, "[Earlier conversation summary]") &&
+				!strings.HasPrefix(text, "[System Note]") {
+				preview = collapseWhitespace(text)
+				if len(preview) > 80 {
+					preview = preview[:80] + "…"
+				}
+			}
+		}
+	}
+	return count, preview
+}
+
+func collapseWhitespace(s string) string {
+	fields := strings.Fields(s)
+	return strings.Join(fields, " ")
 }
 
 func (s *Session) sessionFilePath(id string) (string, error) {

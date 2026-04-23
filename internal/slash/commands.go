@@ -53,8 +53,16 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		return true, true, nil
 	case "/help":
-		fmt.Fprintln(c.Out, "Commands: /exit /quit /q /help /clear /status /save /yes /no /compact /model /tokens /commit /plan /approve /sidecar")
+		fmt.Fprintln(c.Out, "Commands: /exit /quit /q /help /clear /status /save /yes /no /compact /model /tokens /commit /plan /approve /sidecar /sessions /resume")
 		return true, false, nil
+	case "/sessions":
+		return true, false, runSessionsList(c)
+	case "/resume":
+		var id string
+		if len(fields) > 1 {
+			id = strings.TrimSpace(fields[1])
+		}
+		return true, false, runResume(c, id)
 	case "/clear":
 		if err := c.Session.Save(); err != nil {
 			return true, false, err
@@ -290,6 +298,70 @@ func runGit(cwd string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s failed: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
+}
+
+// runSessionsList prints a compact, human-readable table of saved
+// sessions (most recent first), highlighting the one already mapped to
+// the current cwd in project-index.json.
+func runSessionsList(c *Ctx) error {
+	infos, err := session.ListSessions(c.Cfg)
+	if err != nil {
+		return err
+	}
+	if len(infos) == 0 {
+		fmt.Fprintf(c.Out, "No sessions found in %s\n", c.Cfg.SessionsDir)
+		return nil
+	}
+	fmt.Fprintf(c.Out, "Sessions in %s (most recent first):\n", c.Cfg.SessionsDir)
+	for _, info := range infos {
+		marker := " "
+		if info.IsCurrentProject {
+			marker = "*"
+		}
+		preview := info.Preview
+		if preview == "" {
+			preview = "(no user message)"
+		}
+		fmt.Fprintf(c.Out, "%s %s  %s  msgs=%d  %s\n",
+			marker,
+			info.ID,
+			info.ModTime.Local().Format("2006-01-02 15:04"),
+			info.MessageCount,
+			preview,
+		)
+	}
+	fmt.Fprintln(c.Out, "(* = session mapped to the current project path; use /resume <id> to load a specific one)")
+	return nil
+}
+
+// runResume loads a previously saved session into the live REPL state.
+// With no id, it falls back to the project-index entry for the current
+// cwd. The caller's current in-memory transcript is persisted first so we
+// never silently drop unsaved messages when swapping.
+func runResume(c *Ctx, id string) error {
+	if c.Session.MessageCount() > 0 {
+		if err := c.Session.Save(); err != nil {
+			return fmt.Errorf("save current session before resume: %w", err)
+		}
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		ok, err := c.Session.LoadByProject()
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintln(c.Out, "No previous session found for the current project path. Use /sessions to list, or /resume <id>.")
+			return nil
+		}
+		fmt.Fprintf(c.Out, "Resumed project session %s (%d messages)\n", c.Session.ID(), c.Session.MessageCount())
+		return nil
+	}
+	if err := c.Session.Load(id); err != nil {
+		return fmt.Errorf("load session %q: %w", id, err)
+	}
+	fmt.Fprintf(c.Out, "Resumed session %s (%d messages)\n", c.Session.ID(), c.Session.MessageCount())
+	return nil
 }
 
 func sanitizeCommitMessage(raw string) string {
