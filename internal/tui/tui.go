@@ -37,8 +37,10 @@ type PlainUI struct {
 	streamingAssistant bool
 	thinkingActive     bool
 	thinkingStart      time.Time
-	streamBuffer       strings.Builder
-	markdown           *MarkdownRenderer
+	assistantReplyStart  time.Time
+	assistantHadVisible   bool
+	streamBuffer          strings.Builder
+	markdown            *MarkdownRenderer
 
 	// spinner state. spinnerMu guards spinner only (a small lock that does
 	// NOT cover stdout writes); the running goroutine takes mu to paint
@@ -111,16 +113,22 @@ func (u *PlainUI) StreamAssistant(text string) {
 			)
 		}
 		u.streamingAssistant = true
+		u.assistantReplyStart = time.Now()
+		u.assistantHadVisible = false
 		u.ensureMarkdownLocked()
 	}
 
 	u.streamBuffer.WriteString(text)
+	wroteVisible := false
 	for {
 		buf := u.streamBuffer.String()
 		visible, thinking, leftover, hasMore := splitThinking(buf)
 
 		if visible != "" {
+			u.ensureMarkdownLocked()
 			u.markdown.Write(u.out, visible)
+			wroteVisible = true
+			u.assistantHadVisible = true
 		}
 		if thinking != "" {
 			u.writeThinkingChunkLocked(thinking)
@@ -128,6 +136,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 		if !hasMore {
 			u.streamBuffer.Reset()
 			u.streamBuffer.WriteString(leftover)
+			u.appendAssistantLiveTimerIfNeeded(wroteVisible)
 			return
 		}
 		u.streamBuffer.Reset()
@@ -143,6 +152,17 @@ func (u *PlainUI) ensureMarkdownLocked() {
 	if u.markdown == nil {
 		u.markdown = NewMarkdownRenderer(u.style)
 	}
+}
+
+// appendAssistantLiveTimerIfNeeded prints a live elapsed suffix on the current
+// line (like the thinking panel timer). Caller must hold u.mu. No-op in plain
+// mode, when the chunk had no visible text, or before the first reply time.
+func (u *PlainUI) appendAssistantLiveTimerIfNeeded(wroteVisible bool) {
+	if !wroteVisible || !u.streamingAssistant || !u.style.Enabled() || u.assistantReplyStart.IsZero() {
+		return
+	}
+	elapsed := formatElapsed(time.Since(u.assistantReplyStart))
+	fmt.Fprintf(u.out, " %s", u.style.Dim("· "+elapsed))
 }
 
 // EndAssistant marks the end of an assistant turn: drains the markdown
@@ -171,6 +191,19 @@ func (u *PlainUI) EndAssistant() {
 		)
 		u.thinkingActive = false
 	}
+	if u.streamingAssistant && u.assistantHadVisible && !u.assistantReplyStart.IsZero() {
+		elapsed := formatElapsed(time.Since(u.assistantReplyStart))
+		if u.style.Enabled() {
+			fmt.Fprintf(u.out, "\n%s %s\n",
+				u.style.Dim(iconRule),
+				u.style.Dim("responded in "+elapsed),
+			)
+		} else {
+			fmt.Fprintf(u.out, "\nresponded in %s\n", elapsed)
+		}
+	}
+	u.assistantReplyStart = time.Time{}
+	u.assistantHadVisible = false
 	if u.streamingAssistant {
 		u.streamingAssistant = false
 	}

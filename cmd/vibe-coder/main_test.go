@@ -60,8 +60,11 @@ func TestOneShotPromptSmoke(t *testing.T) {
 	if !strings.Contains(got, "Model: llama3.2:3b") {
 		t.Fatalf("expected model line in one-shot output, got: %q", got)
 	}
-	if !strings.HasSuffix(got, "response") {
-		t.Fatalf("expected one-shot response at end of output, got: %q", got)
+	if !strings.Contains(got, "response") {
+		t.Fatalf("expected one-shot model response text, got: %q", got)
+	}
+	if !strings.Contains(got, "responded in") {
+		t.Fatalf("expected response duration line in one-shot output, got: %q", got)
 	}
 }
 
