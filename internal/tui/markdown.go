@@ -24,10 +24,11 @@ import (
 // borders, header prefixes) but skips ANSI codes, so transcripts copied
 // out of a redirected log stay readable.
 type MarkdownRenderer struct {
-	style    Style
-	inCode   bool
-	codeLang string
-	buf      strings.Builder
+	style            Style
+	inCode           bool
+	codeLang         string
+	buf              strings.Builder
+	lastStreamedLine string // raw incomplete line if we re-render the same line with \r\033[2K
 }
 
 // NewMarkdownRenderer constructs a renderer bound to the given style.
@@ -41,12 +42,15 @@ func (r *MarkdownRenderer) Reset() {
 	r.buf.Reset()
 	r.inCode = false
 	r.codeLang = ""
+	r.lastStreamedLine = ""
 }
 
 // Write feeds a chunk of markdown text into the renderer. Complete lines
-// are rendered immediately to w; the trailing partial line (if any) is
-// buffered for the next call. Errors writing to w are silently dropped to
-// match the rest of the TUI's "best effort" stdout writes.
+// are rendered immediately. The trailing line without a newline is buffered
+// internally; for ordinary prose the renderer redraws the same line with
+// a carriage return and clear-to-EOL so output streams by token, not by line.
+// When the line could still be a block construct (headings, lists, code fence)
+// the renderer keeps the tail buffered until a newline (or Flush) as before.
 func (r *MarkdownRenderer) Write(w io.Writer, chunk string) {
 	if chunk == "" {
 		return
@@ -58,13 +62,32 @@ func (r *MarkdownRenderer) Write(w io.Writer, chunk string) {
 	for {
 		idx := strings.IndexByte(pending, '\n')
 		if idx < 0 {
-			r.buf.WriteString(pending)
-			return
+			break
 		}
 		line := stripCR(pending[:idx])
 		pending = pending[idx+1:]
-		fmt.Fprintln(w, r.renderLine(line))
+		if r.lastStreamedLine != "" && r.lastStreamedLine == line {
+			fmt.Fprint(w, "\n")
+		} else {
+			fmt.Fprintln(w, r.renderLine(line))
+		}
+		r.lastStreamedLine = ""
 	}
+
+	// Trailing line (no \n in this chunk yet)
+	if pending == "" {
+		return
+	}
+	r.buf.WriteString(pending)
+	if r.incompleteStructural(pending) {
+		return
+	}
+	if r.lastStreamedLine != "" {
+		io.WriteString(w, "\r\033[2K")
+	}
+	out := r.renderLine(stripCR(pending))
+	fmt.Fprint(w, out)
+	r.lastStreamedLine = pending
 }
 
 // Flush emits any buffered partial line. Call it at the end of an
@@ -77,7 +100,47 @@ func (r *MarkdownRenderer) Flush(w io.Writer) {
 	}
 	line := stripCR(r.buf.String())
 	r.buf.Reset()
+	if r.lastStreamedLine != "" && r.lastStreamedLine == line {
+		fmt.Fprint(w, "\n")
+		r.lastStreamedLine = ""
+		return
+	}
 	fmt.Fprintln(w, r.renderLine(line))
+	r.lastStreamedLine = ""
+}
+
+var (
+	// GFM list line in progress: marker + space/indent or end of line, not "-x" prose.
+	mdBulletInProgressRE  = regexp.MustCompile(`^(\s*)[-*+]([ \t]+.*|)$`)
+	mdOrderedInProgressRE = regexp.MustCompile(`^(\s*)\d+[.)]([ \t]+.*|)$`)
+)
+
+// incompleteStructural means we should not emit a partial line yet; the line
+// could still be misclassified (e.g. # heading, ``` fence, or list item).
+func (r *MarkdownRenderer) incompleteStructural(tail string) bool {
+	if r.inCode {
+		return false
+	}
+	trim := strings.TrimLeft(tail, " \t")
+	if trim == "" {
+		return false
+	}
+	if strings.HasPrefix(trim, "```") {
+		return true
+	}
+	if strings.HasPrefix(trim, "#") {
+		return true
+	}
+	if trim[0] == '>' {
+		return true
+	}
+	if mdBulletInProgressRE.MatchString(tail) {
+		return true
+	}
+	if mdOrderedInProgressRE.MatchString(tail) {
+		return true
+	}
+	return false
 }
 
 // renderLine is the heart of the renderer: pure function from a single

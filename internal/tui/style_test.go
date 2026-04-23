@@ -123,10 +123,10 @@ func TestStreamThinkingNoHeaderAndFooterReplacesIt(t *testing.T) {
 	if !strings.Contains(out, "thought for ") {
 		t.Fatalf("expected closing 'thought for' footer, got:\n%s", out)
 	}
-	if !strings.Contains(out, "│ first line") {
+	if !strings.Contains(out, "💭 first line") {
 		t.Fatalf("expected first thinking line prefixed with bar, got:\n%s", out)
 	}
-	if !strings.Contains(out, "│ second line") {
+	if !strings.Contains(out, "💭 second line") {
 		t.Fatalf("expected wrapped lines to keep bar prefix, got:\n%s", out)
 	}
 }

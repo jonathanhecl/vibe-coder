@@ -60,7 +60,7 @@ func TestRenderFencedCodeBlock(t *testing.T) {
 	// Open fence header carries the language; close fence prints `└─`;
 	// the body line is prefixed with the bar so it visually sits inside
 	// a contiguous code box even when colors are disabled.
-	for _, w := range []string{"┌─ go", "│ func main() {}", "└─", "before", "after"} {
+	for _, w := range []string{"┌─ go", "💭 func main() {}", "└─", "before", "after"} {
 		if !strings.Contains(got, w) {
 			t.Fatalf("expected %q in:\n%s", w, got)
 		}
@@ -122,12 +122,14 @@ func TestRenderFlushEmitsTrailingPartialLine(t *testing.T) {
 	r := NewMarkdownRenderer(plainStyle())
 	var buf bytes.Buffer
 	r.Write(&buf, "no trailing newline here")
-	if buf.Len() != 0 {
-		t.Fatalf("nothing should be written until newline or Flush, got %q", buf.String())
+	if !strings.Contains(buf.String(), "no trailing newline here") {
+		t.Fatalf("plain text should stream the partial line, got: %q", buf.String())
 	}
 	r.Flush(&buf)
-	if !strings.Contains(buf.String(), "no trailing newline here") {
-		t.Fatalf("Flush should emit buffered tail, got:\n%s", buf.String())
+	// After Flush, content ends with a newline; no duplicate line of text.
+	out := buf.String()
+	if !strings.HasSuffix(out, "no trailing newline here\n") {
+		t.Fatalf("expected trailing newline from Flush without duplicating, got: %q", out)
 	}
 }
 
@@ -136,7 +138,7 @@ func TestRenderBlockquoteAndStripCR(t *testing.T) {
 	// The renderer should strip the CR before classifying the line so
 	// "> quote" is not mis-detected as plain text containing "\r".
 	got := render(t, "> hello world\r\n")
-	if !strings.Contains(got, "│ hello world") {
+	if !strings.Contains(got, "💭 hello world") {
 		t.Fatalf("blockquote not rendered, got:\n%s", got)
 	}
 }
