@@ -153,6 +153,15 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 	if live.MessageCount() != 2 {
 		t.Fatalf("expected 2 loaded messages after /resume, got %d", live.MessageCount())
 	}
+	if !strings.Contains(out.String(), "Last assistant response") {
+		t.Fatalf("expected /resume output to include last assistant response, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "ok") {
+		t.Fatalf("expected /resume output to include the last assistant text, got %q", out.String())
+	}
+	if strings.Contains(out.String(), "Conversation summary") {
+		t.Fatalf("did not expect /resume output to include conversation summary, got %q", out.String())
+	}
 
 	out.Reset()
 	handled, shouldExit, err = Dispatch(ctx, "/resume "+prevID)
@@ -161,6 +170,25 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 	}
 	if live.ID() != prevID {
 		t.Fatalf("/resume <id> should keep id %s, got %s", prevID, live.ID())
+	}
+
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/session "+prevID)
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /session <id> alias result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if live.ID() != prevID {
+		t.Fatalf("/session <id> should resume id %s, got %s", prevID, live.ID())
+	}
+
+	out.Reset()
+	shortID := prevID[:16]
+	handled, shouldExit, err = Dispatch(ctx, "/resume "+shortID)
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /resume <prefix> result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if live.ID() != prevID {
+		t.Fatalf("/resume <prefix> should resolve to id %s, got %s", prevID, live.ID())
 	}
 }
 
@@ -244,7 +272,7 @@ func TestHelpListsGroupedCommands(t *testing.T) {
 		t.Fatalf("unexpected /help result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 	got := out.String()
-	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/resume", "/sessions delete --all"} {
+	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/session <id>", "/resume", "/sessions delete --all"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected /help output to contain %q, got %q", want, got)
 		}

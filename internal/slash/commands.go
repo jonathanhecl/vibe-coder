@@ -58,6 +58,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/sessions":
 		return true, false, runSessionsCommand(c, fields[1:])
+	case "/session":
+		return true, false, runSessionAlias(c, fields[1:])
 	case "/resume":
 		var id string
 		if len(fields) > 1 {
@@ -324,10 +326,25 @@ func runSessionsCommand(c *Ctx, args []string) error {
 	}
 }
 
+// runSessionAlias supports "/session" as a shorthand UX command:
+//   /session            -> /sessions list
+//   /session <id>       -> /resume <id>
+//   /session delete ... -> /sessions delete ...
+func runSessionAlias(c *Ctx, args []string) error {
+	if len(args) == 0 {
+		return runSessionsList(c)
+	}
+	first := strings.ToLower(strings.TrimSpace(args[0]))
+	switch first {
+	case "list", "ls", "delete", "del", "rm", "remove":
+		return runSessionsCommand(c, args)
+	default:
+		return runResume(c, args[0])
+	}
+}
+
 // runSessionsList prints a compact, color-aware table of saved sessions
 // (most recent first), highlighting the one mapped to the current cwd.
-// Width of the id column is fixed at 16 chars (truncated) so the table
-// stays aligned even with long ids.
 func runSessionsList(c *Ctx) error {
 	infos, err := session.ListSessions(c.Cfg)
 	if err != nil {
@@ -345,31 +362,27 @@ func runSessionsList(c *Ctx) error {
 		st.BoldCyan("Sessions in"),
 		st.Dim(c.Cfg.SessionsDir),
 	)
-	header := fmt.Sprintf("  %-2s %-16s %-16s %-5s  %s", "", "ID", "MODIFIED", "MSGS", "PREVIEW")
+	header := fmt.Sprintf("  %-2s %-32s %-16s %-5s  %s", "", "ID", "MODIFIED", "MSGS", "PREVIEW")
 	fmt.Fprintln(c.Out, st.Dim(header))
 	for _, info := range infos {
 		marker := "  "
 		if info.IsCurrentProject {
 			marker = st.BoldGreen("*")
 		}
-		idCol := info.ID
-		if len(idCol) > 16 {
-			idCol = idCol[:16]
-		}
 		preview := info.Preview
 		if preview == "" {
 			preview = st.Dim("(no user message)")
 		}
-		row := fmt.Sprintf("  %s %-16s %-16s %5d  %s",
+		row := fmt.Sprintf("  %s %-32s %-16s %5d  %s",
 			marker,
-			st.Cyan(idCol),
+			st.Cyan(info.ID),
 			st.Gray(info.ModTime.Local().Format("2006-01-02 15:04")),
 			info.MessageCount,
 			preview,
 		)
 		fmt.Fprintln(c.Out, row)
 	}
-	fmt.Fprintln(c.Out, st.Dim("(* = current project path | use /resume <id> or /sessions delete <id>)"))
+	fmt.Fprintln(c.Out, st.Dim("(* = current project path | use /resume <id>, /session <id>, or /sessions delete <id>)"))
 	return nil
 }
 
@@ -400,20 +413,24 @@ func runSessionsDelete(c *Ctx, args []string) error {
 		)
 		return nil
 	}
-	if err := session.DeleteSession(c.Cfg, target); err != nil {
-		return fmt.Errorf("delete session %q: %w", target, err)
+	resolvedID, err := resolveSessionID(c, target)
+	if err != nil {
+		return err
 	}
-	if c.Session.ID() == target {
+	if err := session.DeleteSession(c.Cfg, resolvedID); err != nil {
+		return fmt.Errorf("delete session %q: %w", resolvedID, err)
+	}
+	if c.Session.ID() == resolvedID {
 		c.Session.Clear()
 		fmt.Fprintf(c.Out, "%s %s %s %s\n",
 			st.BoldRed("Deleted"),
-			st.Cyan(target),
+			st.Cyan(resolvedID),
 			st.Dim("- started fresh in-memory session"),
 			st.Cyan("("+c.Session.ID()+")"),
 		)
 		return nil
 	}
-	fmt.Fprintf(c.Out, "%s %s\n", st.BoldRed("Deleted"), st.Cyan(target))
+	fmt.Fprintf(c.Out, "%s %s\n", st.BoldRed("Deleted"), st.Cyan(resolvedID))
 	return nil
 }
 
@@ -431,10 +448,11 @@ func printHelp(c *Ctx) {
 			{"/save", "persist the current session to disk"},
 			{"/clear", "save and start a brand new session"},
 			{"/sessions", "list saved sessions (* = current project)"},
+			{"/session <id>", "resume a specific session quickly"},
 			{"/sessions delete <id>", "delete a specific session"},
 			{"/sessions delete --all", "delete every saved session"},
 			{"/resume", "resume the last session for this project path"},
-			{"/resume <id>", "resume a specific session by id"},
+			{"/resume <id>", "resume a specific session by id (or unique prefix)"},
 			{"/compact", "force a sidecar-summarized compaction"},
 			{"/tokens", "show token usage vs the context window"},
 			{"/status", "model, cwd, session and sidecar status"},
@@ -504,14 +522,107 @@ func runResume(c *Ctx, id string) error {
 			fmt.Fprintln(c.Out, "No previous session found for the current project path. Use /sessions to list, or /resume <id>.")
 			return nil
 		}
-		fmt.Fprintf(c.Out, "Resumed project session %s (%d messages)\n", c.Session.ID(), c.Session.MessageCount())
+		printResumeContext(c, true)
 		return nil
 	}
-	if err := c.Session.Load(id); err != nil {
-		return fmt.Errorf("load session %q: %w", id, err)
+	resolvedID, err := resolveSessionID(c, id)
+	if err != nil {
+		return err
 	}
-	fmt.Fprintf(c.Out, "Resumed session %s (%d messages)\n", c.Session.ID(), c.Session.MessageCount())
+	if err := c.Session.Load(resolvedID); err != nil {
+		return fmt.Errorf("load session %q: %w", resolvedID, err)
+	}
+	printResumeContext(c, false)
 	return nil
+}
+
+func printResumeContext(c *Ctx, byProject bool) {
+	st := tui.NewStyle(c.Out)
+	if byProject {
+		fmt.Fprintf(c.Out, "%s %s %s\n",
+			st.BoldGreen("Resumed project session"),
+			st.Cyan(c.Session.ID()),
+			st.Dim(fmt.Sprintf("(%d messages)", c.Session.MessageCount())),
+		)
+	} else {
+		fmt.Fprintf(c.Out, "%s %s %s\n",
+			st.BoldGreen("Resumed session"),
+			st.Cyan(c.Session.ID()),
+			st.Dim(fmt.Sprintf("(%d messages)", c.Session.MessageCount())),
+		)
+	}
+	msgs := c.Session.Messages()
+	if len(msgs) == 0 {
+		return
+	}
+	last := lastAssistantResponse(msgs)
+	if strings.TrimSpace(last) != "" {
+		fmt.Fprintln(c.Out, st.BoldYellow("Last assistant response"))
+		fmt.Fprintln(c.Out, trimForDisplay(last, 1500))
+	}
+}
+
+func resolveSessionID(c *Ctx, raw string) (string, error) {
+	target := strings.TrimSpace(raw)
+	if target == "" {
+		return "", fmt.Errorf("session id is empty")
+	}
+	infos, err := session.ListSessions(c.Cfg)
+	if err != nil {
+		return "", err
+	}
+	if len(infos) == 0 {
+		return "", fmt.Errorf("no saved sessions found; run /sessions")
+	}
+	for _, info := range infos {
+		if info.ID == target {
+			return info.ID, nil
+		}
+	}
+	matches := make([]string, 0, 4)
+	for _, info := range infos {
+		if strings.HasPrefix(info.ID, target) {
+			matches = append(matches, info.ID)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("session %q not found; run /sessions to list valid ids", target)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("session prefix %q is ambiguous (%s); provide more characters", target, strings.Join(matches, ", "))
+	}
+}
+
+func lastAssistantResponse(msgs []session.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		content := strings.TrimSpace(m.Content)
+		if content == "" || strings.HasPrefix(content, "[runtime]") {
+			continue
+		}
+		return content
+	}
+	return ""
+}
+
+func trimForDisplay(s string, maxChars int) string {
+	text := strings.TrimSpace(collapseWhitespace(s))
+	if text == "" || maxChars <= 0 {
+		return ""
+	}
+	if len(text) <= maxChars {
+		return text
+	}
+	return text[:maxChars] + "..."
+}
+
+func collapseWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func sanitizeCommitMessage(raw string) string {
