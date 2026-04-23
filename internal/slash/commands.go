@@ -611,7 +611,7 @@ func lastAssistantResponse(msgs []session.Message) string {
 }
 
 func trimForDisplay(s string, maxChars int) string {
-	text := strings.TrimSpace(collapseWhitespace(s))
+	text := strings.TrimSpace(strings.ReplaceAll(s, "\r\n", "\n"))
 	if text == "" || maxChars <= 0 {
 		return ""
 	}
@@ -619,10 +619,6 @@ func trimForDisplay(s string, maxChars int) string {
 		return text
 	}
 	return text[:maxChars] + "..."
-}
-
-func collapseWhitespace(s string) string {
-	return strings.Join(strings.Fields(s), " ")
 }
 
 func sanitizeCommitMessage(raw string) string {

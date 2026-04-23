@@ -278,3 +278,11 @@ func TestHelpListsGroupedCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestTrimForDisplayPreservesFormatting(t *testing.T) {
+	raw := "  **Titulo**\r\n\r\n1) linea uno\r\n2) linea dos  "
+	got := trimForDisplay(raw, 500)
+	if !strings.Contains(got, "**Titulo**\n\n1) linea uno\n2) linea dos") {
+		t.Fatalf("expected formatting/newlines preserved, got %q", got)
+	}
+}
