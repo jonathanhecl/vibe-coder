@@ -119,7 +119,6 @@ func (u *PlainUI) StreamAssistant(text string) {
 	}
 
 	u.streamBuffer.WriteString(text)
-	wroteVisible := false
 	for {
 		buf := u.streamBuffer.String()
 		visible, thinking, leftover, hasMore := splitThinking(buf)
@@ -127,7 +126,6 @@ func (u *PlainUI) StreamAssistant(text string) {
 		if visible != "" {
 			u.ensureMarkdownLocked()
 			u.markdown.Write(u.out, visible)
-			wroteVisible = true
 			u.assistantHadVisible = true
 		}
 		if thinking != "" {
@@ -136,7 +134,6 @@ func (u *PlainUI) StreamAssistant(text string) {
 		if !hasMore {
 			u.streamBuffer.Reset()
 			u.streamBuffer.WriteString(leftover)
-			u.appendAssistantLiveTimerIfNeeded(wroteVisible)
 			return
 		}
 		u.streamBuffer.Reset()
@@ -152,17 +149,6 @@ func (u *PlainUI) ensureMarkdownLocked() {
 	if u.markdown == nil {
 		u.markdown = NewMarkdownRenderer(u.style)
 	}
-}
-
-// appendAssistantLiveTimerIfNeeded prints a live elapsed suffix on the current
-// line (like the thinking panel timer). Caller must hold u.mu. No-op in plain
-// mode, when the chunk had no visible text, or before the first reply time.
-func (u *PlainUI) appendAssistantLiveTimerIfNeeded(wroteVisible bool) {
-	if !wroteVisible || !u.streamingAssistant || !u.style.Enabled() || u.assistantReplyStart.IsZero() {
-		return
-	}
-	elapsed := formatElapsed(time.Since(u.assistantReplyStart))
-	fmt.Fprintf(u.out, " %s", u.style.Dim("· "+elapsed))
 }
 
 // EndAssistant marks the end of an assistant turn: drains the markdown

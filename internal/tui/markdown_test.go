@@ -119,17 +119,21 @@ func TestRenderStreamingSplitsAcrossChunks(t *testing.T) {
 }
 
 func TestRenderFlushEmitsTrailingPartialLine(t *testing.T) {
+	// Partial lines (no trailing newline) are intentionally buffered
+	// until either a newline arrives or Flush is called. Streaming them
+	// in place would require redrawing with `\r\033[2K`, which only
+	// clears the current visual row and leaves "ghost" copies of any
+	// wrapped prefix when the line is wider than the terminal.
 	r := NewMarkdownRenderer(plainStyle())
 	var buf bytes.Buffer
 	r.Write(&buf, "no trailing newline here")
-	if !strings.Contains(buf.String(), "no trailing newline here") {
-		t.Fatalf("plain text should stream the partial line, got: %q", buf.String())
+	if buf.Len() != 0 {
+		t.Fatalf("partial line should be buffered, got: %q", buf.String())
 	}
 	r.Flush(&buf)
-	// After Flush, content ends with a newline; no duplicate line of text.
 	out := buf.String()
-	if !strings.HasSuffix(out, "no trailing newline here\n") {
-		t.Fatalf("expected trailing newline from Flush without duplicating, got: %q", out)
+	if out != "no trailing newline here\n" {
+		t.Fatalf("expected single flushed line with trailing newline, got: %q", out)
 	}
 }
 
