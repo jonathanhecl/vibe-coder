@@ -27,6 +27,34 @@ func TestAutoTestDetectGo(t *testing.T) {
 	}
 }
 
+func TestBuildAutoTestCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		testName string
+		filePath string
+		want     []string
+	}{
+		{name: "pytest target test file", testName: "pytest", filePath: "tests/test_main.py", want: []string{"pytest", "-x", "--no-header", filepath.Clean("tests/test_main.py")}},
+		{name: "pytest skip non-test file", testName: "pytest", filePath: "src/main.py", want: nil},
+		{name: "go target package for test file", testName: "go", filePath: filepath.FromSlash("internal/agent/loop_test.go"), want: []string{"go", "test", "./internal/agent"}},
+		{name: "go skip non-test file", testName: "go", filePath: filepath.FromSlash("internal/agent/loop.go"), want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildAutoTestCommand(tt.testName, tt.filePath)
+			if len(got) != len(tt.want) {
+				t.Fatalf("buildAutoTestCommand(%q, %q) len=%d, want=%d (%v)", tt.testName, tt.filePath, len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("buildAutoTestCommand(%q, %q)[%d]=%q, want %q", tt.testName, tt.filePath, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestShouldRunAutoTestForFile(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -34,9 +62,11 @@ func TestShouldRunAutoTestForFile(t *testing.T) {
 		filePath string
 		want     bool
 	}{
-		{name: "pytest with python file", testName: "pytest", filePath: "src/main.py", want: true},
+		{name: "pytest with non-test python file", testName: "pytest", filePath: "src/main.py", want: false},
+		{name: "pytest with test python file", testName: "pytest", filePath: "tests/test_main.py", want: true},
 		{name: "pytest with batch file", testName: "pytest", filePath: "run.bat", want: false},
-		{name: "go with go file", testName: "go", filePath: "internal/app.go", want: true},
+		{name: "go with non-test go file", testName: "go", filePath: "internal/app.go", want: false},
+		{name: "go with test go file", testName: "go", filePath: "internal/app_test.go", want: true},
 		{name: "go with markdown file", testName: "go", filePath: "README.md", want: false},
 		{name: "unknown test keeps default", testName: "other", filePath: "any.txt", want: true},
 		{name: "empty path keeps backward compatibility", testName: "pytest", filePath: "", want: true},

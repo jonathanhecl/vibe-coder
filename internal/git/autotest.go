@@ -24,11 +24,9 @@ func (a *AutoTest) Enabled() bool {
 }
 
 func (a *AutoTest) RunAfterEdit(ctx context.Context, filePath string) string {
-	name, cmdArgs := a.detect()
+	name, _ := a.detect()
+	cmdArgs := buildAutoTestCommand(name, filePath)
 	if len(cmdArgs) == 0 {
-		return ""
-	}
-	if !shouldRunAutoTestForFile(name, filePath) {
 		return ""
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -71,20 +69,49 @@ func (a *AutoTest) detect() (string, []string) {
 }
 
 func shouldRunAutoTestForFile(testName, filePath string) bool {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(filePath)))
+	if base == "" {
+		return true
+	}
+	isTestLike := strings.HasPrefix(base, "test_") || strings.Contains(base, ".test.") || strings.Contains(base, "_test.")
+
 	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filePath)))
 	if ext == "" {
 		return true
 	}
 	switch testName {
 	case "pytest":
-		return ext == ".py"
+		return ext == ".py" && isTestLike
 	case "vitest":
-		return ext == ".js" || ext == ".jsx" || ext == ".ts" || ext == ".tsx" || ext == ".mjs" || ext == ".cjs"
+		return (ext == ".js" || ext == ".jsx" || ext == ".ts" || ext == ".tsx" || ext == ".mjs" || ext == ".cjs") && isTestLike
 	case "cargo":
-		return ext == ".rs"
+		return ext == ".rs" && isTestLike
 	case "go":
-		return ext == ".go"
+		return ext == ".go" && isTestLike
 	default:
 		return true
+	}
+}
+
+func buildAutoTestCommand(testName, filePath string) []string {
+	if !shouldRunAutoTestForFile(testName, filePath) {
+		return nil
+	}
+	cleanPath := filepath.Clean(strings.TrimSpace(filePath))
+	switch testName {
+	case "pytest":
+		return []string{"pytest", "-x", "--no-header", cleanPath}
+	case "vitest":
+		return []string{"npm", "run", "test", "--silent", "--", "--run", cleanPath}
+	case "cargo":
+		return []string{"cargo", "test", "--quiet"}
+	case "go":
+		dir := filepath.Dir(cleanPath)
+		if dir == "." || dir == "" {
+			dir = "./"
+		}
+		return []string{"go", "test", "./" + filepath.ToSlash(strings.TrimPrefix(dir, "./"))}
+	default:
+		return nil
 	}
 }
