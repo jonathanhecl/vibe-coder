@@ -50,6 +50,14 @@ type Agent struct {
 	currentGoal string // verbatim text of the user's request for this Run()
 }
 
+func isEmptyAssistantResponseErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "empty assistant response")
+}
+
 type uiPort interface {
 	StartESCMonitor(interrupt func()) error
 	StopESCMonitor()
@@ -176,6 +184,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 
 	toolName, toolParams, wantsTool := inferSingleToolCall(userInput)
 	thinkingOnlyRetries := 0
+	emptyChatErrRetries := 0
 	for i := 0; i < MaxIterations; i++ {
 		if wantsTool {
 			tool := a.reg.Get(toolName)
@@ -229,8 +238,20 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		}
 		reply, err := a.chatOnce(ctx)
 		if err != nil {
+			if isEmptyAssistantResponseErr(err) {
+				if a.hasPendingTodos() && emptyChatErrRetries < 2 {
+					emptyChatErrRetries++
+					a.sess.AddSystemNote("Model returned an empty response while TODO items remain. Retrying the next pending step.")
+					_ = a.sess.Compact(ctx, false)
+					continue
+				}
+				a.sess.AddSystemNote("Model returned repeated empty responses; ending this run cleanly.")
+				_ = a.sess.Compact(ctx, false)
+				return nil
+			}
 			return err
 		}
+		emptyChatErrRetries = 0
 		if toolName, toolParams, ok := parseXMLFallback(reply); ok {
 			thinkingOnlyRetries = 0
 			tool := a.reg.Get(toolName)
