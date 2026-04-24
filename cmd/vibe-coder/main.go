@@ -164,7 +164,7 @@ func main() {
 		// can always see which model/session/host served the answer.
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
 		bannerPrinted = true
-		if err := ag.Run(rootCtx, cfg.Prompt); err != nil {
+		if err := runAgentWithEmptyRetry(rootCtx, ag, ui, cfg.Prompt); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -218,7 +218,7 @@ func main() {
 		if handled {
 			ui.SetPlanMode(ag.InPlanMode())
 			if task, ok := planTaskFromSlash(line); ok {
-				if err := ag.Run(rootCtx, task); err != nil {
+				if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
 					fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				}
 				ui.SetPlanMode(ag.InPlanMode())
@@ -227,11 +227,42 @@ func main() {
 		}
 
 		ui.SetPlanMode(ag.InPlanMode())
-		if err := ag.Run(rootCtx, line); err != nil {
+		if err := runAgentWithEmptyRetry(rootCtx, ag, ui, line); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue
 		}
 	}
+}
+
+func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui *tui.PlainUI, input string) error {
+	for {
+		err := ag.Run(rootCtx, input)
+		if err == nil {
+			return nil
+		}
+		if !isEmptyAssistantResponseErrText(err) {
+			return err
+		}
+		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+			return err
+		}
+		ans, askErr := ui.GetInput("Model returned an empty response. Retry this step? [Y/n]: ")
+		if askErr != nil {
+			return err
+		}
+		a := strings.ToLower(strings.TrimSpace(ans))
+		if a == "" || a == "y" || a == "yes" {
+			continue
+		}
+		return nil
+	}
+}
+
+func isEmptyAssistantResponseErrText(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "empty assistant response")
 }
 
 func shouldRunFirstRunOnboarding(cfg *config.Config, persistModelSettings bool) bool {

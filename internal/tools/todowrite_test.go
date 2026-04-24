@@ -35,6 +35,34 @@ func TestTodoWriteReplacesByDefault(t *testing.T) {
 	}
 }
 
+func TestTodoWriteMergeAllowsEmptyContentForExistingID(t *testing.T) {
+	t.Parallel()
+	tool := NewTodoWriteTool()
+	res := tool.Execute(context.Background(), map[string]any{
+		"todos": []any{
+			map[string]any{"id": "a", "content": "Investigate project structure", "status": "pending"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected seed error: %s", res.Output)
+	}
+
+	res = tool.Execute(context.Background(), map[string]any{
+		"merge": true,
+		"todos": []any{
+			map[string]any{"id": "a", "content": "", "status": "completed"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected merge error: %s", res.Output)
+	}
+
+	got := tool.Store().Snapshot()
+	if len(got) != 1 || got[0].Content != "Investigate project structure" || got[0].Status != TodoStatusCompleted {
+		t.Fatalf("unexpected merged snapshot: %+v", got)
+	}
+}
+
 func TestTodoWriteMergesByID(t *testing.T) {
 	t.Parallel()
 	tool := NewTodoWriteTool()
@@ -68,10 +96,12 @@ func TestTodoWriteValidatesInput(t *testing.T) {
 	t.Parallel()
 	tool := NewTodoWriteTool()
 	cases := map[string]map[string]any{
-		"missing todos":   {},
-		"empty array":     {"todos": []any{}},
-		"item not object": {"todos": []any{"oops"}},
-		"missing id":      {"todos": []any{map[string]any{"content": "x", "status": "pending"}}},
+		"missing todos":                     {},
+		"empty array":                       {"todos": []any{}},
+		"item not object":                   {"todos": []any{"oops"}},
+		"missing id":                        {"todos": []any{map[string]any{"content": "x", "status": "pending"}}},
+		"numeric placeholder content":       {"todos": []any{map[string]any{"id": "1", "content": "1", "status": "pending"}}},
+		"empty content without merge match": {"todos": []any{map[string]any{"id": "a", "content": "", "status": "pending"}}},
 	}
 	for name, params := range cases {
 		params := params

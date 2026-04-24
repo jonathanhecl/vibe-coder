@@ -245,6 +245,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					_ = a.sess.Compact(ctx, false)
 					continue
 				}
+				if a.hasPendingTodos() {
+					a.sess.AddSystemNote("Model returned repeated empty responses while TODO items remain; cannot complete the current run.")
+					_ = a.sess.Compact(ctx, false)
+					return fmt.Errorf("empty assistant response with pending todos")
+				}
 				a.sess.AddSystemNote("Model returned repeated empty responses; ending this run cleanly.")
 				_ = a.sess.Compact(ctx, false)
 				return nil

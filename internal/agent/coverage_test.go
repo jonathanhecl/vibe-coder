@@ -112,6 +112,23 @@ type pullProgressClient struct {
 	coverageClient
 }
 
+type thinkingOnlyClient struct{}
+
+func (thinkingOnlyClient) Tags(context.Context) ([]ollama.Model, error) { return nil, nil }
+func (thinkingOnlyClient) Version(context.Context) (string, error)      { return "0.0.0", nil }
+func (thinkingOnlyClient) Pull(context.Context, string, func(ollama.PullEvent)) error {
+	return nil
+}
+func (thinkingOnlyClient) ChatSync(context.Context, ollama.ChatRequest) (ollama.ChatResponse, error) {
+	return ollama.ChatResponse{}, nil
+}
+func (thinkingOnlyClient) Chat(context.Context, ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	ch := make(chan ollama.Chunk, 1)
+	ch <- ollama.Chunk{Thinking: "planning", Done: true}
+	close(ch)
+	return ch, nil
+}
+
 func (p *pullProgressClient) Pull(ctx context.Context, model string, cb func(ollama.PullEvent)) error {
 	if cb != nil {
 		cb(ollama.PullEvent{Status: "pulling", Completed: 5, Total: 10})
@@ -276,6 +293,30 @@ func TestChatOnceErrorAndTryAutoPullFailure(t *testing.T) {
 	}
 }
 
+func TestRunErrorsWhenEmptyResponsesRepeatWithPendingTodos(t *testing.T) {
+	ag := newCoverageAgent(t, thinkingOnlyClient{}, tui.DecisionAllowOnce, true)
+	tw, ok := ag.reg.Get("TodoWrite").(*tools.TodoWriteTool)
+	if !ok || tw == nil {
+		t.Fatal("TodoWrite tool not available")
+	}
+	seed := tw.Execute(context.Background(), map[string]any{
+		"todos": []any{
+			map[string]any{"id": "step-1", "content": "Create startup script", "status": "pending"},
+		},
+	})
+	if seed.IsError {
+		t.Fatalf("failed to seed todo store: %s", seed.Output)
+	}
+
+	err := ag.Run(context.Background(), "continue")
+	if err == nil {
+		t.Fatal("expected error when model keeps returning empty responses with pending todos")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "pending todos") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestTryAutoPullModelWithProgressCallback(t *testing.T) {
 	c := &pullProgressClient{}
 	ag := newCoverageAgent(t, c, tui.DecisionAllowOnce, true)
@@ -296,4 +337,3 @@ func TestInferSingleToolCallMarkdownPattern(t *testing.T) {
 		t.Fatalf("expected markdown pattern, got %#v", params["pattern"])
 	}
 }
-

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // Todo statuses recognised by the renderer. Anything else is normalised to
@@ -187,9 +188,45 @@ func (t *TodoWriteTool) Execute(_ context.Context, params map[string]any) Result
 	if len(items) == 0 {
 		return errResult("todos must contain at least one item")
 	}
+	if err := validateTodoContent(items, merge, t.store.Snapshot()); err != nil {
+		return errResult("todos: " + err.Error())
+	}
 
 	final := t.store.apply(merge, items)
 	return Result{Output: renderTodosForModel(final)}
+}
+
+func validateTodoContent(incoming []TodoItem, merge bool, existing []TodoItem) error {
+	existingIDs := map[string]struct{}{}
+	if merge {
+		for _, it := range existing {
+			existingIDs[it.ID] = struct{}{}
+		}
+	}
+	for i, it := range incoming {
+		content := strings.TrimSpace(it.Content)
+		if content == "" {
+			if merge {
+				if _, ok := existingIDs[it.ID]; ok {
+					continue
+				}
+			}
+			return fmt.Errorf("item %d content must be descriptive text", i)
+		}
+		if !containsLetter(content) {
+			return fmt.Errorf("item %d content must be descriptive text, not a placeholder like %q", i, content)
+		}
+	}
+	return nil
+}
+
+func containsLetter(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // decodeTodos accepts the loose JSON shape the model usually emits
