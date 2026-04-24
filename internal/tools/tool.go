@@ -10,9 +10,10 @@ type Tool interface {
 }
 
 type Result struct {
-	CallID  string
-	Output  string
-	IsError bool
+	CallID        string
+	Output        string
+	HintsForModel string
+	IsError       bool
 }
 
 type Schema struct {

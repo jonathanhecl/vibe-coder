@@ -39,8 +39,9 @@ func (t *ReadTool) Execute(_ context.Context, params map[string]any) Result {
 		return errResult("file_path is required")
 	}
 	path = strings.TrimSpace(path)
-	if msg := validateExistingFileForRead(path); msg != "" {
-		return errResult(msg)
+	vr := validateExistingFileForRead(path)
+	if vr.IsError() {
+		return Result{Output: vr.UserError, HintsForModel: vr.AssistantHints, IsError: true}
 	}
 
 	file, err := os.Open(path)

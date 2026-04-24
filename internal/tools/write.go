@@ -42,13 +42,14 @@ func (t *WriteTool) Execute(_ context.Context, params map[string]any) Result {
 		return errResult("contents must be a string")
 	}
 	path = strings.TrimSpace(path)
-	if msg := validateWriteTargetPath(path); msg != "" {
-		return errResult(msg)
+	vr := validateWriteTargetPath(path)
+	if vr.IsError() {
+		return Result{Output: vr.UserError, HintsForModel: vr.AssistantHints, IsError: true}
 	}
 
 	parent := filepath.Dir(path)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return errResult(agentPathPreamble(fmt.Sprintf("create parent dir: %v", err)) + assistantPathHints(parent, "mkdir parent", err))
+		return Result{Output: agentPathPreamble(fmt.Sprintf("create parent dir: %v", err)), HintsForModel: assistantPathHints(parent, "mkdir parent", err), IsError: true}
 	}
 	tmp, err := os.CreateTemp(parent, "*.write.tmp")
 	if err != nil {

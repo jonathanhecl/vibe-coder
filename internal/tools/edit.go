@@ -51,12 +51,13 @@ func (t *EditTool) Execute(ctx context.Context, params map[string]any) Result {
 	replaceAll, _ := params["replace_all"].(bool)
 
 	path = strings.TrimSpace(path)
-	if msg := validateExistingFileForRead(path); msg != "" {
-		return errResult(msg)
+	vr := validateExistingFileForRead(path)
+	if vr.IsError() {
+		return Result{Output: vr.UserError, HintsForModel: vr.AssistantHints, IsError: true}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return errResult(agentPathPreamble(fmt.Sprintf("read file: %v", err)) + assistantPathHints(path, "read", err))
+		return Result{Output: agentPathPreamble(fmt.Sprintf("read file: %v", err)), HintsForModel: assistantPathHints(path, "read", err), IsError: true}
 	}
 	content := string(data)
 	count := strings.Count(content, oldString)

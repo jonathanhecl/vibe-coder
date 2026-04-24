@@ -53,11 +53,12 @@ func (t *NotebookEditTool) Execute(_ context.Context, params map[string]any) Res
 		return errResult("notebook_path is required")
 	}
 	path = strings.TrimSpace(path)
-	if msg := validateExistingFileForRead(path); msg != "" {
-		if msg == "refusing to read symlink" {
+	vr := validateExistingFileForRead(path)
+	if vr.IsError() {
+		if vr.UserError == "refusing to read symlink" {
 			return errResult("refusing symlink notebook")
 		}
-		return errResult(msg)
+		return Result{Output: vr.UserError, HintsForModel: vr.AssistantHints, IsError: true}
 	}
 
 	cellIndex := asInt(params["cell_index"], -1)

@@ -76,4 +76,7 @@ func (r *Registry) RegisterDefaults() {
 	r.Register(NewTaskUpdateTool())
 	r.Register(NewAskUserQuestionTool())
 	r.Register(NewTodoWriteTool())
+	r.Register(NewInteractiveBashTool())
+	r.Register(NewSendInputTool())
+	r.Register(NewTerminateSessionTool())
 }

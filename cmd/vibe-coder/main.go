@@ -284,7 +284,7 @@ func formatSidecarBanner(cfg *config.Config) string {
 		return "(disabled)"
 	}
 	if cfg.SidecarDisabled {
-		return "(off in config — remove SIDECAR_DISABLED or set SIDECAR_ENABLED=true)"
+		return "(disabled)"
 	}
 	if cfg.SidecarSkipSession {
 		m := strings.TrimSpace(cfg.SidecarModel)

@@ -65,6 +65,9 @@ func renderTodos(w io.Writer, st Style, items []TodoItem) {
 	for _, it := range items {
 		glyph, color := todoGlyph(st, it.Status)
 		body := it.Content
+		if strings.TrimSpace(body) == "" {
+			body = it.ID
+		}
 		if it.Status == todoStatusCompleted && st.Enabled() {
 			body = st.Dim(body)
 		}

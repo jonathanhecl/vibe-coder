@@ -10,72 +10,80 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/safety"
 )
 
+// validationResult holds a user-facing error summary and optional extra hints
+// for the model (assistant) that should not clutter the user-visible output.
+type validationResult struct {
+	UserError      string
+	AssistantHints string
+}
+
+func (r validationResult) IsError() bool { return r.UserError != "" }
+
 // validateExistingFileForRead checks path before opening an existing file (Read,
-// Edit, NotebookEdit). Returns a non-empty agent-oriented message to return as
-// tool error, or "" if the path looks OK to open (caller may still fail I/O).
-func validateExistingFileForRead(path string) string {
+// Edit, NotebookEdit). Returns a non-empty validationResult if the path is bad.
+func validateExistingFileForRead(path string) validationResult {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return agentPathPreamble("path is empty") + assistantPathHints(path, "read", nil)
+		return validationResult{UserError: "PATH ERROR: path is empty.", AssistantHints: assistantPathHints(path, "read", nil)}
 	}
 	if !filepath.IsAbs(path) {
-		return agentPathPreamble("path must be an absolute filesystem path") + assistantPathHints(path, "read", nil)
+		return validationResult{UserError: "PATH ERROR: path must be an absolute filesystem path.", AssistantHints: assistantPathHints(path, "read", nil)}
 	}
 	if safety.IsProtectedPath(path) {
-		return "path is protected"
+		return validationResult{UserError: "path is protected"}
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
-		return agentPathPreamble(fmt.Sprintf("cannot access path: %v", err)) + assistantPathHints(path, "read", err)
+		return validationResult{UserError: fmt.Sprintf("PATH ERROR: cannot access path: %v.", err), AssistantHints: assistantPathHints(path, "read", err)}
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return "refusing to read symlink"
+		return validationResult{UserError: "refusing to read symlink"}
 	}
 	if info.IsDir() {
-		return agentPathPreamble("path is a directory; expected a file") + assistantPathHints(path, "read", nil)
+		return validationResult{UserError: "PATH ERROR: path is a directory; expected a file.", AssistantHints: assistantPathHints(path, "read", nil)}
 	}
-	return ""
+	return validationResult{}
 }
 
 // validateWriteTargetPath checks path before Write (file may not exist yet).
-func validateWriteTargetPath(path string) string {
+func validateWriteTargetPath(path string) validationResult {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return agentPathPreamble("path is empty") + assistantPathHints(path, "write", nil)
+		return validationResult{UserError: "PATH ERROR: path is empty.", AssistantHints: assistantPathHints(path, "write", nil)}
 	}
 	if !filepath.IsAbs(path) {
-		return agentPathPreamble("path must be an absolute filesystem path") + assistantPathHints(path, "write", nil)
+		return validationResult{UserError: "PATH ERROR: path must be an absolute filesystem path.", AssistantHints: assistantPathHints(path, "write", nil)}
 	}
 	if safety.IsProtectedPath(path) {
-		return "path is protected"
+		return validationResult{UserError: "path is protected"}
 	}
 	if _, err := filepath.Abs(path); err != nil {
-		return agentPathPreamble(fmt.Sprintf("invalid path: %v", err)) + assistantPathHints(path, "write", err)
+		return validationResult{UserError: fmt.Sprintf("PATH ERROR: invalid path: %v.", err), AssistantHints: assistantPathHints(path, "write", err)}
 	}
 
 	info, err := os.Lstat(path)
 	if err == nil {
 		if info.IsDir() {
-			return agentPathPreamble("file_path is a directory; Write expects a regular file path") + assistantPathHints(path, "write", nil)
+			return validationResult{UserError: "PATH ERROR: file_path is a directory; Write expects a regular file path.", AssistantHints: assistantPathHints(path, "write", nil)}
 		}
-		return ""
+		return validationResult{}
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return agentPathPreamble(fmt.Sprintf("cannot access path: %v", err)) + assistantPathHints(path, "write", err)
+		return validationResult{UserError: fmt.Sprintf("PATH ERROR: cannot access path: %v.", err), AssistantHints: assistantPathHints(path, "write", err)}
 	}
 
 	parent := filepath.Dir(path)
 	pst, perr := os.Lstat(parent)
 	if perr != nil {
 		if errors.Is(perr, os.ErrNotExist) {
-			return ""
+			return validationResult{}
 		}
-		return agentPathPreamble(fmt.Sprintf("cannot access parent directory %q: %v", parent, perr)) + assistantPathHints(parent, "write parent", perr)
+		return validationResult{UserError: fmt.Sprintf("PATH ERROR: cannot access parent directory %q: %v.", parent, perr), AssistantHints: assistantPathHints(parent, "write parent", perr)}
 	}
 	if !pst.IsDir() {
-		return agentPathPreamble(fmt.Sprintf("parent %q is not a directory", parent)) + assistantPathHints(parent, "write parent", nil)
+		return validationResult{UserError: fmt.Sprintf("PATH ERROR: parent %q is not a directory.", parent), AssistantHints: assistantPathHints(parent, "write parent", nil)}
 	}
-	return ""
+	return validationResult{}
 }
 
 func agentPathPreamble(summary string) string {

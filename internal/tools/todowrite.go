@@ -126,7 +126,9 @@ func (t *TodoWriteTool) Store() *TodoStore { return t.store }
 func (t *TodoWriteTool) Name() string { return "TodoWrite" }
 func (t *TodoWriteTool) Description() string {
 	return "Maintain a live TODO list of the steps you plan to take during this turn. " +
-		"Use it whenever the user request needs 3+ distinct steps so they can see your plan and progress."
+		"Use it whenever the user request needs 3+ distinct steps so they can see your plan and progress. " +
+		"After creating or updating the TODO list, immediately continue executing the first pending step with the appropriate tool call (Read, Write, Bash, etc.). Do not stop after planning. " +
+		"Status rules: 'pending' = not started yet; 'in_progress' = currently working on it; 'completed' = the step is fully done and verified; only mark 'completed' after the tool call for that step has returned successfully."
 }
 
 func (t *TodoWriteTool) Schema() Schema {

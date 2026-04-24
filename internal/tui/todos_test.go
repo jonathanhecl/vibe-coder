@@ -44,6 +44,22 @@ func TestShowTodosNoOpOnEmpty(t *testing.T) {
 	}
 }
 
+func TestRenderTodosFallsBackToIDWhenContentEmpty(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	renderTodos(&buf, Style{}, []TodoItem{
+		{ID: "step-1", Content: "", Status: "pending"},
+		{ID: "step-2", Content: "   ", Status: "in_progress"},
+	})
+	out := buf.String()
+	if !strings.Contains(out, "○  step-1") {
+		t.Fatalf("missing fallback for empty content: %q", out)
+	}
+	if !strings.Contains(out, "◐  step-2") {
+		t.Fatalf("missing fallback for whitespace-only content: %q", out)
+	}
+}
+
 func TestCompactToolHeaderPerTool(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

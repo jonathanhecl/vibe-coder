@@ -11,23 +11,23 @@ func TestValidateExistingFileForRead_missing(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	missing := filepath.Join(tmp, "nope.txt")
-	msg := validateExistingFileForRead(missing)
-	if msg == "" {
+	vr := validateExistingFileForRead(missing)
+	if !vr.IsError() {
 		t.Fatal("expected error for missing file")
 	}
-	if !strings.Contains(msg, "PATH ERROR") {
-		t.Fatalf("expected PATH ERROR prefix, got: %s", msg)
+	if !strings.Contains(vr.UserError, "PATH ERROR") {
+		t.Fatalf("expected PATH ERROR prefix, got: %s", vr.UserError)
 	}
-	if !strings.Contains(msg, "For the assistant") {
-		t.Fatalf("expected assistant hints: %s", msg)
+	if !strings.Contains(vr.AssistantHints, "For the assistant") {
+		t.Fatalf("expected assistant hints: %s", vr.AssistantHints)
 	}
 }
 
 func TestValidateExistingFileForRead_notAbs(t *testing.T) {
 	t.Parallel()
-	msg := validateExistingFileForRead("relative.txt")
-	if msg == "" || !strings.Contains(msg, "absolute") {
-		t.Fatalf("got: %s", msg)
+	vr := validateExistingFileForRead("relative.txt")
+	if !vr.IsError() || !strings.Contains(vr.UserError, "absolute") {
+		t.Fatalf("got userError: %s, hints: %s", vr.UserError, vr.AssistantHints)
 	}
 }
 
@@ -35,12 +35,12 @@ func TestValidateExistingFileForRead_schemeInPath(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	bad := tmp + string(filepath.Separator) + `bad://still/missing.txt`
-	msg := validateExistingFileForRead(bad)
-	if msg == "" {
+	vr := validateExistingFileForRead(bad)
+	if !vr.IsError() {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(msg, "://") {
-		t.Fatalf("expected hint about :// schemes, got: %s", msg)
+	if !strings.Contains(vr.AssistantHints, "://") {
+		t.Fatalf("expected hint about :// schemes, got userError: %s, hints: %s", vr.UserError, vr.AssistantHints)
 	}
 }
 
@@ -48,9 +48,9 @@ func TestValidateWriteTargetPath_newFileOK(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	newFile := filepath.Join(tmp, "newdir", "out.txt")
-	msg := validateWriteTargetPath(newFile)
-	if msg != "" {
-		t.Fatalf("unexpected: %s", msg)
+	vr := validateWriteTargetPath(newFile)
+	if vr.IsError() {
+		t.Fatalf("unexpected: %s", vr.UserError)
 	}
 }
 
@@ -61,7 +61,8 @@ func TestValidateExistingFileForRead_ok(t *testing.T) {
 	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if msg := validateExistingFileForRead(f); msg != "" {
-		t.Fatalf("unexpected: %s", msg)
+	vr := validateExistingFileForRead(f)
+	if vr.IsError() {
+		t.Fatalf("unexpected: %s", vr.UserError)
 	}
 }

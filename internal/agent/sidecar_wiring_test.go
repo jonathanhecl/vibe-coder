@@ -93,7 +93,7 @@ func TestRecordToolObservationSummarisesWhenSidecarEnabled(t *testing.T) {
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
-	a.recordToolObservation(context.Background(), "Read", strings.Repeat("payload\n", 500))
+	a.recordToolObservation(context.Background(), "Read", strings.Repeat("payload\n", 500), "")
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {
@@ -117,7 +117,7 @@ func TestRecordToolObservationSkipsSummariseForSmallOutput(t *testing.T) {
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10_000)))
 
-	a.recordToolObservation(context.Background(), "Read", "short")
+	a.recordToolObservation(context.Background(), "Read", "short", "")
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {
@@ -137,7 +137,7 @@ func TestRecordToolObservationFallsBackOnSidecarError(t *testing.T) {
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
-	a.recordToolObservation(context.Background(), "Read", strings.Repeat("z", 4096))
+	a.recordToolObservation(context.Background(), "Read", strings.Repeat("z", 4096), "")
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {

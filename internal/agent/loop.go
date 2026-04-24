@@ -19,6 +19,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
 	"github.com/jonathanhecl/vibe-coder/internal/skills"
+	"github.com/jonathanhecl/vibe-coder/internal/terminal"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/watcher"
@@ -130,6 +131,7 @@ func (a *Agent) InPlanMode() bool {
 func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	ctx, cancel := context.WithCancel(rootCtx)
 	defer cancel()
+	defer terminal.DefaultManager().TerminateAll()
 	if err := a.ui.StartESCMonitor(cancel); err != nil {
 		return err
 	}
@@ -165,7 +167,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.ui.ShowToolCall("ParallelAgents", params)
 				result := tool.Execute(ctx, params)
 				a.ui.ShowToolResult("ParallelAgents", result.Output, result.IsError, nil)
-				a.recordToolObservation(ctx, "ParallelAgents", result.Output)
+				a.recordToolObservation(ctx, "ParallelAgents", result.Output, result.HintsForModel)
 				return nil
 			}
 		}
@@ -196,19 +198,23 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
-			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
-			a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
-			a.maybeShowTodos(toolName)
-			a.recordToolObservation(ctx, toolName, result.Output)
+			if toolName == "TodoWrite" {
+				a.maybeShowTodos(toolName)
+			} else {
+				a.ui.ShowToolCall(toolName, toolParams)
+				a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
+				a.maybeShowTodos(toolName)
+			}
+			a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
 				if w := a.getWatcher(); w != nil {
 					w.RefreshSnapshot()
 				}
 				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
 					a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
-					a.recordToolObservation(ctx, "AUTO-TEST", auto)
+					a.recordToolObservation(ctx, "AUTO-TEST", auto, "")
 				}
 			}
 			_ = a.sess.Compact(ctx, false)
@@ -217,6 +223,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			continue
 		}
 
+		if note := a.todoProgressNote(); note != "" {
+			a.sess.AddSystemNote(note)
+		}
 		reply, err := a.chatOnce(ctx)
 		if err != nil {
 			return err
@@ -247,30 +256,51 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					return err
 				}
 			}
-			a.ui.ShowToolCall(toolName, toolParams)
 			result := tool.Execute(ctx, toolParams)
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
-			a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
-			a.maybeShowTodos(toolName)
-			a.recordToolObservation(ctx, toolName, result.Output)
+			if toolName == "TodoWrite" {
+				a.maybeShowTodos(toolName)
+			} else {
+				a.ui.ShowToolCall(toolName, toolParams)
+				a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
+				a.maybeShowTodos(toolName)
+			}
+			a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel)
 			if !result.IsError && (toolName == "Write" || toolName == "Edit") {
 				if w := a.getWatcher(); w != nil {
 					w.RefreshSnapshot()
 				}
 				if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
 					a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
-					a.recordToolObservation(ctx, "AUTO-TEST", auto)
+					a.recordToolObservation(ctx, "AUTO-TEST", auto, "")
 				}
 			}
 			userInput = session.ToolObservationUserContent(toolName, strings.TrimSpace(result.Output))
 			_ = a.sess.Compact(ctx, false)
 			continue
 		}
-		if assistantVisibleText(reply) == "" && thinkingOnlyRetries < 1 {
-			thinkingOnlyRetries++
-			continue
+		if assistantVisibleText(reply) == "" {
+			if thinkingOnlyRetries < 2 {
+				thinkingOnlyRetries++
+				continue
+			}
+			thinkingOnlyRetries = 0
+			if a.hasPendingTodos() {
+				a.sess.AddSystemNote("Model reply was empty while TODO items remain. Continue with the next pending step via a tool call; do not re-investigate completed steps.")
+				_ = a.sess.Compact(ctx, false)
+				continue
+			}
+			a.sess.AddSystemNote("Model reply was empty; ending this run without a visible assistant message.")
+			_ = a.sess.Compact(ctx, false)
+			return nil
 		}
 		thinkingOnlyRetries = 0
+		if a.hasPendingTodos() {
+			a.sess.AddAssistant(reply)
+			a.sess.AddSystemNote("There are still pending TODO items. Continue executing the remaining steps with tool calls — do not finish the turn with plain text.")
+			_ = a.sess.Compact(ctx, false)
+			continue
+		}
 		a.sess.AddAssistant(reply)
 		_ = a.sess.Compact(ctx, false)
 		return nil
@@ -382,6 +412,62 @@ func (a *Agent) maybeShowTodos(toolName string) {
 	a.ui.ShowTodos(items)
 }
 
+// hasPendingTodos returns true when the TodoWrite store contains items that
+// are still pending or in_progress. The agent loop uses this to refuse ending
+// the turn with plain text while work remains unfinished.
+func (a *Agent) hasPendingTodos() bool {
+	t := a.reg.Get("TodoWrite")
+	if t == nil {
+		return false
+	}
+	tw, ok := t.(*tools.TodoWriteTool)
+	if !ok {
+		return false
+	}
+	for _, it := range tw.Store().Snapshot() {
+		if it.Status == tools.TodoStatusPending || it.Status == tools.TodoStatusInProgress {
+			return true
+		}
+	}
+	return false
+}
+
+// todoProgressNote builds a concise summary of the current TODO list so the
+// model can remember what it has already completed and what remains. Injected
+// as a system note before every chat turn while a plan is active.
+func (a *Agent) todoProgressNote() string {
+	t := a.reg.Get("TodoWrite")
+	if t == nil {
+		return ""
+	}
+	tw, ok := t.(*tools.TodoWriteTool)
+	if !ok {
+		return ""
+	}
+	snap := tw.Store().Snapshot()
+	if len(snap) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "TODO progress (%d items):\n", len(snap))
+	for _, it := range snap {
+		status := it.Status
+		if status == "" {
+			status = tools.TodoStatusPending
+		}
+		switch status {
+		case tools.TodoStatusCompleted:
+			fmt.Fprintf(&b, "  [DONE] %s: %s\n", it.ID, it.Content)
+		case tools.TodoStatusInProgress:
+			fmt.Fprintf(&b, "  [IN PROGRESS] %s: %s — execute this now and mark DONE when finished.\n", it.ID, it.Content)
+		default:
+			fmt.Fprintf(&b, "  [PENDING] %s: %s\n", it.ID, it.Content)
+		}
+	}
+	b.WriteString("Use the data from earlier tool results to complete pending steps. Do not re-investigate what you already know.")
+	return b.String()
+}
+
 // recordToolObservation persists a tool result into the session, optionally
 // asking the sidecar to summarise large outputs first. The summary keeps
 // the model focused on signal (paths, symbols, errors) instead of pages of
@@ -394,29 +480,33 @@ func (a *Agent) maybeShowTodos(toolName string) {
 // because the sidecar (qwen3.5:4b et al.) takes real time to load and
 // respond. The visible "condensing …" spinner with elapsed counter
 // closes that perception gap.
-func (a *Agent) recordToolObservation(ctx context.Context, toolName, output string) {
+func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hintsForModel string) {
 	a.mu.RLock()
 	side := a.side
 	a.mu.RUnlock()
+	obs := output
+	if hintsForModel != "" {
+		obs = output + "\n\n[assistant-hints]\n" + hintsForModel + "\n[/assistant-hints]"
+	}
 	// Use the Pool's configured threshold (not the package default) so
 	// tests that lower it via WithSummariseThreshold still exercise the
 	// summary path and so users that raise it via env don't pay for a
 	// useless spinner on outputs the sidecar would skip anyway.
-	if side != nil && side.Enabled() && len(output) >= side.Threshold() {
+	if side != nil && side.Enabled() && len(obs) >= side.Threshold() {
 		label := fmt.Sprintf("condensing %s output via %s…",
 			toolName, shortModelName(a.cfg.SidecarModel))
 		a.ui.StartWaiting(label)
-		summary, used, _ := side.SummariseToolOutput(ctx, toolName, output)
+		summary, used, _ := side.SummariseToolOutput(ctx, toolName, obs)
 		a.ui.StopWaiting()
 		if used && summary != "" {
 			a.sess.AddToolObservation(toolName, summary)
 			a.ui.ShowToolResult(toolName,
-				fmt.Sprintf("sidecar condensed %d bytes → summary stored in context", len(output)),
+				fmt.Sprintf("sidecar condensed %d bytes → summary stored in context", len(obs)),
 				false, nil)
 			return
 		}
 	}
-	a.sess.AddToolObservation(toolName, output)
+	a.sess.AddToolObservation(toolName, obs)
 }
 
 func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
@@ -567,8 +657,8 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 		stream, err := a.client.Chat(ctx, ollama.ChatRequest{
 			Model:    a.cfg.Model,
 			Messages: messages,
-			Stream: true,
-			Think:  true,
+			Stream:   true,
+			Think:    true,
 			Options: ollama.ChatOptions{
 				NumCtx:      a.cfg.ContextWindow,
 				NumPredict:  a.cfg.MaxTokens,
@@ -625,7 +715,10 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 						end = cut
 					}
 					if end > lastShown {
-						a.ui.StreamAssistant(full[lastShown:end])
+						segment := full[lastShown:end]
+						if strings.TrimSpace(segment) != "" {
+							a.ui.StreamAssistant(segment)
+						}
 						lastShown = end
 					}
 				}
@@ -635,7 +728,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 						a.ui.EndThinking()
 					}
 					full := b.String()
-					if tail := assistantTextAfterFirstClosedTool(full); tail != "" {
+					if tail := assistantTextAfterFirstClosedTool(full); strings.TrimSpace(tail) != "" {
 						a.ui.StreamAssistant(tail)
 					}
 					cancel()
@@ -655,7 +748,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 			}
 			if b.Len() > 0 && lastErr == nil {
 				full := b.String()
-				if tail := assistantTextAfterFirstClosedTool(full); tail != "" {
+				if tail := assistantTextAfterFirstClosedTool(full); strings.TrimSpace(tail) != "" {
 					a.ui.StreamAssistant(tail)
 				}
 				cancel()
