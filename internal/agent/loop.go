@@ -268,7 +268,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		}
 		if assistantVisibleText(reply) == "" && thinkingOnlyRetries < 1 {
 			thinkingOnlyRetries++
-			a.sess.AddSystemNote("Model emitted reasoning-only output; retrying for an actionable response.")
 			continue
 		}
 		thinkingOnlyRetries = 0
@@ -543,6 +542,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 		}
 		a.mu.RLock()
 		goal := a.currentGoal
+		inPlanMode := a.planMode
 		a.mu.RUnlock()
 		if goal = strings.TrimSpace(goal); goal != "" {
 			systemPrompt = systemPrompt + "\n\n# Current user goal\n" +
@@ -553,6 +553,14 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 				"another <invoke> block. A reply with only plain text and no tool call ends the whole agent " +
 				"run — use that only for the final answer when nothing else remains to do.\n\n" +
 				"<<<USER_GOAL>>>\n" + goal + "\n<<<END_USER_GOAL>>>"
+		}
+		if inPlanMode {
+			systemPrompt = systemPrompt + "\n\n# Plan Mode (enabled)\n" +
+				"- You are in planning-only mode.\n" +
+				"- First deliver a concise, actionable plan or ask one clarifying question if needed.\n" +
+				"- Do NOT jump into implementation steps or edits.\n" +
+				"- Do NOT call WebSearch/WebFetch unless the user explicitly asks to research external sources.\n" +
+				"- Keep the response practical and tied to the user's request.\n"
 		}
 		messages := a.buildOllamaMessages(systemPrompt)
 		a.ui.StartWaiting(fmt.Sprintf("waiting for %s…", shortModelName(a.cfg.Model)))
