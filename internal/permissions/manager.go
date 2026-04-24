@@ -43,7 +43,7 @@ type Manager struct {
 var (
 	safeTools = map[string]struct{}{
 		"read": {}, "glob": {}, "grep": {}, "subagent": {}, "askuserquestion": {},
-		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {},
+		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {}, "todowrite": {},
 	}
 	askTools = map[string]struct{}{
 		"bash": {}, "write": {}, "edit": {},

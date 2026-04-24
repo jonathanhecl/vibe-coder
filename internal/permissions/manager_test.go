@@ -25,6 +25,13 @@ func TestCheckSafeAndAskTools(t *testing.T) {
 	if !m.Check("Read", map[string]any{"file_path": "/tmp/a.txt"}, nil) {
 		t.Fatalf("safe tool should be allowed by default")
 	}
+	if !m.Check("TodoWrite", map[string]any{
+		"todos": []any{
+			map[string]any{"id": "step-1", "content": "plan", "status": "pending"},
+		},
+	}, nil) {
+		t.Fatalf("TodoWrite should be treated as safe and allowed by default")
+	}
 	if m.Check("Write", map[string]any{"file_path": "/tmp/a.txt", "contents": "x"}, nil) {
 		t.Fatalf("ask tool should be denied without UI and without -y")
 	}
