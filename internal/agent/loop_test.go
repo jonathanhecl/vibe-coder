@@ -17,6 +17,19 @@ import (
 
 type fakeClient struct{}
 
+func TestFileEditCompletionNote(t *testing.T) {
+	note := fileEditCompletionNote("Write", map[string]any{"file_path": "scripts/run_comfyui.bat"})
+	if !strings.Contains(note, "Treat this step as completed") {
+		t.Fatalf("expected completion anchor note, got %q", note)
+	}
+	if !strings.Contains(note, "scripts/run_comfyui.bat") {
+		t.Fatalf("expected file path in note, got %q", note)
+	}
+	if got := fileEditCompletionNote("Read", map[string]any{"file_path": "a.txt"}); got != "" {
+		t.Fatalf("expected empty note for non-edit tool, got %q", got)
+	}
+}
+
 func (fakeClient) Tags(context.Context) ([]ollama.Model, error) { return nil, nil }
 func (fakeClient) Version(context.Context) (string, error)      { return "0.0.0", nil }
 func (fakeClient) ChatSync(context.Context, ollama.ChatRequest) (ollama.ChatResponse, error) {
@@ -46,7 +59,7 @@ func (f *fakeUI) ShowToolCall(string, map[string]any) {
 	f.calls++
 }
 func (f *fakeUI) ShowToolResult(string, string, bool, map[string]any) {}
-func (f *fakeUI) ShowTodos([]tui.TodoItem)             {}
+func (f *fakeUI) ShowTodos([]tui.TodoItem)                            {}
 func (f *fakeUI) AskPermission(string, map[string]any) tui.Decision {
 	return tui.DecisionAllowOnce
 }
