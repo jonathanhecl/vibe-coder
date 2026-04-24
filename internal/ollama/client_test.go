@@ -3,6 +3,7 @@ package ollama
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,7 @@ func TestTagsVersionAndChatStream(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/tags":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"models":[{"name":"llama3.2:3b"}]}`))
+			_, _ = w.Write([]byte(`{"models":[{"name":"llama3.2:3b","capabilities":["tools"]}]}`))
 		case "/api/version":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"version":"0.6.0"}`))
@@ -39,6 +40,9 @@ func TestTagsVersionAndChatStream(t *testing.T) {
 	}
 	if len(models) != 1 || models[0].Name != "llama3.2:3b" {
 		t.Fatalf("unexpected models: %#v", models)
+	}
+	if !models[0].SupportsTools() {
+		t.Fatalf("expected tools capability: %#v", models[0])
 	}
 
 	version, err := client.Version(ctx)
@@ -69,6 +73,74 @@ func TestTagsVersionAndChatStream(t *testing.T) {
 	}
 	if b.String() != "hello world" {
 		t.Fatalf("unexpected stream content: %q", b.String())
+	}
+}
+
+func TestFilterToolCapableModels(t *testing.T) {
+	t.Parallel()
+	models := []Model{
+		{Name: "a", Capabilities: []string{"vision"}},
+		{Name: "b", Capabilities: []string{"tools"}, CapabilitiesKnown: true},
+		{Name: "c", Capabilities: []string{"function-calling"}, CapabilitiesKnown: true},
+	}
+	filtered := FilterToolCapableModels(models)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 tool-capable models, got %d", len(filtered))
+	}
+	if filtered[0].Name != "b" || filtered[1].Name != "c" {
+		t.Fatalf("unexpected filter order: %#v", filtered)
+	}
+}
+
+func TestShowAndResolveModelCapabilities(t *testing.T) {
+	t.Parallel()
+	var showCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"models":[{"name":"alpha"},{"name":"beta"}]}`))
+		case "/api/show":
+			showCalls++
+			body, _ := io.ReadAll(r.Body)
+			payload := string(body)
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case strings.Contains(payload, `"model":"alpha"`):
+				_, _ = w.Write([]byte(`{"model":"alpha","capabilities":["tools"]}`))
+			case strings.Contains(payload, `"model":"beta"`):
+				_, _ = w.Write([]byte(`{"model":"beta","details":{"capabilities":["vision"]}}`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":"unknown"}`))
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	ctx := context.Background()
+	models, err := client.Tags(ctx)
+	if err != nil {
+		t.Fatalf("tags failed: %v", err)
+	}
+	enriched := ResolveModelCapabilities(ctx, client, models)
+	if len(enriched) != 2 {
+		t.Fatalf("unexpected model count: %d", len(enriched))
+	}
+	if !enriched[0].SupportsTools() {
+		t.Fatalf("expected alpha tools support, got %#v", enriched[0])
+	}
+	if enriched[1].SupportsTools() {
+		t.Fatalf("expected beta without tools support, got %#v", enriched[1])
+	}
+	if !enriched[1].CapabilitiesKnown {
+		t.Fatalf("expected beta capabilities known from /api/show")
+	}
+	if showCalls != 2 {
+		t.Fatalf("expected 2 /api/show calls, got %d", showCalls)
 	}
 }
 
@@ -288,4 +360,3 @@ func TestChatSkipsThinkAfterModelMarkedUnsupported(t *testing.T) {
 		t.Fatalf("expected 3 HTTP requests (fail+ok, ok), got %d", n)
 	}
 }
-

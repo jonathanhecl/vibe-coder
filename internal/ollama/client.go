@@ -74,11 +74,33 @@ type ChatResponse struct {
 }
 
 type Model struct {
-	Name string `json:"name"`
+	Name              string   `json:"name"`
+	Capabilities      []string `json:"capabilities,omitempty"`
+	CapabilitiesKnown bool     `json:"-"`
 }
 
 type tagsResponse struct {
-	Models []Model `json:"models"`
+	Models []tagsModel `json:"models"`
+}
+
+type tagsModel struct {
+	Name         string   `json:"name"`
+	Capabilities []string `json:"capabilities"`
+	Details      struct {
+		Capabilities []string `json:"capabilities"`
+	} `json:"details"`
+}
+
+type showRequest struct {
+	Model string `json:"model"`
+}
+
+type showResponse struct {
+	Model        string   `json:"model"`
+	Capabilities []string `json:"capabilities"`
+	Details      struct {
+		Capabilities []string `json:"capabilities"`
+	} `json:"details"`
 }
 
 type versionResponse struct {
@@ -162,7 +184,125 @@ func (c *HTTPClient) Tags(ctx context.Context) ([]Model, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decode tags response: %w", err)
 	}
-	return out.Models, nil
+	models := make([]Model, 0, len(out.Models))
+	for _, m := range out.Models {
+		unique := normalizeCapabilities(m.Capabilities, m.Details.Capabilities)
+		models = append(models, Model{
+			Name:              m.Name,
+			Capabilities:      unique,
+			CapabilitiesKnown: len(unique) > 0,
+		})
+	}
+	return models, nil
+}
+
+func (c *HTTPClient) Show(ctx context.Context, model string) (Model, error) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return Model{}, errors.New("show model is required")
+	}
+	payload, err := json.Marshal(showRequest{Model: model})
+	if err != nil {
+		return Model{}, fmt.Errorf("marshal show request: %w", err)
+	}
+	resp, err := doPOSTWithRetry(ctx, c.http, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/show", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
+	if err != nil {
+		return Model{}, fmt.Errorf("ollama show: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+		return Model{}, fmt.Errorf("ollama show failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var out showResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return Model{}, fmt.Errorf("decode show response: %w", err)
+	}
+	caps := normalizeCapabilities(out.Capabilities, out.Details.Capabilities)
+	name := strings.TrimSpace(out.Model)
+	if name == "" {
+		name = model
+	}
+	return Model{
+		Name:              name,
+		Capabilities:      caps,
+		CapabilitiesKnown: len(caps) > 0,
+	}, nil
+}
+
+func (m Model) SupportsTools() bool {
+	for _, cap := range m.Capabilities {
+		c := strings.TrimSpace(strings.ToLower(cap))
+		if c == "tools" || c == "tool-calling" || c == "function-calling" {
+			return true
+		}
+	}
+	return false
+}
+
+func FilterToolCapableModels(models []Model) []Model {
+	out := make([]Model, 0, len(models))
+	for _, model := range models {
+		if model.SupportsTools() {
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
+func ResolveModelCapabilities(ctx context.Context, client Client, models []Model) []Model {
+	out := make([]Model, len(models))
+	copy(out, models)
+	inspector, ok := client.(interface {
+		Show(context.Context, string) (Model, error)
+	})
+	if !ok {
+		return out
+	}
+	for i := range out {
+		name := strings.TrimSpace(out[i].Name)
+		if name == "" {
+			continue
+		}
+		info, err := inspector.Show(ctx, name)
+		if err != nil {
+			continue
+		}
+		caps := normalizeCapabilities(out[i].Capabilities, info.Capabilities)
+		out[i].Capabilities = caps
+		out[i].CapabilitiesKnown = len(caps) > 0 || out[i].CapabilitiesKnown || info.CapabilitiesKnown
+	}
+	return out
+}
+
+func normalizeCapabilities(groups ...[]string) []string {
+	total := 0
+	for _, g := range groups {
+		total += len(g)
+	}
+	seen := map[string]struct{}{}
+	unique := make([]string, 0, total)
+	for _, group := range groups {
+		for _, cap := range group {
+			trimmed := strings.TrimSpace(strings.ToLower(cap))
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			unique = append(unique, trimmed)
+		}
+	}
+	return unique
 }
 
 func (c *HTTPClient) Version(ctx context.Context) (string, error) {

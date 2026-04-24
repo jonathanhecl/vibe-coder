@@ -127,6 +127,9 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	if cfg.SessionID != "abc123" {
 		t.Fatalf("expected session id from CLI, got %q", cfg.SessionID)
 	}
+	if !cfg.ConfigFileExists {
+		t.Fatal("expected config file to be marked as existing")
+	}
 	if !cfg.Debug {
 		t.Fatal("expected debug true from env")
 	}
@@ -171,6 +174,21 @@ func TestLoadHelpAndVersionFlags(t *testing.T) {
 	}
 	if !cfg.ShowVer {
 		t.Fatal("expected show version to be true")
+	}
+}
+
+func TestLoadConfigFileExistsFalseWhenMissing(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "missing.env")
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("VIBE_CODER_CONFIG", cfgPath)
+
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.ConfigFileExists {
+		t.Fatalf("expected ConfigFileExists=false for %s", cfgPath)
 	}
 }
 

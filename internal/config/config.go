@@ -24,23 +24,24 @@ const (
 )
 
 type Config struct {
-	OllamaHost    string
-	Model         string
-	SidecarModel  string
+	OllamaHost       string
+	Model            string
+	SidecarModel     string
+	ConfigFileExists bool
 	// SidecarDisabled, when true, turns off the sidecar until changed in config (SIDECAR_DISABLED / SIDECAR_ENABLED).
 	SidecarDisabled bool
 	// SidecarSkipSession skips the sidecar for this process only (--no-sidecar, /sidecar off); not persisted.
 	SidecarSkipSession bool
-	MaxTokens     int
-	Temperature   float64
-	ContextWindow int
-	Prompt        string
-	YesMode       bool
-	Debug         bool
-	Resume        bool
-	SessionID     string
-	ListSessions  bool
-	Cwd           string
+	MaxTokens          int
+	Temperature        float64
+	ContextWindow      int
+	Prompt             string
+	YesMode            bool
+	Debug              bool
+	Resume             bool
+	SessionID          string
+	ListSessions       bool
+	Cwd                string
 
 	RAG         bool
 	RAGModel    string
@@ -83,6 +84,11 @@ func Load(args []string) (*Config, error) {
 		configPath = filepath.Join(cfg.ConfigDir, "config.env")
 	}
 	cfg.ConfigFile = configPath
+	exists, err := configFileExists(configPath)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ConfigFileExists = exists
 	if strings.TrimSpace(cfg.PermFile) == "" {
 		cfg.PermFile = cfg.ConfigFile
 	}
@@ -118,6 +124,17 @@ func Load(args []string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func configFileExists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("stat config file %q: %w", path, err)
 }
 
 func autoDetectModel() string {

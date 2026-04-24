@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+	"github.com/jonathanhecl/vibe-coder/internal/onboarding"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/slash"
@@ -22,6 +24,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/version"
 	"github.com/jonathanhecl/vibe-coder/internal/watcher"
+	"golang.org/x/term"
 )
 
 func main() {
@@ -50,6 +53,17 @@ func main() {
 	if cfg.ShowVer {
 		fmt.Fprintf(os.Stdout, "vibe-coder %s\n", version.Value)
 		return
+	}
+
+	if shouldRunFirstRunOnboarding(cfg, persistModelSettings) {
+		if err := onboarding.RunFirstRun(context.Background(), cfg, version.Value, os.Stdin, os.Stdout); err != nil {
+			if errors.Is(err, onboarding.ErrInterrupted) {
+				fmt.Fprintln(os.Stdout, "\nBye.")
+				os.Exit(130)
+			}
+			fmt.Fprintf(os.Stderr, "error: first-run setup failed: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	client := ollama.NewHTTP(cfg.OllamaHost)
@@ -201,6 +215,22 @@ func main() {
 			continue
 		}
 	}
+}
+
+func shouldRunFirstRunOnboarding(cfg *config.Config, persistModelSettings bool) bool {
+	if cfg == nil || persistModelSettings {
+		return false
+	}
+	if cfg.ConfigFileExists {
+		return false
+	}
+	if cfg.Prompt != "" || cfg.ListSessions || cfg.Resume {
+		return false
+	}
+	if strings.TrimSpace(cfg.RAGIndex) != "" {
+		return false
+	}
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {
