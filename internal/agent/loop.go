@@ -478,6 +478,63 @@ func (a *Agent) hasPendingTodos() bool {
 	return false
 }
 
+// BuildEmptyResponseRetryInput appends a concise recovery context when the
+// model previously returned an empty response. It anchors progress (pending
+// TODOs + recently completed file edit steps) so the next retry can continue
+// instead of re-investigating from scratch.
+func (a *Agent) BuildEmptyResponseRetryInput(baseInput string, repeatedState bool) string {
+	baseInput = strings.TrimSpace(baseInput)
+	var b strings.Builder
+	b.WriteString(baseInput)
+	b.WriteString("\n\n[retry_context]\n")
+	b.WriteString("Previous attempt returned an empty assistant response. Continue from existing progress; do not restart solved steps.\n")
+
+	if note := a.todoProgressNote(); note != "" {
+		b.WriteString(note)
+		b.WriteString("\n")
+	}
+
+	if completed := a.recentCompletedFileRuntimeNotes(3); len(completed) > 0 {
+		b.WriteString("Recently completed file steps:\n")
+		for _, item := range completed {
+			b.WriteString("- ")
+			b.WriteString(item)
+			b.WriteString("\n")
+		}
+	}
+
+	if repeatedState {
+		b.WriteString("State appears unchanged across retries. Pick the next pending TODO and call one concrete tool now.\n")
+	}
+	b.WriteString("[/retry_context]")
+	return b.String()
+}
+
+func (a *Agent) recentCompletedFileRuntimeNotes(limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	msgs := a.sess.Messages()
+	out := make([]string, 0, limit)
+	for i := len(msgs) - 1; i >= 0 && len(out) < limit; i-- {
+		m := msgs[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		text := strings.TrimSpace(m.Content)
+		if !strings.HasPrefix(text, "[runtime] File written:") && !strings.HasPrefix(text, "[runtime] File updated:") {
+			continue
+		}
+		text = strings.TrimPrefix(text, "[runtime] ")
+		text = strings.TrimSpace(text)
+		out = append(out, text)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
 func fileEditCompletionNote(toolName string, params map[string]any) string {
 	if toolName != "Write" && toolName != "Edit" {
 		return ""

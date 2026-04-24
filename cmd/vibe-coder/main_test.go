@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -8,9 +9,52 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+	"github.com/jonathanhecl/vibe-coder/internal/permissions"
+	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
+
+type emptyRetryClient struct{}
+
+func (emptyRetryClient) Tags(context.Context) ([]ollama.Model, error) { return nil, nil }
+func (emptyRetryClient) Version(context.Context) (string, error)      { return "0.0.0", nil }
+func (emptyRetryClient) Pull(context.Context, string, func(ollama.PullEvent)) error {
+	return nil
+}
+func (emptyRetryClient) ChatSync(context.Context, ollama.ChatRequest) (ollama.ChatResponse, error) {
+	return ollama.ChatResponse{}, nil
+}
+func (emptyRetryClient) Chat(context.Context, ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	ch := make(chan ollama.Chunk, 1)
+	ch <- ollama.Chunk{Thinking: "plan", Done: true}
+	close(ch)
+	return ch, nil
+}
+
+func newMainTestAgent(t *testing.T, client ollama.Client) (*agent.Agent, *tools.TodoWriteTool) {
+	t.Helper()
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 4096,
+		MaxTokens:     128,
+		Temperature:   0.2,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	tw, _ := reg.Get("TodoWrite").(*tools.TodoWriteTool)
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ui := tui.NewPlain()
+	t.Cleanup(ui.Stop)
+	return agent.New(cfg, client, reg, perm, sess, ui), tw
+}
 
 func TestVersionFlagSmoke(t *testing.T) {
 	t.Parallel()
@@ -25,6 +69,43 @@ func TestVersionFlagSmoke(t *testing.T) {
 	got := strings.TrimSpace(string(out))
 	if got != "vibe-coder dev" {
 		t.Fatalf("unexpected version output: %q", got)
+	}
+}
+
+func TestRunAgentWithEmptyRetryStopsAfterCap(t *testing.T) {
+	ag, tw := newMainTestAgent(t, emptyRetryClient{})
+	if tw == nil {
+		t.Fatal("TodoWrite tool not available")
+	}
+	seed := tw.Execute(context.Background(), map[string]any{
+		"todos": []any{
+			map[string]any{"id": "step-1", "content": "Create startup script", "status": "pending"},
+		},
+	})
+	if seed.IsError {
+		t.Fatalf("failed to seed todo store: %s", seed.Output)
+	}
+
+	err := runAgentWithEmptyRetry(context.Background(), ag, tui.NewPlain(), "continue")
+	if err == nil {
+		t.Fatal("expected empty-response retry wrapper to return an error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "empty assistant response") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRetryContextBuilderAddsMarkers(t *testing.T) {
+	ag, _ := newMainTestAgent(t, emptyRetryClient{})
+	input := ag.BuildEmptyResponseRetryInput("do task", true)
+	if !strings.Contains(input, "[retry_context]") {
+		t.Fatalf("expected retry_context marker, got %q", input)
+	}
+	if !strings.Contains(input, "State appears unchanged") {
+		t.Fatalf("expected repeated-state hint, got %q", input)
+	}
+	if !strings.Contains(input, "do task") {
+		t.Fatalf("expected original input retained, got %q", input)
 	}
 }
 

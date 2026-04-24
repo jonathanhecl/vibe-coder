@@ -27,6 +27,8 @@ import (
 	"golang.org/x/term"
 )
 
+const maxExternalEmptyRetries = 3
+
 func main() {
 	args, persistModelSettings := extractPersistDirective(os.Args[1:])
 	cfg, err := config.Load(args)
@@ -235,8 +237,11 @@ func main() {
 }
 
 func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui *tui.PlainUI, input string) error {
+	retryCount := 0
+	repeatedState := false
+	currentInput := strings.TrimSpace(input)
 	for {
-		err := ag.Run(rootCtx, input)
+		err := ag.Run(rootCtx, currentInput)
 		if err == nil {
 			return nil
 		}
@@ -246,12 +251,18 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui *tui.Pl
 		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 			return err
 		}
+		retryCount++
+		repeatedState = retryCount > 1
+		if retryCount >= maxExternalEmptyRetries {
+			return fmt.Errorf("empty assistant response persisted after %d retries; pending TODO state may be stuck", retryCount)
+		}
 		ans, askErr := ui.GetInput("Model returned an empty response. Retry this step? [Y/n]: ")
 		if askErr != nil {
 			return err
 		}
 		a := strings.ToLower(strings.TrimSpace(ans))
 		if a == "" || a == "y" || a == "yes" {
+			currentInput = ag.BuildEmptyResponseRetryInput(input, repeatedState)
 			continue
 		}
 		return nil
