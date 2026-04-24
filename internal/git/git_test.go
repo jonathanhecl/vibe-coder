@@ -27,6 +27,31 @@ func TestAutoTestDetectGo(t *testing.T) {
 	}
 }
 
+func TestShouldRunAutoTestForFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		testName string
+		filePath string
+		want     bool
+	}{
+		{name: "pytest with python file", testName: "pytest", filePath: "src/main.py", want: true},
+		{name: "pytest with batch file", testName: "pytest", filePath: "run.bat", want: false},
+		{name: "go with go file", testName: "go", filePath: "internal/app.go", want: true},
+		{name: "go with markdown file", testName: "go", filePath: "README.md", want: false},
+		{name: "unknown test keeps default", testName: "other", filePath: "any.txt", want: true},
+		{name: "empty path keeps backward compatibility", testName: "pytest", filePath: "", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldRunAutoTestForFile(tt.testName, tt.filePath)
+			if got != tt.want {
+				t.Fatalf("shouldRunAutoTestForFile(%q, %q) = %t, want %t", tt.testName, tt.filePath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckpointNoRepo(t *testing.T) {
 	tmp := t.TempDir()
 	c := NewCheckpoint(tmp)

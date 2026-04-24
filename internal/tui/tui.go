@@ -23,8 +23,8 @@ type PlainUI struct {
 	in  *os.File
 	out io.Writer
 
-	reader *bufio.Reader
-	style  Style
+	reader   *bufio.Reader
+	style    Style
 	planMode bool
 
 	mu       sync.Mutex
@@ -35,12 +35,12 @@ type PlainUI struct {
 	pendingHeader string
 	pendingActive bool
 
-	streamingAssistant bool
-	thinkingActive     bool
-	thinkingStart      time.Time
-	assistantReplyStart  time.Time
-	assistantHadVisible   bool
-	streamBuffer          strings.Builder
+	streamingAssistant  bool
+	thinkingActive      bool
+	thinkingStart       time.Time
+	assistantReplyStart time.Time
+	assistantHadVisible bool
+	streamBuffer        strings.Builder
 	markdown            *MarkdownRenderer
 
 	// spinner state. spinnerMu guards spinner only (a small lock that does
@@ -78,7 +78,7 @@ const (
 	iconDone      = "✅"
 	iconErr       = "❌"
 	iconThink     = "☁️"
-	iconRule      = "🧠"
+	iconRule      = "🕑"
 	iconBar       = "💭"
 )
 

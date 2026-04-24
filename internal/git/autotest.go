@@ -23,9 +23,12 @@ func (a *AutoTest) Enabled() bool {
 	return len(cmd) > 0
 }
 
-func (a *AutoTest) RunAfterEdit(ctx context.Context, _ string) string {
+func (a *AutoTest) RunAfterEdit(ctx context.Context, filePath string) string {
 	name, cmdArgs := a.detect()
 	if len(cmdArgs) == 0 {
+		return ""
+	}
+	if !shouldRunAutoTestForFile(name, filePath) {
 		return ""
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -65,4 +68,23 @@ func (a *AutoTest) detect() (string, []string) {
 		return "go", []string{"go", "test", "./..."}
 	}
 	return "", nil
+}
+
+func shouldRunAutoTestForFile(testName, filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(filePath)))
+	if ext == "" {
+		return true
+	}
+	switch testName {
+	case "pytest":
+		return ext == ".py"
+	case "vitest":
+		return ext == ".js" || ext == ".jsx" || ext == ".ts" || ext == ".tsx" || ext == ".mjs" || ext == ".cjs"
+	case "cargo":
+		return ext == ".rs"
+	case "go":
+		return ext == ".go"
+	default:
+		return true
+	}
 }
