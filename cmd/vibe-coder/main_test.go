@@ -134,3 +134,28 @@ func TestShouldContinueInteractiveAfterPrompt(t *testing.T) {
 		t.Fatal("expected no continuation with nil config")
 	}
 }
+
+func TestPlanTaskFromSlash(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{in: "/plan", want: "", ok: false},
+		{in: "/plan off", want: "", ok: false},
+		{in: "/plan exit", want: "", ok: false},
+		{in: "/plan cancel", want: "", ok: false},
+		{in: "/plan revisar arquitectura", want: "revisar arquitectura", ok: true},
+		{in: "   /plan   fix login   ", want: "fix login", ok: true},
+		{in: "/approve", want: "", ok: false},
+	}
+
+	for _, tc := range cases {
+		got, ok := planTaskFromSlash(tc.in)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("planTaskFromSlash(%q) => (%q,%t), want (%q,%t)", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}

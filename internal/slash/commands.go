@@ -201,18 +201,48 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		return true, false, nil
 	case "/plan":
+		modeArg := ""
+		if len(fields) > 1 {
+			modeArg = strings.ToLower(strings.TrimSpace(fields[1]))
+		}
+		st := tui.NewStyle(c.Out)
+		if modeArg == "off" || modeArg == "exit" || modeArg == "cancel" {
+			if c.Agent != nil {
+				c.Agent.ExitPlanMode()
+				c.Session.AddUser("[System Note] Plan mode disabled without approval. Returning to act mode.")
+			}
+			fmt.Fprintln(c.Out, st.Yellow("Plan mode disabled without approval. Act mode restored."))
+			return true, false, nil
+		}
 		if c.Agent != nil {
 			c.Agent.EnterPlanMode()
 			c.Session.AddUser("[System Note] Plan mode enabled.")
 		}
-		fmt.Fprintln(c.Out, "Plan mode enabled. Writes are restricted to .vibe-coder/plans.")
+		fmt.Fprintln(c.Out, st.Yellow("Plan mode enabled. Keep chatting to design/refine the plan; writes are restricted to .vibe-coder/plans."))
+		fmt.Fprintln(c.Out,
+			st.Yellow("When ready to execute implementation changes, run ")+
+				st.BrightWhite("/approve")+
+				st.Yellow(" to return to act mode."),
+		)
+		fmt.Fprintln(c.Out,
+			st.Yellow("If you want to leave plan mode without approving, run ")+
+				st.Green("/code")+
+				st.Yellow("."),
+		)
+		return true, false, nil
+	case "/code":
+		if c.Agent != nil {
+			c.Agent.ExitPlanMode()
+			c.Session.AddUser("[System Note] Returned to act mode via /code.")
+		}
+		fmt.Fprintln(c.Out, "Code mode enabled. Plan mode is now off.")
 		return true, false, nil
 	case "/approve":
 		if c.Agent != nil {
 			c.Agent.ExitPlanMode()
 			c.Session.AddUser("[System Note] Plan approved. Returning to act mode.")
 		}
-		fmt.Fprintln(c.Out, "Plan approved. Act mode restored.")
+		fmt.Fprintln(c.Out, "Plan approved. Act mode restored; you can continue in the same conversation.")
 		return true, false, nil
 	default:
 		fmt.Fprintf(c.Out, "Unknown command: %s\n", cmd)
@@ -467,8 +497,10 @@ func printHelp(c *Ctx) {
 		{"Mode", [][2]string{
 			{"/yes", "auto-approve subsequent permission prompts"},
 			{"/no", "require manual approval (default)"},
-			{"/plan", "enter plan mode (writes restricted to .vibe-coder/plans)"},
-			{"/approve", "exit plan mode and resume act mode"},
+			{"/plan", "enter plan mode (yellow prompt, writes restricted to .vibe-coder/plans)"},
+			{"/plan <goal>", "enter plan mode and immediately start planning that goal"},
+			{"/code", "exit plan mode and return to coding mode"},
+			{"/approve", "exit plan mode and resume act mode in the same chat"},
 		}},
 		{"Git", [][2]string{
 			{"/commit", "stage + commit current changes (LLM-suggested message)"},

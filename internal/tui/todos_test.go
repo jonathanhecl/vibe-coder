@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestRenderTodosPlain(t *testing.T) {
@@ -151,5 +152,18 @@ func TestCompactPathWindowsAndPosix(t *testing.T) {
 		if got := compactPath(in); got != want {
 			t.Fatalf("compactPath(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCompactToolHeaderIsBoundedForSpinner(t *testing.T) {
+	t.Parallel()
+	got := CompactToolHeader("WebSearch", map[string]any{
+		"query": "cómo consultar el clima de GCHQ Global Climate Change Hub con ejemplos y varias palabras extras",
+	})
+	if utf8.RuneCountInString(got) > 52 {
+		t.Fatalf("header too long (%d runes): %q", utf8.RuneCountInString(got), got)
+	}
+	if !strings.HasPrefix(got, "WebSearch ") {
+		t.Fatalf("unexpected header prefix: %q", got)
 	}
 }

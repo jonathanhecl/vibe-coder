@@ -63,6 +63,16 @@ func TestDispatchMinimumCommands(t *testing.T) {
 		t.Fatalf("unexpected /plan result: handled=%t exit=%t err=%v plan=%t", handled, shouldExit, err, planAgent.InPlanMode())
 	}
 
+	handled, shouldExit, err = Dispatch(ctx, "/code")
+	if err != nil || !handled || shouldExit || planAgent.InPlanMode() {
+		t.Fatalf("unexpected /code result: handled=%t exit=%t err=%v plan=%t", handled, shouldExit, err, planAgent.InPlanMode())
+	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/plan")
+	if err != nil || !handled || shouldExit || !planAgent.InPlanMode() {
+		t.Fatalf("unexpected second /plan result: handled=%t exit=%t err=%v plan=%t", handled, shouldExit, err, planAgent.InPlanMode())
+	}
+
 	handled, shouldExit, err = Dispatch(ctx, "/approve")
 	if err != nil || !handled || shouldExit || planAgent.InPlanMode() {
 		t.Fatalf("unexpected /approve result: handled=%t exit=%t err=%v plan=%t", handled, shouldExit, err, planAgent.InPlanMode())
@@ -272,7 +282,7 @@ func TestHelpListsGroupedCommands(t *testing.T) {
 		t.Fatalf("unexpected /help result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 	got := out.String()
-	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/session <id>", "/resume", "/sessions delete --all"} {
+	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/session <id>", "/resume", "/sessions delete --all", "/code"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected /help output to contain %q, got %q", want, got)
 		}

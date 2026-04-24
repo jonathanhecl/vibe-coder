@@ -192,6 +192,7 @@ func main() {
 	}
 
 	for {
+		ui.SetPlanMode(ag.InPlanMode())
 		line, err := ui.GetInput("> ")
 		if err != nil {
 			if err := sess.Save(); err != nil {
@@ -215,9 +216,17 @@ func main() {
 			return
 		}
 		if handled {
+			ui.SetPlanMode(ag.InPlanMode())
+			if task, ok := planTaskFromSlash(line); ok {
+				if err := ag.Run(rootCtx, task); err != nil {
+					fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				}
+				ui.SetPlanMode(ag.InPlanMode())
+			}
 			continue
 		}
 
+		ui.SetPlanMode(ag.InPlanMode())
 		if err := ag.Run(rootCtx, line); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			continue
@@ -349,4 +358,26 @@ func extractPersistDirective(args []string) ([]string, bool) {
 		filtered = append(filtered, arg)
 	}
 	return filtered, persist
+}
+
+// planTaskFromSlash extracts an immediate planning goal from "/plan <goal>".
+// Control forms like "/plan off|exit|cancel" do not return a task.
+func planTaskFromSlash(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "/plan") {
+		return "", false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) < 2 {
+		return "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(fields[1])) {
+	case "off", "exit", "cancel":
+		return "", false
+	}
+	task := strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+	if task == "" {
+		return "", false
+	}
+	return task, true
 }

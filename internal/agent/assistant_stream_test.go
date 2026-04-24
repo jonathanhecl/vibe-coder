@@ -29,3 +29,22 @@ Thanks for reading.`
 		t.Fatal("expected empty tail")
 	}
 }
+
+func TestAssistantVisibleTextStripsThinking(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{in: "<think>internal</think>", want: ""},
+		{in: "Hola\n<thinking>internal</thinking>", want: "Hola"},
+		{in: "A <think>x</think> B", want: "A  B"},
+		{in: "<invoke name=\"Read\">{\"file_path\":\"a.go\"}</invoke>", want: ""},
+		{in: "Texto <invoke name=\"Read\">{\"file_path\":\"a.go\"}</invoke>", want: "Texto"},
+	}
+	for _, tc := range cases {
+		if got := assistantVisibleText(tc.in); got != tc.want {
+			t.Fatalf("assistantVisibleText(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

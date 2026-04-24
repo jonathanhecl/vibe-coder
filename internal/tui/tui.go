@@ -25,6 +25,7 @@ type PlainUI struct {
 
 	reader *bufio.Reader
 	style  Style
+	planMode bool
 
 	mu       sync.Mutex
 	stopCh   chan struct{}
@@ -95,6 +96,13 @@ func NewPlain() *PlainUI {
 	}
 }
 
+// SetPlanMode switches UI accent colors for role labels between plan/build.
+func (u *PlainUI) SetPlanMode(enabled bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.planMode = enabled
+}
+
 // StreamAssistant prints assistant tokens as they arrive. It strips
 // <think>...</think> blocks from the visible reply and re-routes them to a
 // dimmed thinking section so they read like Cursor's reasoning panel.
@@ -107,9 +115,15 @@ func (u *PlainUI) StreamAssistant(text string) {
 
 	if !u.streamingAssistant {
 		if u.style.Enabled() {
+			icon := u.style.BrightGreen(iconAssistant)
+			label := u.style.BoldGreen("assistant")
+			if u.planMode {
+				icon = u.style.Yellow(iconAssistant)
+				label = u.style.BoldYellow("assistant")
+			}
 			fmt.Fprintf(u.out, "%s %s > ",
-				u.style.BrightGreen(iconAssistant),
-				u.style.BoldGreen("assistant"),
+				icon,
+				label,
 			)
 		}
 		u.streamingAssistant = true
@@ -338,10 +352,18 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 		u.streamingAssistant = false
 	}
 	if u.style.Enabled() {
+		userIcon := u.style.BrightGreen(iconUser)
+		userLabel := u.style.BoldGreen("user")
+		promptLabel := u.style.BoldGreen(prompt)
+		if u.planMode {
+			userIcon = u.style.Yellow(iconUser)
+			userLabel = u.style.BoldYellow("user")
+			promptLabel = u.style.BoldYellow(prompt)
+		}
 		_, _ = io.WriteString(u.out, fmt.Sprintf("%s %s %s",
-			u.style.BrightGreen(iconUser),
-			u.style.BoldGreen("user"),
-			u.style.BoldGreen(prompt),
+			userIcon,
+			userLabel,
+			promptLabel,
 		))
 	} else {
 		_, _ = io.WriteString(u.out, prompt)

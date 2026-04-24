@@ -172,6 +172,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	}
 
 	toolName, toolParams, wantsTool := inferSingleToolCall(userInput)
+	thinkingOnlyRetries := 0
 	for i := 0; i < MaxIterations; i++ {
 		if wantsTool {
 			tool := a.reg.Get(toolName)
@@ -221,6 +222,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			return err
 		}
 		if toolName, toolParams, ok := parseXMLFallback(reply); ok {
+			thinkingOnlyRetries = 0
 			tool := a.reg.Get(toolName)
 			if tool == nil {
 				a.sess.AddAssistant(reply)
@@ -264,6 +266,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			_ = a.sess.Compact(ctx, false)
 			continue
 		}
+		if assistantVisibleText(reply) == "" && thinkingOnlyRetries < 1 {
+			thinkingOnlyRetries++
+			a.sess.AddSystemNote("Model emitted reasoning-only output; retrying for an actionable response.")
+			continue
+		}
+		thinkingOnlyRetries = 0
 		a.sess.AddAssistant(reply)
 		_ = a.sess.Compact(ctx, false)
 		return nil

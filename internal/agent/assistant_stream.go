@@ -67,3 +67,55 @@ func assistantTextAfterFirstClosedTool(s string) string {
 	after := t[off+relClose+len(close):]
 	return strings.TrimLeftFunc(after, unicode.IsSpace)
 }
+
+// assistantVisibleText strips hidden reasoning blocks from a raw model reply
+// and returns only user-visible prose. Tool envelopes are ignored because they
+// are not visible assistant text either.
+func assistantVisibleText(s string) string {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return ""
+	}
+	for {
+		next, changed := stripFirstThinkBlock(t)
+		if !changed {
+			break
+		}
+		t = next
+	}
+	if idx := toolEnvelopeByteIndex(t); idx >= 0 {
+		t = t[:idx]
+	}
+	return strings.TrimSpace(t)
+}
+
+func stripFirstThinkBlock(s string) (string, bool) {
+	low := strings.ToLower(s)
+	pairs := [][2]string{
+		{"<think>", "</think>"},
+		{"<thinking>", "</thinking>"},
+	}
+	bestOpen := -1
+	openTag := ""
+	closeTag := ""
+	for _, p := range pairs {
+		if i := strings.Index(low, p[0]); i >= 0 && (bestOpen < 0 || i < bestOpen) {
+			bestOpen = i
+			openTag = p[0]
+			closeTag = p[1]
+		}
+	}
+	if bestOpen < 0 {
+		return s, false
+	}
+	afterOpen := bestOpen + len(openTag)
+	relClose := strings.Index(low[afterOpen:], closeTag)
+	if relClose < 0 {
+		// Drop dangling think block to avoid "thinking-only" ghost replies.
+		return strings.TrimSpace(s[:bestOpen]), true
+	}
+	closeStart := afterOpen + relClose
+	closeEnd := closeStart + len(closeTag)
+	merged := s[:bestOpen] + s[closeEnd:]
+	return strings.TrimSpace(merged), true
+}

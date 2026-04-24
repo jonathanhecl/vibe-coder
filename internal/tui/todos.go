@@ -99,55 +99,62 @@ func todoGlyph(st Style, status string) (string, func(string) string) {
 // Exported so the agent loop can reuse it for non-stream paths (e.g. tool
 // observation hints) without duplicating the formatting rules.
 func CompactToolHeader(name string, params map[string]any) string {
+	const maxHeaderLen = 52 // keeps spinner card on one terminal row
+	out := ""
 	switch name {
 	case "Read":
 		if p, ok := params["file_path"].(string); ok && p != "" {
-			return name + " " + compactPath(p)
+			out = name + " " + compactPath(p)
 		}
 	case "Write", "Edit", "NotebookEdit":
 		if p, ok := params["file_path"].(string); ok && p != "" {
-			return name + " " + compactPath(p)
+			out = name + " " + compactPath(p)
 		}
 	case "Glob":
 		pattern, _ := params["pattern"].(string)
 		dir, _ := params["target_directory"].(string)
 		switch {
 		case pattern != "" && dir != "":
-			return fmt.Sprintf("Glob %s in %s", pattern, compactPath(dir))
+			out = fmt.Sprintf("Glob %s in %s", pattern, compactPath(dir))
 		case pattern != "":
-			return "Glob " + pattern
+			out = "Glob " + pattern
 		}
 	case "Grep":
 		pattern, _ := params["pattern"].(string)
 		path, _ := params["path"].(string)
 		switch {
 		case pattern != "" && path != "":
-			return fmt.Sprintf("Grep %q in %s", pattern, compactPath(path))
+			out = fmt.Sprintf("Grep %q in %s", pattern, compactPath(path))
 		case pattern != "":
-			return fmt.Sprintf("Grep %q", pattern)
+			out = fmt.Sprintf("Grep %q", pattern)
 		}
 	case "Bash":
 		if cmd, ok := params["command"].(string); ok && cmd != "" {
-			return "Bash $ " + truncateInline(strings.TrimSpace(cmd), 80)
+			out = "Bash $ " + truncateInline(strings.TrimSpace(cmd), 80)
 		}
 	case "TodoWrite":
 		if todos, ok := params["todos"].([]any); ok {
-			return fmt.Sprintf("TodoWrite (%d items)", len(todos))
+			out = fmt.Sprintf("TodoWrite (%d items)", len(todos))
+		} else {
+			out = "TodoWrite"
 		}
-		return "TodoWrite"
 	case "WebFetch":
 		if u, ok := params["url"].(string); ok && u != "" {
-			return "WebFetch " + truncateInline(u, 60)
+			out = "WebFetch " + truncateInline(u, 60)
 		}
 	case "WebSearch":
 		if q, ok := params["query"].(string); ok && q != "" {
-			return "WebSearch " + truncateInline(q, 60)
+			out = "WebSearch " + truncateInline(q, 60)
 		}
 	}
-	if extra := formatParams(params); extra != "" {
-		return name + extra
+	if out == "" {
+		if extra := formatParams(params); extra != "" {
+			out = name + extra
+		} else {
+			out = name
+		}
 	}
-	return name
+	return truncateInline(out, maxHeaderLen)
 }
 
 // compactPath turns "/abs/long/path/foo.go" into "path/foo.go" so tool
