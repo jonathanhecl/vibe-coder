@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
@@ -403,11 +404,17 @@ func (a *Agent) maybeShowTodos(toolName string) {
 	}
 	items := make([]tui.TodoItem, 0, len(snap))
 	for _, it := range snap {
+		if !isMeaningfulTodoContent(it.Content) {
+			continue
+		}
 		items = append(items, tui.TodoItem{
 			ID:      it.ID,
 			Content: it.Content,
 			Status:  it.Status,
 		})
+	}
+	if len(items) == 0 {
+		return
 	}
 	a.ui.ShowTodos(items)
 }
@@ -425,6 +432,9 @@ func (a *Agent) hasPendingTodos() bool {
 		return false
 	}
 	for _, it := range tw.Store().Snapshot() {
+		if !isMeaningfulTodoContent(it.Content) {
+			continue
+		}
 		if it.Status == tools.TodoStatusPending || it.Status == tools.TodoStatusInProgress {
 			return true
 		}
@@ -449,8 +459,20 @@ func (a *Agent) todoProgressNote() string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "TODO progress (%d items):\n", len(snap))
+	meaningful := 0
 	for _, it := range snap {
+		if isMeaningfulTodoContent(it.Content) {
+			meaningful++
+		}
+	}
+	if meaningful == 0 {
+		return ""
+	}
+	fmt.Fprintf(&b, "TODO progress (%d items):\n", meaningful)
+	for _, it := range snap {
+		if !isMeaningfulTodoContent(it.Content) {
+			continue
+		}
 		status := it.Status
 		if status == "" {
 			status = tools.TodoStatusPending
@@ -466,6 +488,19 @@ func (a *Agent) todoProgressNote() string {
 	}
 	b.WriteString("Use the data from earlier tool results to complete pending steps. Do not re-investigate what you already know.")
 	return b.String()
+}
+
+func isMeaningfulTodoContent(content string) bool {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false
+	}
+	for _, r := range content {
+		if unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // recordToolObservation persists a tool result into the session, optionally
