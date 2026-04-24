@@ -36,6 +36,7 @@ type Config struct {
 	Temperature        float64
 	ContextWindow      int
 	Prompt             string
+	Interactive        bool
 	YesMode            bool
 	Debug              bool
 	Resume             bool
@@ -172,6 +173,7 @@ Flags:
   --version                 Print version and exit
   --help                    Show this help and exit
   -p string                 One-shot prompt
+  -i, --interactive         Interactive mode (with -p, keep chatting)
   -m, --model string        Model name
   --sidecar string          Sidecar model name
   --no-sidecar              Disable sidecar for this session only
@@ -362,6 +364,7 @@ func parseBoolish(s string) (value bool, ok bool) {
 
 type cliOptions struct {
 	prompt        optionalString
+	interactive   optionalBool
 	model         optionalString
 	sidecar       optionalString
 	noSidecar     bool
@@ -391,6 +394,8 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.SetOutput(os.Stderr)
 
 	fs.Var(&opts.prompt, "p", "one-shot prompt")
+	fs.Var(&opts.interactive, "i", "interactive mode")
+	fs.Var(&opts.interactive, "interactive", "interactive mode")
 	fs.Var(&opts.model, "m", "model")
 	fs.Var(&opts.model, "model", "model")
 	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
@@ -425,6 +430,9 @@ func parseCLI(args []string) (cliOptions, error) {
 func applyCLI(cfg *Config, cli cliOptions) {
 	if cli.prompt.set {
 		cfg.Prompt = cli.prompt.value
+	}
+	if cli.interactive.set {
+		cfg.Interactive = cli.interactive.value
 	}
 	if cli.model.set {
 		cfg.Model = cli.model.value

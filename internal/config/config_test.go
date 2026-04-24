@@ -90,6 +90,7 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	t.Setenv("VIBE_CODER_DEBUG", "true")
 
 	cfg, err := Load([]string{
+		"--interactive",
 		"--ollama-host", "http://cli-host:11434",
 		"-m", "cli-model",
 		"--max-tokens", "4096",
@@ -126,6 +127,9 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 	}
 	if cfg.SessionID != "abc123" {
 		t.Fatalf("expected session id from CLI, got %q", cfg.SessionID)
+	}
+	if !cfg.Interactive {
+		t.Fatal("expected interactive true from CLI")
 	}
 	if !cfg.ConfigFileExists {
 		t.Fatal("expected config file to be marked as existing")
@@ -174,6 +178,33 @@ func TestLoadHelpAndVersionFlags(t *testing.T) {
 	}
 	if !cfg.ShowVer {
 		t.Fatal("expected show version to be true")
+	}
+}
+
+func TestLoadInteractiveFlagOrderWithPrompt(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	first, err := Load([]string{"-i", "-p", "hello"})
+	if err != nil {
+		t.Fatalf("load config (-i then -p): %v", err)
+	}
+	if !first.Interactive {
+		t.Fatal("expected interactive=true when -i appears before -p")
+	}
+	if first.Prompt != "hello" {
+		t.Fatalf("expected prompt=hello, got %q", first.Prompt)
+	}
+
+	second, err := Load([]string{"-p", "hello", "-i"})
+	if err != nil {
+		t.Fatalf("load config (-p then -i): %v", err)
+	}
+	if !second.Interactive {
+		t.Fatal("expected interactive=true when -i appears after -p")
+	}
+	if second.Prompt != "hello" {
+		t.Fatalf("expected prompt=hello, got %q", second.Prompt)
 	}
 }
 

@@ -1,12 +1,12 @@
 # vibe-coder
 
 `vibe-coder` is a local-first coding agent for Ollama, built in Go.
-It runs as a single CLI binary and supports one-shot prompts, interactive sessions, tools, permissions, session persistence, and optional RAG.
+It runs as a single CLI binary and supports one-shot prompts (`-p`), interactive sessions, tools, permissions, session persistence, and optional RAG.
 
 ## Highlights
 
 - Local-first by default (Ollama-based workflow).
-- Interactive REPL plus one-shot mode (`-p`).
+- Interactive REPL plus one-shot prompt mode (`-p`).
 - Built-in tool system (`Read`, `Write`, `Edit`, `Glob`, `Bash`, `Grep`, web tools, notebook editing, tasks, subagents, and more).
 - Session persistence with project-aware indexing and compaction.
 - Optional RAG indexing and retrieval (build/runtime features already wired).
@@ -179,6 +179,7 @@ Current top-level flags:
 - `--version` print version and exit
 - `--help` show help
 - `-p` one-shot prompt
+- `-i, --interactive` interactive mode (combine with `-p` to send an initial prompt and keep chatting)
 - `-m, --model` model name
 - `--sidecar` sidecar model name (`SIDECAR_MODEL` in `config.env`)
 - `--no-sidecar` do not use the sidecar; with `/save`, writes `SIDECAR_DISABLED=true` to `config.env` so it stays off on future runs

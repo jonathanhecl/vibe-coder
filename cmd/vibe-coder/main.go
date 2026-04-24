@@ -158,10 +158,12 @@ func main() {
 		}
 	}
 
+	bannerPrinted := false
 	if cfg.Prompt != "" {
 		// Keep one-shot output aligned with interactive startup context so users
 		// can always see which model/session/host served the answer.
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
+		bannerPrinted = true
 		if err := ag.Run(rootCtx, cfg.Prompt); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
@@ -170,10 +172,16 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: failed to save session: %v\n", err)
 			os.Exit(1)
 		}
-		return
+		if !shouldContinueInteractiveAfterPrompt(cfg, term.IsTerminal(int(os.Stdin.Fd())), term.IsTerminal(int(os.Stdout.Fd()))) {
+			return
+		}
+		// Banner was already printed for the initial prompt.
+		cfg.Prompt = ""
 	}
 
-	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
+	if !bannerPrinted {
+		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
+	}
 	slashCtx := &slash.Ctx{
 		Cfg:     cfg,
 		Session: sess,
@@ -231,6 +239,13 @@ func shouldRunFirstRunOnboarding(cfg *config.Config, persistModelSettings bool) 
 		return false
 	}
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+func shouldContinueInteractiveAfterPrompt(cfg *config.Config, stdinTTY, stdoutTTY bool) bool {
+	if cfg == nil || strings.TrimSpace(cfg.Prompt) == "" || !cfg.Interactive {
+		return false
+	}
+	return stdinTTY && stdoutTTY
 }
 
 func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {

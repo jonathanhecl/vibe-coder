@@ -110,3 +110,27 @@ func TestExtractPersistDirective(t *testing.T) {
 		t.Fatalf("unexpected args after filter: %v", args)
 	}
 }
+
+func TestShouldContinueInteractiveAfterPrompt(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{Prompt: "hello", Interactive: true}
+	if !shouldContinueInteractiveAfterPrompt(cfg, true, true) {
+		t.Fatal("expected interactive continuation when prompt is set and both streams are TTY")
+	}
+	if shouldContinueInteractiveAfterPrompt(cfg, true, false) {
+		t.Fatal("expected no continuation when stdout is not a TTY")
+	}
+	if shouldContinueInteractiveAfterPrompt(cfg, false, true) {
+		t.Fatal("expected no continuation when stdin is not a TTY")
+	}
+	if shouldContinueInteractiveAfterPrompt(&config.Config{Prompt: "", Interactive: true}, true, true) {
+		t.Fatal("expected no continuation with empty prompt")
+	}
+	if shouldContinueInteractiveAfterPrompt(&config.Config{Prompt: "hello", Interactive: false}, true, true) {
+		t.Fatal("expected no continuation when interactive mode is disabled")
+	}
+	if shouldContinueInteractiveAfterPrompt(nil, true, true) {
+		t.Fatal("expected no continuation with nil config")
+	}
+}
