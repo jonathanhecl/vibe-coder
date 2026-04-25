@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -335,5 +336,174 @@ func TestInferSingleToolCallMarkdownPattern(t *testing.T) {
 	}
 	if params["pattern"] != "*.md" {
 		t.Fatalf("expected markdown pattern, got %#v", params["pattern"])
+	}
+}
+
+func TestIsEmptyAssistantResponseErr(t *testing.T) {
+	if isEmptyAssistantResponseErr(nil) {
+		t.Fatal("nil should be false")
+	}
+	if isEmptyAssistantResponseErr(errors.New("something else")) {
+		t.Fatal("unrelated error should be false")
+	}
+	if !isEmptyAssistantResponseErr(errors.New("empty assistant response")) {
+		t.Fatal("expected true for empty assistant response")
+	}
+	if !isEmptyAssistantResponseErr(errors.New("EMPTY ASSISTANT RESPONSE")) {
+		t.Fatal("expected true for uppercase variant")
+	}
+}
+
+func TestShortModelName(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"llama3.2:3b", "llama3.2:3b"},
+		{"hf.co/User/Model:Q4", "Model:Q4"},
+		{strings.Repeat("a", 40), strings.Repeat("a", 31) + "…"},
+		{"  spaced  ", "spaced"},
+	}
+	for _, c := range cases {
+		got := shortModelName(c.in)
+		if got != c.want {
+			t.Fatalf("shortModelName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestMaybeShowTodosAndHasPendingTodos(t *testing.T) {
+	ag := newCoverageAgent(t, &coverageClient{}, tui.DecisionAllowOnce, true)
+
+	// maybeShowTodos early exits for non-TodoWrite tools.
+	ag.maybeShowTodos("Read")
+	if ag.hasPendingTodos() {
+		t.Fatal("expected no pending todos initially")
+	}
+
+	// Seed todos.
+	tw, ok := ag.reg.Get("TodoWrite").(*tools.TodoWriteTool)
+	if !ok || tw == nil {
+		t.Fatal("TodoWrite tool missing")
+	}
+	seed := tw.Execute(context.Background(), map[string]any{
+		"todos": []any{
+			map[string]any{"id": "a", "content": "step one", "status": "pending"},
+			map[string]any{"id": "b", "content": "step two empty-like", "status": "completed"},
+			map[string]any{"id": "c", "content": "step three", "status": "completed"},
+		},
+	})
+	if seed.IsError {
+		t.Fatalf("seed failed: %s", seed.Output)
+	}
+
+	// hasPendingTodos should be true because "a" is pending.
+	if !ag.hasPendingTodos() {
+		t.Fatal("expected pending todos")
+	}
+
+	// maybeShowTodos should execute without panic and ShowTodos the meaningful ones.
+	ag.maybeShowTodos("TodoWrite")
+
+	// Mark all completed.
+	tw.Execute(context.Background(), map[string]any{
+		"todos": []any{
+			map[string]any{"id": "a", "content": "step one", "status": "completed"},
+		},
+	})
+	if ag.hasPendingTodos() {
+		t.Fatal("expected no pending todos after completion")
+	}
+}
+
+func TestIsMeaningfulTodoContent(t *testing.T) {
+	if isMeaningfulTodoContent("") || isMeaningfulTodoContent("   ") || isMeaningfulTodoContent("123") {
+		t.Fatal("expected false for empty/spaces/numeric-only")
+	}
+	if !isMeaningfulTodoContent("abc") || !isMeaningfulTodoContent("x 123") {
+		t.Fatal("expected true for content with letters")
+	}
+}
+
+func TestIsWriteAllowedInPlan(t *testing.T) {
+	ag := newCoverageAgent(t, &coverageClient{}, tui.DecisionAllowOnce, true)
+	ag.EnterPlanMode()
+
+	if ag.isWriteAllowedInPlan(map[string]any{}) {
+		t.Fatal("expected false for empty params")
+	}
+	if ag.isWriteAllowedInPlan(map[string]any{"file_path": ""}) {
+		t.Fatal("expected false for empty path")
+	}
+
+	plansDir := filepath.Join(ag.cfg.Cwd, ".vibe-coder", "plans")
+	_ = os.MkdirAll(plansDir, 0o755)
+	planFile := filepath.Join(plansDir, "roadmap.md")
+
+	if !ag.isWriteAllowedInPlan(map[string]any{"file_path": planFile}) {
+		t.Fatal("expected true for file inside plans dir")
+	}
+	if ag.isWriteAllowedInPlan(map[string]any{"file_path": filepath.Join(ag.cfg.Cwd, "outside.txt")}) {
+		t.Fatal("expected false for file outside plans dir")
+	}
+	if !ag.isWriteAllowedInPlan(map[string]any{"file_path": filepath.Join(".vibe-coder", "plans", "nested.md")}) {
+		t.Fatal("expected true for relative path inside plans dir")
+	}
+}
+
+func TestPermissionDeniedNoteAndIsCancelled(t *testing.T) {
+	pm := permissions.NewManager(&config.Config{})
+	if permissionDeniedNote(pm) != "Permission denied." {
+		t.Fatal("expected permission denied note")
+	}
+
+	rootCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if !isCancelledByUser(rootCtx, context.Canceled) {
+		t.Fatal("expected true for user cancellation")
+	}
+	if isCancelledByUser(context.TODO(), context.Canceled) {
+		t.Fatal("expected false when rootCtx is nil")
+	}
+	if isCancelledByUser(context.Background(), nil) {
+		t.Fatal("expected false when err is nil")
+	}
+}
+
+func TestBuildEmptyResponseRetryInput(t *testing.T) {
+	ag := newCoverageAgent(t, &coverageClient{}, tui.DecisionAllowOnce, true)
+
+	// With empty session, should just add retry context.
+	out := ag.BuildEmptyResponseRetryInput("base", false)
+	if !strings.Contains(out, "[retry_context]") {
+		t.Fatal("expected retry_context block")
+	}
+	if strings.Contains(out, "Recently completed") {
+		t.Fatal("expected no completed notes with empty session")
+	}
+
+	// Seed session with a runtime file note so recentCompletedFileRuntimeNotes triggers.
+	ag.sess.AddAssistant("[runtime] File written: /tmp/main.go")
+	ag.sess.AddAssistant("plain text")
+	ag.sess.AddAssistant("[runtime] File updated: /tmp/other.go")
+
+	out2 := ag.BuildEmptyResponseRetryInput("base", true)
+	if !strings.Contains(out2, "Recently completed file steps:") {
+		t.Fatal("expected completed file notes")
+	}
+	if !strings.Contains(out2, "State appears unchanged") {
+		t.Fatal("expected repeatedState hint")
+	}
+	if !strings.Contains(out2, "File written: /tmp/main.go") {
+		t.Fatal("expected first file note")
+	}
+	if !strings.Contains(out2, "File updated: /tmp/other.go") {
+		t.Fatal("expected second file note")
+	}
+
+	// Test recentCompletedFileRuntimeNotes limit.
+	notes := ag.recentCompletedFileRuntimeNotes(1)
+	if len(notes) != 1 {
+		t.Fatalf("expected 1 note, got %d", len(notes))
+	}
+	if len(ag.recentCompletedFileRuntimeNotes(0)) != 0 {
+		t.Fatal("expected 0 notes for limit 0")
 	}
 }

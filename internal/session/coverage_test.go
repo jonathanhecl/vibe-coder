@@ -270,3 +270,101 @@ func TestWriteProjectIndexFailsOnInvalidCwd(t *testing.T) {
 	}
 }
 
+func TestToolObservationUserContentEdgeCases(t *testing.T) {
+	out := ToolObservationUserContent("", "")
+	if !strings.Contains(out, "unknown") || !strings.Contains(out, "(no output)") {
+		t.Fatalf("expected fallback for empty params, got %q", out)
+	}
+	out2 := ToolObservationUserContent("Read", "ok")
+	if !strings.Contains(out2, "name=Read") || !strings.Contains(out2, "ok") {
+		t.Fatalf("expected normal formatting, got %q", out2)
+	}
+}
+
+func TestDeleteSessionValidation(t *testing.T) {
+	if err := DeleteSession(nil, "abc"); err == nil {
+		t.Fatal("expected nil config error")
+	}
+	cfg := &config.Config{Cwd: t.TempDir(), SessionsDir: ""}
+	if err := DeleteSession(cfg, "abc"); err == nil {
+		t.Fatal("expected empty sessions dir error")
+	}
+	cfg2 := &config.Config{Cwd: t.TempDir(), SessionsDir: t.TempDir()}
+	if err := DeleteSession(cfg2, "../../../etc/passwd"); err == nil {
+		t.Fatal("expected traversal error")
+	}
+}
+
+func TestDeleteAllSessionsValidation(t *testing.T) {
+	if _, err := DeleteAllSessions(nil); err == nil {
+		t.Fatal("expected nil config error")
+	}
+	cfg := &config.Config{Cwd: t.TempDir(), SessionsDir: ""}
+	if _, err := DeleteAllSessions(cfg); err == nil {
+		t.Fatal("expected empty sessions dir error")
+	}
+	cfg2 := &config.Config{Cwd: t.TempDir(), SessionsDir: filepath.Join(t.TempDir(), "missing")}
+	removed, err := DeleteAllSessions(cfg2)
+	if err != nil || removed != 0 {
+		t.Fatalf("expected 0 removed for missing dir, got %d err=%v", removed, err)
+	}
+}
+
+func TestPruneProjectIndexBranches(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Missing index → no error.
+	if err := pruneProjectIndex(tmp, "abc"); err != nil {
+		t.Fatalf("expected nil for missing index, got %v", err)
+	}
+
+	// Corrupt index → no error (safe fallback).
+	if err := os.WriteFile(filepath.Join(tmp, "project-index.json"), []byte("{bad"), 0o644); err != nil {
+		t.Fatalf("write corrupt index: %v", err)
+	}
+	if err := pruneProjectIndex(tmp, "abc"); err != nil {
+		t.Fatalf("expected nil for corrupt index, got %v", err)
+	}
+
+	// Non-matching id → no rewrite.
+	if err := os.WriteFile(filepath.Join(tmp, "project-index.json"), []byte(`{"hash1":"other"}`), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := pruneProjectIndex(tmp, "abc"); err != nil {
+		t.Fatalf("expected nil when no entry matches, got %v", err)
+	}
+
+	// Matching id with remaining entries → rewrite.
+	if err := os.WriteFile(filepath.Join(tmp, "project-index.json"), []byte(`{"hash1":"abc","hash2":"other"}`), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := pruneProjectIndex(tmp, "abc"); err != nil {
+		t.Fatalf("expected nil after pruning one entry, got %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, "project-index.json"))
+	if err != nil {
+		t.Fatalf("expected rewritten index to exist: %v", err)
+	}
+	if strings.Contains(string(data), "abc") {
+		t.Fatal("expected pruned index to not contain removed id")
+	}
+}
+
+func TestListSessionsValidation(t *testing.T) {
+	if _, err := ListSessions(nil); err == nil {
+		t.Fatal("expected nil config error")
+	}
+	cfg := &config.Config{Cwd: t.TempDir(), SessionsDir: ""}
+	if _, err := ListSessions(cfg); err == nil {
+		t.Fatal("expected empty sessions dir error")
+	}
+}
+
+func TestSessionFilePathInvalidDir(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{Cwd: tmp, SessionsDir: string([]byte{'b', 'a', 'd', 0})}
+	s := New(cfg)
+	if _, err := s.sessionFilePath("abc123"); err == nil {
+		t.Fatal("expected resolve sessions dir error")
+	}
+}

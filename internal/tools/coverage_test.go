@@ -251,3 +251,38 @@ func TestBashAndWebSearchValidationBranches(t *testing.T) {
 	}
 }
 
+func TestTodoStoreReset(t *testing.T) {
+	tw := NewTodoWriteTool()
+	tw.Execute(context.Background(), map[string]any{
+		"todos": []any{map[string]any{"id": "1", "content": "a", "status": "pending"}},
+	})
+	if len(tw.Store().Snapshot()) == 0 {
+		t.Fatal("expected items before reset")
+	}
+	tw.Store().Reset()
+	if len(tw.Store().Snapshot()) != 0 {
+		t.Fatal("expected empty store after reset")
+	}
+}
+
+func TestIsPrivateHostBranches(t *testing.T) {
+	cases := []struct {
+		host string
+		want bool
+	}{
+		{"", true},
+		{"localhost", true},
+		{"127.0.0.1", true},
+		{"10.0.0.1", true},
+		{"192.168.1.1", true},
+		{"172.16.0.1", true},
+		{"8.8.8.8", false},
+		{"1.1.1.1", false},
+	}
+	for _, c := range cases {
+		got := isPrivateHost(c.host)
+		if got != c.want {
+			t.Fatalf("isPrivateHost(%q) = %t, want %t", c.host, got, c.want)
+		}
+	}
+}

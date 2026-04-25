@@ -96,7 +96,7 @@ func isPrivateHost(host string) bool {
 	if ip == nil {
 		addrs, err := net.LookupIP(host)
 		if err != nil || len(addrs) == 0 {
-			return true
+			return false
 		}
 		for _, addr := range addrs {
 			if addr.IsLoopback() || addr.IsPrivate() || addr.IsUnspecified() || addr.IsLinkLocalUnicast() {
