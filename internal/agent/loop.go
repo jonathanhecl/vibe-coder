@@ -37,7 +37,7 @@ type Agent struct {
 	reg    *tools.Registry
 	perm   *permissions.Manager
 	sess   *session.Session
-	ui     uiPort
+	ui     tui.UI
 
 	mu          sync.RWMutex
 	planMode    bool
@@ -58,21 +58,6 @@ func isEmptyAssistantResponseErr(err error) bool {
 	return strings.Contains(msg, "empty assistant response")
 }
 
-type uiPort interface {
-	StartESCMonitor(interrupt func()) error
-	StopESCMonitor()
-	StreamAssistant(text string)
-	EndAssistant()
-	StreamThinking(text string)
-	EndThinking()
-	StartWaiting(label string)
-	StopWaiting()
-	ShowToolCall(name string, params map[string]any)
-	ShowToolResult(name, output string, isError bool, toolParams map[string]any)
-	ShowTodos(items []tui.TodoItem)
-	AskPermission(tool string, params map[string]any) tui.Decision
-}
-
 type ragProvider interface {
 	QueryText(ctx context.Context, query string, k int) (string, error)
 }
@@ -83,7 +68,7 @@ func New(
 	reg *tools.Registry,
 	perm *permissions.Manager,
 	sess *session.Session,
-	ui uiPort,
+	ui tui.UI,
 ) *Agent {
 	return &Agent{
 		cfg:      cfg,
@@ -209,6 +194,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				}
 			}
 			result := tool.Execute(ctx, toolParams)
+			if result.Diff != "" {
+				if toolParams == nil {
+					toolParams = map[string]any{}
+				}
+				toolParams["_diff"] = result.Diff
+			}
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			if toolName == "TodoWrite" {
 				a.maybeShowTodos(toolName)
@@ -289,6 +280,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				}
 			}
 			result := tool.Execute(ctx, toolParams)
+			if result.Diff != "" {
+				if toolParams == nil {
+					toolParams = map[string]any{}
+				}
+				toolParams["_diff"] = result.Diff
+			}
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
 			if toolName == "TodoWrite" {
 				a.maybeShowTodos(toolName)

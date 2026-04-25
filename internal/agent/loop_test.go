@@ -49,6 +49,7 @@ type fakeUI struct {
 
 func (f *fakeUI) StartESCMonitor(func()) error { return nil }
 func (f *fakeUI) StopESCMonitor()              {}
+func (f *fakeUI) SetPlanMode(bool)             {}
 func (f *fakeUI) StreamAssistant(string)       {}
 func (f *fakeUI) EndAssistant()                {}
 func (f *fakeUI) StreamThinking(string)        {}
@@ -63,6 +64,8 @@ func (f *fakeUI) ShowTodos([]tui.TodoItem)                            {}
 func (f *fakeUI) AskPermission(string, map[string]any) tui.Decision {
 	return tui.DecisionAllowOnce
 }
+func (f *fakeUI) GetInput(string) (string, error) { return "", nil }
+func (f *fakeUI) Stop()                           {}
 
 func TestRunGlobOnce(t *testing.T) {
 	tmp := t.TempDir()

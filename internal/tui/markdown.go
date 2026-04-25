@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
+
+	"github.com/alecthomas/chroma/v2/quick"
 )
 
 // MarkdownRenderer turns model output into ANSI-styled lines suitable for
@@ -25,6 +28,7 @@ import (
 // out of a redirected log stay readable.
 type MarkdownRenderer struct {
 	style    Style
+	rich     bool
 	inCode   bool
 	codeLang string
 	buf      strings.Builder
@@ -33,6 +37,12 @@ type MarkdownRenderer struct {
 // NewMarkdownRenderer constructs a renderer bound to the given style.
 func NewMarkdownRenderer(style Style) *MarkdownRenderer {
 	return &MarkdownRenderer{style: style}
+}
+
+// NewRichMarkdownRenderer enables syntax-aware code block rendering intended
+// for the rich UI mode.
+func NewRichMarkdownRenderer(style Style) *MarkdownRenderer {
+	return &MarkdownRenderer{style: style, rich: true}
 }
 
 // Reset clears any partial line and code-block state. Call between turns
@@ -114,6 +124,11 @@ func (r *MarkdownRenderer) renderLine(line string) string {
 	if r.inCode {
 		// Inside code blocks we deliberately do NOT apply inline marks
 		// (** _ ` []) — they are part of the code, not formatting.
+		if r.rich {
+			if highlighted := highlightCodeLine(line, r.codeLang); highlighted != "" {
+				return r.style.Dim(iconBar+" ") + highlighted
+			}
+		}
 		return r.style.Dim(iconBar+" ") + r.style.Cyan(line)
 	}
 
@@ -248,4 +263,19 @@ func stripCR(s string) string {
 		return s[:len(s)-1]
 	}
 	return s
+}
+
+func highlightCodeLine(line, lang string) string {
+	if strings.TrimSpace(line) == "" || strings.TrimSpace(lang) == "" {
+		return ""
+	}
+	var out bytes.Buffer
+	if err := quick.Highlight(&out, line, lang, "terminal256", "monokai"); err != nil {
+		return ""
+	}
+	rendered := strings.TrimRight(out.String(), "\n")
+	if strings.TrimSpace(rendered) == "" {
+		return ""
+	}
+	return rendered
 }

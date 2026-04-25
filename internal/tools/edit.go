@@ -11,6 +11,53 @@ type EditTool struct{}
 
 func NewEditTool() *EditTool { return &EditTool{} }
 
+func unifiedDiff(a, b string) string {
+	al := strings.Split(a, "\n")
+	bl := strings.Split(b, "\n")
+	i := 0
+	for i < len(al) && i < len(bl) && al[i] == bl[i] {
+		i++
+	}
+	j, k := len(al)-1, len(bl)-1
+	for j >= i && k >= i && al[j] == bl[k] {
+		j--
+		k--
+	}
+	if i > j && i > k {
+		return ""
+	}
+	const c = 3
+	lo := max(0, i-c)
+	ro := min(len(al), j+1+c)
+	rb := min(len(bl), k+1+c)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "@@ -%d,%d +%d,%d @@\n", lo+1, ro-lo, lo+1, rb-lo)
+	o, n := lo, lo
+	for o < ro || n < rb {
+		if o < ro && n < rb && al[o] == bl[n] && (o < i || o > j) {
+			fmt.Fprintf(&sb, " %s\n", al[o])
+			o++
+			n++
+			continue
+		}
+		if o <= j && o < ro {
+			fmt.Fprintf(&sb, "-%s\n", al[o])
+			o++
+		} else if n <= k && n < rb {
+			fmt.Fprintf(&sb, "+%s\n", bl[n])
+			n++
+		} else if o < ro {
+			fmt.Fprintf(&sb, " %s\n", al[o])
+			o++
+			n++
+		} else {
+			fmt.Fprintf(&sb, "+%s\n", bl[n])
+			n++
+		}
+	}
+	return sb.String()
+}
+
 func (t *EditTool) Name() string { return "Edit" }
 func (t *EditTool) Description() string {
 	return "Edit file content by replacing exact text."
@@ -72,8 +119,10 @@ func (t *EditTool) Execute(ctx context.Context, params map[string]any) Result {
 		limit = -1
 	}
 	updated := strings.Replace(content, oldString, newString, limit)
-	return NewWriteTool().Execute(ctx, map[string]any{
+	res := NewWriteTool().Execute(ctx, map[string]any{
 		"file_path": path,
 		"contents":  updated,
 	})
+	res.Diff = unifiedDiff(content, updated)
+	return res
 }

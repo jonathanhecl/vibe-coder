@@ -96,9 +96,12 @@ You can override the config file path with:
 Model keys and overrides:
 
 - Config file key: `MODEL=<model-name>`
+- Config file key: `UI=plain|rich`
 - Config file key: `SIDECAR_MODEL=<model-name>`
 - Environment: `VIBE_CODER_MODEL=<model-name>`
+- Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
+- CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 
 If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
@@ -178,6 +181,7 @@ Current top-level flags:
 
 - `--version` print version and exit
 - `--help` show help
+- `--ui` UI mode (`plain` or `rich`)
 - `-p` one-shot prompt
 - `-i, --interactive` interactive mode (combine with `-p` to send an initial prompt and keep chatting)
 - `-m, --model` model name

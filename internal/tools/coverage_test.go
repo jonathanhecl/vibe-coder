@@ -286,3 +286,21 @@ func TestIsPrivateHostBranches(t *testing.T) {
 		}
 	}
 }
+
+func TestUnifiedDiff(t *testing.T) {
+	if d := unifiedDiff("a\nb\nc", "a\nB\nc"); d == "" {
+		t.Fatal("expected non-empty diff")
+	}
+	if d := unifiedDiff("a", "a"); d != "" {
+		t.Fatalf("expected empty diff for identical, got %q", d)
+	}
+	if d := unifiedDiff("", "a"); !strings.Contains(d, "+") {
+		t.Fatalf("expected + line for added content, got %q", d)
+	}
+	if d := unifiedDiff("a", ""); !strings.Contains(d, "-") {
+		t.Fatalf("expected - line for removed content, got %q", d)
+	}
+	if !strings.Contains(unifiedDiff("x\ny\nz", "x\nY\nz"), "@@") {
+		t.Fatal("expected @@ header")
+	}
+}

@@ -14,6 +14,7 @@ type Result struct {
 	Output        string
 	HintsForModel string
 	IsError       bool
+	Diff          string // human-only diff for Edit/Write (not sent to model)
 }
 
 type Schema struct {

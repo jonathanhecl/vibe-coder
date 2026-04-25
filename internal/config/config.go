@@ -26,6 +26,7 @@ const (
 type Config struct {
 	OllamaHost       string
 	Model            string
+	UI               string
 	SidecarModel     string
 	ConfigFileExists bool
 	// SidecarDisabled, when true, turns off the sidecar until changed in config (SIDECAR_DISABLED / SIDECAR_ENABLED).
@@ -109,6 +110,9 @@ func Load(args []string) (*Config, error) {
 	if strings.TrimSpace(cfg.Model) == "" {
 		cfg.Model = autoDetectModel()
 	}
+	if err := validateUIMode(cfg.UI); err != nil {
+		return nil, err
+	}
 
 	if _, err := url.ParseRequestURI(cfg.OllamaHost); err != nil {
 		return nil, fmt.Errorf("invalid ollama host %q: %w", cfg.OllamaHost, err)
@@ -172,6 +176,7 @@ func Usage(binName string) string {
 Flags:
   --version                 Print version and exit
   --help                    Show this help and exit
+  --ui string               UI mode (plain|rich)
   -p string                 One-shot prompt
   -i, --interactive         Interactive mode (with -p, keep chatting)
   -m, --model string        Model name
@@ -204,6 +209,7 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 		MaxTokens:     defaultMaxTokens,
 		Temperature:   defaultTemperature,
 		ContextWindow: defaultContextWindow,
+		UI:            "plain",
 		Cwd:           cwd,
 		ConfigDir:     configDir,
 		StateDir:      stateDir,
@@ -246,6 +252,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL", "VIBEGO_MODEL")); v != "" {
 		cfg.Model = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_UI", "VIBEGO_UI")); v != "" {
+		cfg.UI = v
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_MODEL", "VIBEGO_SIDECAR_MODEL")); v != "" {
 		cfg.SidecarModel = v
@@ -312,6 +321,8 @@ func applyConfigFile(cfg *Config, path string) error {
 		switch key {
 		case "MODEL":
 			cfg.Model = value
+		case "UI":
+			cfg.UI = value
 		case "SIDECAR_MODEL":
 			cfg.SidecarModel = value
 		case "SIDECAR_DISABLED":
@@ -366,6 +377,7 @@ type cliOptions struct {
 	prompt        optionalString
 	interactive   optionalBool
 	model         optionalString
+	ui            optionalString
 	sidecar       optionalString
 	noSidecar     bool
 	yesMode       optionalBool
@@ -398,6 +410,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.interactive, "interactive", "interactive mode")
 	fs.Var(&opts.model, "m", "model")
 	fs.Var(&opts.model, "model", "model")
+	fs.Var(&opts.ui, "ui", "ui mode (plain|rich)")
 	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
 	fs.BoolVar(&opts.noSidecar, "no-sidecar", false, "disable sidecar for this session only")
 	fs.Var(&opts.yesMode, "y", "yes mode")
@@ -436,6 +449,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.model.set {
 		cfg.Model = cli.model.value
+	}
+	if cli.ui.set {
+		cfg.UI = cli.ui.value
 	}
 	if cli.sidecar.set {
 		cfg.SidecarModel = cli.sidecar.value
@@ -557,6 +573,19 @@ func (o *optionalFloat) Set(v string) error {
 }
 func (o *optionalFloat) String() string {
 	return strconv.FormatFloat(o.value, 'f', -1, 64)
+}
+
+func validateUIMode(mode string) error {
+	v := strings.ToLower(strings.TrimSpace(mode))
+	if v == "" {
+		return errors.New("ui mode cannot be empty")
+	}
+	switch v {
+	case "plain", "rich":
+		return nil
+	default:
+		return fmt.Errorf("invalid ui mode %q: expected plain or rich", mode)
+	}
 }
 
 // SaveModelSettings persists runtime model settings to the vibe-coder config file.

@@ -27,3 +27,23 @@ func TestToolResultSummaryEditShowsPlusMinus(t *testing.T) {
 		t.Fatalf("unexpected summary: %q", s)
 	}
 }
+
+func TestPrintEditDiffPreviewWithDiff(t *testing.T) {
+	var b strings.Builder
+	st := Style{}
+	printEditDiffPreview(&b, st, map[string]any{"_diff": "@@ -1,3 +1,3 @@\n a\n-b\n+c\n d"})
+	out := b.String()
+	if !strings.Contains(out, "@@") || !strings.Contains(out, "-") || !strings.Contains(out, "+") {
+		t.Fatalf("expected colored diff output, got %q", out)
+	}
+}
+
+func TestPrintColoredDiffTruncates(t *testing.T) {
+	var b strings.Builder
+	st := Style{}
+	big := strings.Repeat("+x\n", 60)
+	printColoredDiff(&b, st, big)
+	if !strings.Contains(b.String(), "truncated") {
+		t.Fatal("expected truncation indicator")
+	}
+}

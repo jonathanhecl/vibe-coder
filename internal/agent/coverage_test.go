@@ -24,6 +24,7 @@ type coverageUI struct {
 
 func (c *coverageUI) StartESCMonitor(func()) error { return nil }
 func (c *coverageUI) StopESCMonitor()              {}
+func (c *coverageUI) SetPlanMode(bool)             {}
 func (c *coverageUI) StreamAssistant(string)       {}
 func (c *coverageUI) EndAssistant()                {}
 func (c *coverageUI) StreamThinking(string)        {}
@@ -38,6 +39,8 @@ func (c *coverageUI) ShowTodos([]tui.TodoItem) {}
 func (c *coverageUI) AskPermission(string, map[string]any) tui.Decision {
 	return c.decision
 }
+func (c *coverageUI) GetInput(string) (string, error) { return "", nil }
+func (c *coverageUI) Stop()                           {}
 
 type coverageRAG struct{}
 

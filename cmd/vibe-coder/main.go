@@ -71,7 +71,11 @@ func main() {
 	client := ollama.NewHTTP(cfg.OllamaHost)
 	sess := session.New(cfg)
 	sess.SetClient(client)
-	ui := tui.NewPlain()
+	ui, err := tui.NewFromMode(cfg.UI)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()
 	sub := tools.NewSubAgentTool(cfg, client)
@@ -236,7 +240,7 @@ func main() {
 	}
 }
 
-func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui *tui.PlainUI, input string) error {
+func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {
 	retryCount := 0
 	repeatedState := false
 	currentInput := strings.TrimSpace(input)

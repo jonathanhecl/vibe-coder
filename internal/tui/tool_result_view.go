@@ -84,9 +84,14 @@ func lineCount(s string) int {
 	return strings.Count(s, "\n") + 1
 }
 
-// printEditDiffPreview prints a 2-line Cursor-like snapshot after Edit (optional).
+// printEditDiffPreview prints a colored unified diff after Edit when _diff is
+// present; otherwise falls back to the 2-line Cursor-like snapshot.
 func printEditDiffPreview(w io.Writer, st Style, params map[string]any) {
 	if params == nil {
+		return
+	}
+	if diff, ok := params["_diff"].(string); ok && diff != "" {
+		printColoredDiff(w, st, diff)
 		return
 	}
 	oldS, ok1 := params["old_string"].(string)
@@ -111,6 +116,28 @@ func printEditDiffPreview(w io.Writer, st Style, params map[string]any) {
 	}
 	if strings.Count(oldS, "\n")+strings.Count(newS, "\n") > 2 {
 		fmt.Fprintf(w, "  %s\n", st.Dim("… multiline change (see file)"))
+	}
+}
+
+func printColoredDiff(w io.Writer, st Style, diff string) {
+	lines := strings.Split(diff, "\n")
+	if len(lines) > 50 {
+		lines = lines[:50]
+	}
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "@@"):
+			fmt.Fprintf(w, "  %s\n", st.Cyan(line))
+		case strings.HasPrefix(line, "-"):
+			fmt.Fprintf(w, "  %s\n", st.Red(line))
+		case strings.HasPrefix(line, "+"):
+			fmt.Fprintf(w, "  %s\n", st.Green(line))
+		default:
+			fmt.Fprintf(w, "  %s\n", st.Dim(line))
+		}
+	}
+	if strings.Count(diff, "\n") >= 50 {
+		fmt.Fprintf(w, "  %s\n", st.Dim("… diff truncated"))
 	}
 }
 

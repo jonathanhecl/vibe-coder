@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+// UI is the shared contract between main/agent and concrete terminal
+// renderers (plain and rich).
+type UI interface {
+	StartESCMonitor(interrupt func()) error
+	StopESCMonitor()
+	SetPlanMode(enabled bool)
+	StreamAssistant(text string)
+	EndAssistant()
+	StreamThinking(text string)
+	EndThinking()
+	StartWaiting(label string)
+	StopWaiting()
+	ShowToolCall(name string, params map[string]any)
+	ShowToolResult(name, output string, isError bool, toolParams map[string]any)
+	ShowTodos(items []TodoItem)
+	AskPermission(tool string, params map[string]any) Decision
+	GetInput(prompt string) (string, error)
+	Stop()
+}
+
 // PlainUI renders an interactive session in a way inspired by Cursor's chat:
 // streamed assistant text, a single-line tool "card" that gets rewritten in
 // place when the result arrives, and dim "thinking" sections.
@@ -677,3 +697,5 @@ func trimLine(s string) string {
 	}
 	return s
 }
+
+var _ UI = (*PlainUI)(nil)

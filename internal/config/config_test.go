@@ -328,3 +328,44 @@ func TestLoadChatTimeoutFromEnv(t *testing.T) {
 		t.Fatalf("EffectiveChatTimeout: got %v", cfg.EffectiveChatTimeout())
 	}
 }
+
+func TestLoadUIModePrecedence(t *testing.T) {
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "config.env")
+	if err := os.WriteFile(configFile, []byte("UI=plain\n"), 0o600); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "localapp"))
+	t.Setenv("VIBE_CODER_CONFIG", configFile)
+	t.Setenv("VIBE_CODER_UI", "rich")
+
+	fromEnv, err := Load(nil)
+	if err != nil {
+		t.Fatalf("load config from env: %v", err)
+	}
+	if fromEnv.UI != "rich" {
+		t.Fatalf("expected env UI override, got %q", fromEnv.UI)
+	}
+
+	fromCLI, err := Load([]string{"--ui", "plain"})
+	if err != nil {
+		t.Fatalf("load config from cli: %v", err)
+	}
+	if fromCLI.UI != "plain" {
+		t.Fatalf("expected cli UI override, got %q", fromCLI.UI)
+	}
+}
+
+func TestLoadInvalidUIMode(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	_, err := Load([]string{"--ui", "neon"})
+	if err == nil {
+		t.Fatal("expected invalid UI mode error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "invalid ui mode") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

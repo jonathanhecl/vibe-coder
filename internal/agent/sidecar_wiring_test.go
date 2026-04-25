@@ -55,6 +55,7 @@ type recordingUI struct {
 
 func (r *recordingUI) StartESCMonitor(func()) error        { return nil }
 func (r *recordingUI) StopESCMonitor()                     {}
+func (r *recordingUI) SetPlanMode(bool)                    {}
 func (r *recordingUI) StreamAssistant(string)              {}
 func (r *recordingUI) EndAssistant()                       {}
 func (r *recordingUI) StreamThinking(string)               {}
@@ -69,6 +70,8 @@ func (r *recordingUI) ShowTodos([]tui.TodoItem) {}
 func (r *recordingUI) AskPermission(string, map[string]any) tui.Decision {
 	return tui.DecisionDeny
 }
+func (r *recordingUI) GetInput(string) (string, error) { return "", nil }
+func (r *recordingUI) Stop()                           {}
 
 func newTestAgent(t *testing.T, sideModel string, client ollama.Client) (*Agent, *recordingUI) {
 	t.Helper()
