@@ -123,6 +123,8 @@ func (a *Agent) InPlanMode() bool {
 }
 
 type toolExecutionMode struct {
+	// The inferred-tool and XML-fallback paths historically surfaced denial
+	// differently. Keep that UI detail explicit while sharing execution logic.
 	showPermissionDeniedResult bool
 	endAssistantOnDenied       bool
 }
@@ -136,27 +138,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	}
 	defer a.ui.StopESCMonitor()
 
-	goal := resolveGoalForRun(a.sess, userInput)
-	a.mu.Lock()
-	a.currentGoal = goal
-	a.mu.Unlock()
-	a.sess.AddUser(userInput)
-
-	if rag := a.getRAG(); rag != nil && a.cfg.RAG {
-		k := a.cfg.RAGTopK
-		if k <= 0 {
-			k = 3
-		}
-		if ctxText, err := rag.QueryText(ctx, userInput, k); err == nil && strings.TrimSpace(ctxText) != "" {
-			a.sess.AddUser(ctxText)
-		}
-	}
-
-	if w := a.getWatcher(); w != nil {
-		if changes := w.PendingChanges(); len(changes) > 0 {
-			a.sess.AddUser(w.Format(changes))
-		}
-	}
+	a.addRunContext(ctx, userInput)
 
 	if tasks, ok := detectParallelTasks(userInput); ok {
 		tool := a.reg.Get("ParallelAgents")
@@ -200,20 +182,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		reply, err := a.chatOnce(ctx)
 		if err != nil {
 			if isEmptyAssistantResponseErr(err) {
-				if a.hasPendingTodos() && emptyChatErrRetries < 2 {
-					emptyChatErrRetries++
-					a.sess.AddSystemNote("Model returned an empty response while TODO items remain. Retrying the next pending step.")
-					_ = a.sess.Compact(ctx, false)
-					continue
+				done, err := a.handleEmptyChatResponse(ctx, &emptyChatErrRetries)
+				if done {
+					return err
 				}
-				if a.hasPendingTodos() {
-					a.sess.AddSystemNote("Model returned repeated empty responses while TODO items remain; cannot complete the current run.")
-					_ = a.sess.Compact(ctx, false)
-					return fmt.Errorf("empty assistant response with pending todos")
-				}
-				a.sess.AddSystemNote("Model returned repeated empty responses; ending this run cleanly.")
-				_ = a.sess.Compact(ctx, false)
-				return nil
+				continue
 			}
 			return err
 		}
@@ -268,6 +241,49 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	return fmt.Errorf("iteration cap reached (%d)", MaxIterations)
 }
 
+func (a *Agent) addRunContext(ctx context.Context, userInput string) {
+	goal := resolveGoalForRun(a.sess, userInput)
+	a.mu.Lock()
+	a.currentGoal = goal
+	a.mu.Unlock()
+	a.sess.AddUser(userInput)
+
+	if rag := a.getRAG(); rag != nil && a.cfg.RAG {
+		k := a.cfg.RAGTopK
+		if k <= 0 {
+			k = 3
+		}
+		// RAG is additive context. If retrieval fails, the run can still
+		// proceed with the user's request and normal tool access.
+		if ctxText, err := rag.QueryText(ctx, userInput, k); err == nil && strings.TrimSpace(ctxText) != "" {
+			a.sess.AddUser(ctxText)
+		}
+	}
+
+	if w := a.getWatcher(); w != nil {
+		if changes := w.PendingChanges(); len(changes) > 0 {
+			a.sess.AddUser(w.Format(changes))
+		}
+	}
+}
+
+func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool, error) {
+	if a.hasPendingTodos() && *retries < 2 {
+		*retries++
+		a.sess.AddSystemNote("Model returned an empty response while TODO items remain. Retrying the next pending step.")
+		_ = a.sess.Compact(ctx, false)
+		return false, nil
+	}
+	if a.hasPendingTodos() {
+		a.sess.AddSystemNote("Model returned repeated empty responses while TODO items remain; cannot complete the current run.")
+		_ = a.sess.Compact(ctx, false)
+		return true, fmt.Errorf("empty assistant response with pending todos")
+	}
+	a.sess.AddSystemNote("Model returned repeated empty responses; ending this run cleanly.")
+	_ = a.sess.Compact(ctx, false)
+	return true, nil
+}
+
 func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName string, toolParams map[string]any, mode toolExecutionMode) (tools.Result, bool, error) {
 	if a.InPlanMode() && toolName == "Write" && !a.isWriteAllowedInPlan(toolParams) {
 		blockMsg := "Write blocked in plan mode. Allowed path: <cwd>/.vibe-coder/plans/"
@@ -290,6 +306,8 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	}
 
 	if toolName == "Write" || toolName == "Edit" {
+		// Create a checkpoint before mutating files so failed edits can be
+		// inspected or rolled back by the user outside the agent loop.
 		if err := a.cp.Create("pre-edit"); err != nil {
 			return tools.Result{}, false, err
 		}
@@ -300,6 +318,8 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		if toolParams == nil {
 			toolParams = map[string]any{}
 		}
+		// Diff is for the human UI only; storing it in params keeps the render
+		// path simple without sending the diff back to the model.
 		toolParams["_diff"] = result.Diff
 	}
 	a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
@@ -774,83 +794,10 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 				}
 			}
 			lastErr = err
-		} else {
-			var b strings.Builder
-			thinkingSeen := false
-			lastShown := 0 // bytes of assistant text already streamed to the terminal (hides tool XML)
-			for chunk := range stream {
-				if chunk.Err != nil {
-					a.ui.StopWaiting()
-					if thinkingSeen {
-						a.ui.EndThinking()
-					}
-					if isCancelledByUser(rootCtx, chunk.Err) {
-						cancel()
-						a.ui.EndAssistant()
-						return "[Cancelled by user]", nil
-					}
-					lastErr = chunk.Err
-					a.ui.EndAssistant()
-					break
-				}
-				if chunk.Thinking != "" {
-					thinkingSeen = true
-					a.ui.StreamThinking(chunk.Thinking)
-				}
-				if chunk.Delta != "" {
-					if thinkingSeen {
-						a.ui.EndThinking()
-						thinkingSeen = false
-					}
-					a.ui.StopWaiting()
-					b.WriteString(chunk.Delta)
-					full := b.String()
-					cut := toolEnvelopeByteIndex(full)
-					end := len(full)
-					if cut >= 0 {
-						end = cut
-					}
-					if end > lastShown {
-						segment := full[lastShown:end]
-						if strings.TrimSpace(segment) != "" {
-							a.ui.StreamAssistant(segment)
-						}
-						lastShown = end
-					}
-				}
-				if chunk.Done {
-					a.ui.StopWaiting()
-					if thinkingSeen {
-						a.ui.EndThinking()
-					}
-					full := b.String()
-					if tail := assistantTextAfterFirstClosedTool(full); strings.TrimSpace(tail) != "" {
-						a.ui.StreamAssistant(tail)
-					}
-					cancel()
-					a.ui.EndAssistant()
-					// Native thinking often arrives only in chunk.Thinking; delta can be empty. Treating
-					// that as success made Run exit immediately with an empty assistant message.
-					if strings.TrimSpace(full) == "" {
-						lastErr = fmt.Errorf("empty assistant response (no assistant text or tool call; model may have only emitted thinking)")
-						break
-					}
-					return full, nil
-				}
-			}
-			a.ui.StopWaiting()
-			if thinkingSeen {
-				a.ui.EndThinking()
-			}
-			if b.Len() > 0 && lastErr == nil {
-				full := b.String()
-				if tail := assistantTextAfterFirstClosedTool(full); strings.TrimSpace(tail) != "" {
-					a.ui.StreamAssistant(tail)
-				}
-				cancel()
-				a.ui.EndAssistant()
-				return full, nil
-			}
+		} else if reply, err := a.streamAssistantResponse(rootCtx, cancel, stream); err != nil {
+			lastErr = err
+		} else if reply != "" {
+			return reply, nil
 		}
 		cancel()
 		if attempt < MaxRetries {
@@ -861,6 +808,89 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 		lastErr = fmt.Errorf("empty assistant response")
 	}
 	return "", lastErr
+}
+
+func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.CancelFunc, stream <-chan ollama.Chunk) (string, error) {
+	var b strings.Builder
+	thinkingSeen := false
+	lastShown := 0 // bytes of assistant text already streamed to the terminal (hides tool XML)
+
+	endThinking := func() {
+		if thinkingSeen {
+			a.ui.EndThinking()
+			thinkingSeen = false
+		}
+	}
+	finishAssistant := func() {
+		a.ui.StopWaiting()
+		endThinking()
+		cancel()
+		a.ui.EndAssistant()
+	}
+	flushTailAfterTool := func(full string) {
+		if tail := assistantTextAfterFirstClosedTool(full); strings.TrimSpace(tail) != "" {
+			a.ui.StreamAssistant(tail)
+		}
+	}
+
+	for chunk := range stream {
+		if chunk.Err != nil {
+			if isCancelledByUser(rootCtx, chunk.Err) {
+				finishAssistant()
+				return "[Cancelled by user]", nil
+			}
+			a.ui.StopWaiting()
+			endThinking()
+			a.ui.EndAssistant()
+			return "", chunk.Err
+		}
+		if chunk.Thinking != "" {
+			thinkingSeen = true
+			a.ui.StreamThinking(chunk.Thinking)
+		}
+		if chunk.Delta != "" {
+			endThinking()
+			a.ui.StopWaiting()
+			b.WriteString(chunk.Delta)
+
+			// Tool XML is parsed after the stream completes. Until then, show
+			// only the natural-language prefix so users do not see raw envelopes.
+			full := b.String()
+			end := len(full)
+			if cut := toolEnvelopeByteIndex(full); cut >= 0 {
+				end = cut
+			}
+			if end > lastShown {
+				segment := full[lastShown:end]
+				if strings.TrimSpace(segment) != "" {
+					a.ui.StreamAssistant(segment)
+				}
+				lastShown = end
+			}
+		}
+		if chunk.Done {
+			full := b.String()
+			flushTailAfterTool(full)
+			finishAssistant()
+			// Native thinking often arrives only in chunk.Thinking; delta can be empty.
+			// Treat that as retryable instead of ending the run with no visible work.
+			if strings.TrimSpace(full) == "" {
+				return "", fmt.Errorf("empty assistant response (no assistant text or tool call; model may have only emitted thinking)")
+			}
+			return full, nil
+		}
+	}
+
+	a.ui.StopWaiting()
+	endThinking()
+	if b.Len() == 0 {
+		return "", nil
+	}
+	full := b.String()
+	flushTailAfterTool(full)
+	cancel()
+	a.ui.EndAssistant()
+	return full, nil
 }
 
 func (a *Agent) buildSystemPrompt() string {
