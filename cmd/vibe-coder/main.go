@@ -120,74 +120,100 @@ func main() {
 	}
 
 	if cfg.ListSessions {
-		ctx, cancel := context.WithTimeout(rootCtx, 2*time.Minute)
-		defer cancel()
-		versionInfo, err := client.Version(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to connect to Ollama: %v\n", err)
+		if err := printAvailableModels(rootCtx, client); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
-		}
-		models, err := client.Tags(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to list Ollama models: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Fprintf(os.Stdout, "Ollama %s\n", versionInfo)
-		if len(models) == 0 {
-			fmt.Fprintln(os.Stdout, "No downloaded models found yet.")
-			return
-		}
-		fmt.Fprintln(os.Stdout, "Available models:")
-		for _, model := range models {
-			fmt.Fprintf(os.Stdout, "- %s\n", model.Name)
 		}
 		return
 	}
 
 	if cfg.Resume {
-		if cfg.SessionID != "" {
-			if err := sess.Load(cfg.SessionID); err != nil {
-				fmt.Fprintf(os.Stderr, "error: failed to load session %q: %v\n", cfg.SessionID, err)
-				os.Exit(1)
-			}
-			fmt.Fprintf(os.Stdout, "Resumed session %s\n", sess.ID())
-		} else {
-			ok, err := sess.LoadByProject()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: failed to resume session by project: %v\n", err)
-				os.Exit(1)
-			}
-			if ok {
-				fmt.Fprintf(os.Stdout, "Resumed project session %s\n", sess.ID())
-			}
+		if err := resumeConfiguredSession(cfg, sess); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
 		}
 	}
 
 	bannerPrinted := false
 	if cfg.Prompt != "" {
-		// Keep one-shot output aligned with interactive startup context so users
-		// can always see which model/session/host served the answer.
-		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
-		bannerPrinted = true
-		if err := runAgentWithEmptyRetry(rootCtx, ag, ui, cfg.Prompt); err != nil {
+		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if err := sess.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to save session: %v\n", err)
-			os.Exit(1)
-		}
-		if !shouldContinueInteractiveAfterPrompt(cfg, term.IsTerminal(int(os.Stdin.Fd())), term.IsTerminal(int(os.Stdout.Fd()))) {
+		bannerPrinted = true
+		if !shouldContinue {
 			return
 		}
-		// Banner was already printed for the initial prompt.
 		cfg.Prompt = ""
 	}
 
 	if !bannerPrinted {
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
 	}
+	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui)
+}
+
+func printAvailableModels(rootCtx context.Context, client ollama.Client) error {
+	ctx, cancel := context.WithTimeout(rootCtx, 2*time.Minute)
+	defer cancel()
+	versionInfo, err := client.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect to Ollama: %w", err)
+	}
+	models, err := client.Tags(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list Ollama models: %w", err)
+	}
+
+	fmt.Fprintf(os.Stdout, "Ollama %s\n", versionInfo)
+	if len(models) == 0 {
+		fmt.Fprintln(os.Stdout, "No downloaded models found yet.")
+		return nil
+	}
+	fmt.Fprintln(os.Stdout, "Available models:")
+	for _, model := range models {
+		fmt.Fprintf(os.Stdout, "- %s\n", model.Name)
+	}
+	return nil
+}
+
+func resumeConfiguredSession(cfg *config.Config, sess *session.Session) error {
+	if cfg.SessionID != "" {
+		if err := sess.Load(cfg.SessionID); err != nil {
+			return fmt.Errorf("failed to load session %q: %w", cfg.SessionID, err)
+		}
+		fmt.Fprintf(os.Stdout, "Resumed session %s\n", sess.ID())
+		return nil
+	}
+	ok, err := sess.LoadByProject()
+	if err != nil {
+		return fmt.Errorf("failed to resume session by project: %w", err)
+	}
+	if ok {
+		fmt.Fprintf(os.Stdout, "Resumed project session %s\n", sess.ID())
+	}
+	return nil
+}
+
+func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Agent, sess *session.Session, ui tui.UI) (bool, error) {
+	// Keep one-shot output aligned with interactive startup context so users
+	// can always see which model/session/host served the answer.
+	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
+	if err := runAgentWithEmptyRetry(rootCtx, ag, ui, cfg.Prompt); err != nil {
+		return false, err
+	}
+	if err := sess.Save(); err != nil {
+		return false, fmt.Errorf("failed to save session: %w", err)
+	}
+	return shouldContinueInteractiveAfterPrompt(
+		cfg,
+		term.IsTerminal(int(os.Stdin.Fd())),
+		term.IsTerminal(int(os.Stdout.Fd())),
+	), nil
+}
+
+func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI) {
 	slashCtx := &slash.Ctx{
 		Cfg:     cfg,
 		Session: sess,
@@ -211,33 +237,38 @@ func main() {
 		if line == "" {
 			continue
 		}
-
-		handled, shouldExit, err := slash.Dispatch(slashCtx, line)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			continue
-		}
-		if shouldExit {
-			fmt.Fprintln(os.Stdout, "Bye.")
+		if shouldExit := handleInputLine(rootCtx, slashCtx, ag, ui, line); shouldExit {
 			return
 		}
-		if handled {
-			ui.SetPlanMode(ag.InPlanMode())
-			if task, ok := planTaskFromSlash(line); ok {
-				if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
-					fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				}
-				ui.SetPlanMode(ag.InPlanMode())
-			}
-			continue
-		}
-
-		ui.SetPlanMode(ag.InPlanMode())
-		if err := runAgentWithEmptyRetry(rootCtx, ag, ui, line); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			continue
-		}
 	}
+}
+
+func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Agent, ui tui.UI, line string) bool {
+	handled, shouldExit, err := slash.Dispatch(slashCtx, line)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return false
+	}
+	if shouldExit {
+		fmt.Fprintln(os.Stdout, "Bye.")
+		return true
+	}
+	if handled {
+		ui.SetPlanMode(ag.InPlanMode())
+		if task, ok := planTaskFromSlash(line); ok {
+			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			}
+			ui.SetPlanMode(ag.InPlanMode())
+		}
+		return false
+	}
+
+	ui.SetPlanMode(ag.InPlanMode())
+	if err := runAgentWithEmptyRetry(rootCtx, ag, ui, line); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+	return false
 }
 
 func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {
@@ -249,7 +280,7 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 		if err == nil {
 			return nil
 		}
-		if !isEmptyAssistantResponseErrText(err) {
+		if !agent.IsEmptyAssistantResponseErr(err) {
 			return err
 		}
 		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
@@ -271,13 +302,6 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 		}
 		return nil
 	}
-}
-
-func isEmptyAssistantResponseErrText(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "empty assistant response")
 }
 
 func shouldRunFirstRunOnboarding(cfg *config.Config, persistModelSettings bool) bool {

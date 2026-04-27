@@ -398,32 +398,39 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 	}
 
 	if !streamRequested {
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 32*1024*1024))
-		_ = resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read chat response: %w", err)
-		}
-		var parsed chatResponseLine
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			return nil, fmt.Errorf("decode chat response: %w", err)
-		}
-		ch := make(chan Chunk, 1)
-		ch <- Chunk{
-			Delta:    parsed.Message.Content,
-			Thinking: parsed.Message.Thinking,
-			Done:     true,
-		}
-		close(ch)
-		return ch, nil
+		return decodeSingleChatResponse(resp.Body)
 	}
 
+	return streamChatResponse(ctx, resp.Body), nil
+}
+
+func decodeSingleChatResponse(body io.ReadCloser) (<-chan Chunk, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, 32*1024*1024))
+	_ = body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read chat response: %w", err)
+	}
+	var parsed chatResponseLine
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, fmt.Errorf("decode chat response: %w", err)
+	}
+	ch := make(chan Chunk, 1)
+	ch <- Chunk{
+		Delta:    parsed.Message.Content,
+		Thinking: parsed.Message.Thinking,
+		Done:     true,
+	}
+	close(ch)
+	return ch, nil
+}
+
+func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 	ch := make(chan Chunk)
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer body.Close()
 
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 4096), maxStreamBuffer)
+		scanner := newStreamScanner(body)
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
@@ -460,8 +467,7 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 			ch <- Chunk{Err: fmt.Errorf("read chat stream: %w", err), Done: true}
 		}
 	}()
-
-	return ch, nil
+	return ch
 }
 
 func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatResponse, error) {
@@ -506,8 +512,7 @@ func (c *HTTPClient) Pull(ctx context.Context, model string, progress func(PullE
 		return fmt.Errorf("ollama pull failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
 	}
 
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 4096), maxStreamBuffer)
+	scanner := newStreamScanner(resp.Body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -528,6 +533,12 @@ func (c *HTTPClient) Pull(ctx context.Context, model string, progress func(PullE
 		return fmt.Errorf("read pull stream: %w", err)
 	}
 	return nil
+}
+
+func newStreamScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 4096), maxStreamBuffer)
+	return scanner
 }
 
 func mapChatError(statusCode int, body string) error {

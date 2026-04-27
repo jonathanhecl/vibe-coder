@@ -50,7 +50,7 @@ type Agent struct {
 	currentGoal string // verbatim text of the user's request for this Run()
 }
 
-func isEmptyAssistantResponseErr(err error) bool {
+func IsEmptyAssistantResponseErr(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -181,7 +181,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		}
 		reply, err := a.chatOnce(ctx)
 		if err != nil {
-			if isEmptyAssistantResponseErr(err) {
+			if IsEmptyAssistantResponseErr(err) {
 				done, err := a.handleEmptyChatResponse(ctx, &emptyChatErrRetries)
 				if done {
 					return err

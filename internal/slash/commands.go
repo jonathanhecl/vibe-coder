@@ -74,70 +74,10 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Started a new session (%s)\n", c.Session.ID())
 		return true, false, nil
 	case "/status":
-		ctxPct := 0
-		if c.Cfg.ContextWindow > 0 {
-			// Lightweight estimate during MVP.
-			ctxPct = min(100, (c.Session.MessageCount()*120)/c.Cfg.ContextWindow)
-		}
-		fmt.Fprintf(c.Out, "Model: %s\n", c.Cfg.Model)
-		fmt.Fprintf(c.Out, "Context: %d%%\n", ctxPct)
-		fmt.Fprintf(c.Out, "CWD: %s\n", c.Cfg.Cwd)
-		fmt.Fprintf(c.Out, "Messages: %d\n", c.Session.MessageCount())
-		fmt.Fprintf(c.Out, "Session: %s\n", c.Session.ID())
-		fmt.Fprintf(c.Out, "Yes mode: %t\n", c.Cfg.YesMode)
-		fmt.Fprintf(c.Out, "Sidecar model: %s\n", strings.TrimSpace(c.Cfg.SidecarModel))
-		if c.Cfg.SidecarDisabled {
-			fmt.Fprintln(c.Out, "Sidecar: off (SIDECAR_DISABLED in config)")
-		} else if c.Cfg.SidecarSkipSession {
-			fmt.Fprintln(c.Out, "Sidecar: off for this session (/sidecar on)")
-		} else if c.Cfg.SidecarInUse() {
-			fmt.Fprintln(c.Out, "Sidecar: on")
-		} else {
-			fmt.Fprintln(c.Out, "Sidecar: off (no SIDECAR_MODEL)")
-		}
+		printStatus(c)
 		return true, false, nil
 	case "/sidecar":
-		sub := "status"
-		if len(fields) > 1 {
-			sub = strings.ToLower(strings.TrimSpace(fields[1]))
-		}
-		switch sub {
-		case "off", "disable":
-			c.Cfg.SidecarSkipSession = true
-			fmt.Fprintln(c.Out, "Sidecar disabled for this session. Use /sidecar on to re-enable.")
-		case "on", "enable":
-			c.Cfg.SidecarSkipSession = false
-			if c.Cfg.SidecarDisabled {
-				fmt.Fprintln(c.Out, "Sidecar is still off in config (SIDECAR_DISABLED). Use /sidecar perm-on or edit config.env.")
-			} else {
-				fmt.Fprintln(c.Out, "Sidecar enabled for this session (if SIDECAR_MODEL is set).")
-			}
-		case "perm-off", "permanent-off", "config-off":
-			c.Cfg.SidecarDisabled = true
-			if err := config.SaveModelSettings(c.Cfg); err != nil {
-				return true, false, err
-			}
-			fmt.Fprintf(c.Out, "Saved SIDECAR_DISABLED=true to %s\n", c.Cfg.ConfigFile)
-		case "perm-on", "permanent-on", "config-on":
-			c.Cfg.SidecarDisabled = false
-			if err := config.SaveModelSettings(c.Cfg); err != nil {
-				return true, false, err
-			}
-			fmt.Fprintf(c.Out, "Removed SIDECAR_DISABLED from %s (sidecar allowed when SIDECAR_MODEL is set).\n", c.Cfg.ConfigFile)
-		case "status", "":
-			if c.Cfg.SidecarDisabled {
-				fmt.Fprintln(c.Out, "Sidecar: permanently off in config (SIDECAR_DISABLED=true). Remove it or set SIDECAR_ENABLED=true, then /save if you use that flow.")
-			} else if c.Cfg.SidecarSkipSession {
-				fmt.Fprintln(c.Out, "Sidecar: off for this session. Model: " + strings.TrimSpace(c.Cfg.SidecarModel))
-			} else if strings.TrimSpace(c.Cfg.SidecarModel) == "" {
-				fmt.Fprintln(c.Out, "Sidecar: no model configured (SIDECAR_MODEL).")
-			} else {
-				fmt.Fprintln(c.Out, "Sidecar: on (" + strings.TrimSpace(c.Cfg.SidecarModel) + ")")
-			}
-		default:
-			fmt.Fprintln(c.Out, "Usage: /sidecar on|off|status|perm-on|perm-off")
-		}
-		return true, false, nil
+		return true, false, runSidecarCommand(c, fields[1:])
 	case "/save":
 		if err := c.Session.Save(); err != nil {
 			return true, false, err
@@ -145,18 +85,10 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Saved session (%s)\n", c.Session.ID())
 		return true, false, nil
 	case "/yes":
-		c.Cfg.YesMode = true
-		if c.Perm != nil {
-			c.Perm.SetYesMode(true)
-		}
-		fmt.Fprintln(c.Out, "Yes mode enabled.")
+		setYesMode(c, true)
 		return true, false, nil
 	case "/no":
-		c.Cfg.YesMode = false
-		if c.Perm != nil {
-			c.Perm.SetYesMode(false)
-		}
-		fmt.Fprintln(c.Out, "Yes mode disabled.")
+		setYesMode(c, false)
 		return true, false, nil
 	case "/compact":
 		before := c.Session.TokenEstimate()
@@ -167,26 +99,9 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		fmt.Fprintf(c.Out, "Compacted session tokens: %d -> %d\n", before, after)
 		return true, false, nil
 	case "/model", "/models":
-		if len(fields) == 1 {
-			fmt.Fprintf(c.Out, "Current model: %s\n", c.Cfg.Model)
-			return true, false, nil
-		}
-		next := strings.TrimSpace(fields[1])
-		if !modelNameRe.MatchString(next) {
-			fmt.Fprintln(c.Out, "Invalid model name format.")
-			return true, false, nil
-		}
-		c.Cfg.Model = next
-		fmt.Fprintf(c.Out, "Model set to: %s\n", c.Cfg.Model)
-		return true, false, nil
+		return true, false, runModelCommand(c, fields[1:])
 	case "/tokens":
-		tokens := c.Session.TokenEstimate()
-		pct := 0
-		if c.Cfg.ContextWindow > 0 {
-			pct = min(100, (tokens*100)/c.Cfg.ContextWindow)
-		}
-		bar := renderTokenBar(pct, 30)
-		fmt.Fprintf(c.Out, "Tokens: %d / %d (%d%%)\n%s\n", tokens, c.Cfg.ContextWindow, pct, bar)
+		printTokens(c)
 		return true, false, nil
 	case "/commit":
 		msg, out, err := runCommitFlow(c)
@@ -201,47 +116,13 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		return true, false, nil
 	case "/plan":
-		modeArg := ""
-		if len(fields) > 1 {
-			modeArg = strings.ToLower(strings.TrimSpace(fields[1]))
-		}
-		st := tui.NewStyle(c.Out)
-		if modeArg == "off" || modeArg == "exit" || modeArg == "cancel" {
-			if c.Agent != nil {
-				c.Agent.ExitPlanMode()
-				c.Session.AddUser("[System Note] Plan mode disabled without approval. Returning to act mode.")
-			}
-			fmt.Fprintln(c.Out, st.Yellow("Plan mode disabled without approval. Act mode restored."))
-			return true, false, nil
-		}
-		if c.Agent != nil {
-			c.Agent.EnterPlanMode()
-			c.Session.AddUser("[System Note] Plan mode enabled.")
-		}
-		fmt.Fprintln(c.Out, st.Yellow("Plan mode enabled. Keep chatting to design/refine the plan; writes are restricted to .vibe-coder/plans."))
-		fmt.Fprintln(c.Out,
-			st.Yellow("When ready to execute implementation changes, run ")+
-				st.BrightWhite("/approve")+
-				st.Yellow(" to return to act mode."),
-		)
-		fmt.Fprintln(c.Out,
-			st.Yellow("If you want to leave plan mode without approving, run ")+
-				st.Green("/code")+
-				st.Yellow("."),
-		)
-		return true, false, nil
+		return true, false, runPlanCommand(c, fields[1:])
 	case "/code":
-		if c.Agent != nil {
-			c.Agent.ExitPlanMode()
-			c.Session.AddUser("[System Note] Returned to act mode via /code.")
-		}
+		exitPlanMode(c, "[System Note] Returned to act mode via /code.")
 		fmt.Fprintln(c.Out, "Code mode enabled. Plan mode is now off.")
 		return true, false, nil
 	case "/approve":
-		if c.Agent != nil {
-			c.Agent.ExitPlanMode()
-			c.Session.AddUser("[System Note] Plan approved. Returning to act mode.")
-		}
+		exitPlanMode(c, "[System Note] Plan approved. Returning to act mode.")
 		fmt.Fprintln(c.Out, "Plan approved. Act mode restored; you can continue in the same conversation.")
 		return true, false, nil
 	default:
@@ -250,11 +131,150 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+func printStatus(c *Ctx) {
+	ctxPct := 0
+	if c.Cfg.ContextWindow > 0 {
+		// Lightweight estimate during MVP.
+		ctxPct = min(100, (c.Session.MessageCount()*120)/c.Cfg.ContextWindow)
 	}
-	return b
+	fmt.Fprintf(c.Out, "Model: %s\n", c.Cfg.Model)
+	fmt.Fprintf(c.Out, "Context: %d%%\n", ctxPct)
+	fmt.Fprintf(c.Out, "CWD: %s\n", c.Cfg.Cwd)
+	fmt.Fprintf(c.Out, "Messages: %d\n", c.Session.MessageCount())
+	fmt.Fprintf(c.Out, "Session: %s\n", c.Session.ID())
+	fmt.Fprintf(c.Out, "Yes mode: %t\n", c.Cfg.YesMode)
+	fmt.Fprintf(c.Out, "Sidecar model: %s\n", strings.TrimSpace(c.Cfg.SidecarModel))
+	if c.Cfg.SidecarDisabled {
+		fmt.Fprintln(c.Out, "Sidecar: off (SIDECAR_DISABLED in config)")
+	} else if c.Cfg.SidecarSkipSession {
+		fmt.Fprintln(c.Out, "Sidecar: off for this session (/sidecar on)")
+	} else if c.Cfg.SidecarInUse() {
+		fmt.Fprintln(c.Out, "Sidecar: on")
+	} else {
+		fmt.Fprintln(c.Out, "Sidecar: off (no SIDECAR_MODEL)")
+	}
+}
+
+func runSidecarCommand(c *Ctx, args []string) error {
+	sub := "status"
+	if len(args) > 0 {
+		sub = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	switch sub {
+	case "off", "disable":
+		c.Cfg.SidecarSkipSession = true
+		fmt.Fprintln(c.Out, "Sidecar disabled for this session. Use /sidecar on to re-enable.")
+	case "on", "enable":
+		c.Cfg.SidecarSkipSession = false
+		if c.Cfg.SidecarDisabled {
+			fmt.Fprintln(c.Out, "Sidecar is still off in config (SIDECAR_DISABLED). Use /sidecar perm-on or edit config.env.")
+		} else {
+			fmt.Fprintln(c.Out, "Sidecar enabled for this session (if SIDECAR_MODEL is set).")
+		}
+	case "perm-off", "permanent-off", "config-off":
+		c.Cfg.SidecarDisabled = true
+		if err := config.SaveModelSettings(c.Cfg); err != nil {
+			return err
+		}
+		fmt.Fprintf(c.Out, "Saved SIDECAR_DISABLED=true to %s\n", c.Cfg.ConfigFile)
+	case "perm-on", "permanent-on", "config-on":
+		c.Cfg.SidecarDisabled = false
+		if err := config.SaveModelSettings(c.Cfg); err != nil {
+			return err
+		}
+		fmt.Fprintf(c.Out, "Removed SIDECAR_DISABLED from %s (sidecar allowed when SIDECAR_MODEL is set).\n", c.Cfg.ConfigFile)
+	case "status", "":
+		printSidecarStatus(c)
+	default:
+		fmt.Fprintln(c.Out, "Usage: /sidecar on|off|status|perm-on|perm-off")
+	}
+	return nil
+}
+
+func printSidecarStatus(c *Ctx) {
+	if c.Cfg.SidecarDisabled {
+		fmt.Fprintln(c.Out, "Sidecar: permanently off in config (SIDECAR_DISABLED=true). Remove it or set SIDECAR_ENABLED=true, then /save if you use that flow.")
+	} else if c.Cfg.SidecarSkipSession {
+		fmt.Fprintln(c.Out, "Sidecar: off for this session. Model: "+strings.TrimSpace(c.Cfg.SidecarModel))
+	} else if strings.TrimSpace(c.Cfg.SidecarModel) == "" {
+		fmt.Fprintln(c.Out, "Sidecar: no model configured (SIDECAR_MODEL).")
+	} else {
+		fmt.Fprintln(c.Out, "Sidecar: on ("+strings.TrimSpace(c.Cfg.SidecarModel)+")")
+	}
+}
+
+func setYesMode(c *Ctx, enabled bool) {
+	c.Cfg.YesMode = enabled
+	if c.Perm != nil {
+		c.Perm.SetYesMode(enabled)
+	}
+	if enabled {
+		fmt.Fprintln(c.Out, "Yes mode enabled.")
+	} else {
+		fmt.Fprintln(c.Out, "Yes mode disabled.")
+	}
+}
+
+func runModelCommand(c *Ctx, args []string) error {
+	if len(args) == 0 {
+		fmt.Fprintf(c.Out, "Current model: %s\n", c.Cfg.Model)
+		return nil
+	}
+	next := strings.TrimSpace(args[0])
+	if !modelNameRe.MatchString(next) {
+		fmt.Fprintln(c.Out, "Invalid model name format.")
+		return nil
+	}
+	c.Cfg.Model = next
+	fmt.Fprintf(c.Out, "Model set to: %s\n", c.Cfg.Model)
+	return nil
+}
+
+func printTokens(c *Ctx) {
+	tokens := c.Session.TokenEstimate()
+	pct := 0
+	if c.Cfg.ContextWindow > 0 {
+		pct = min(100, (tokens*100)/c.Cfg.ContextWindow)
+	}
+	bar := renderTokenBar(pct, 30)
+	fmt.Fprintf(c.Out, "Tokens: %d / %d (%d%%)\n%s\n", tokens, c.Cfg.ContextWindow, pct, bar)
+}
+
+func runPlanCommand(c *Ctx, args []string) error {
+	modeArg := ""
+	if len(args) > 0 {
+		modeArg = strings.ToLower(strings.TrimSpace(args[0]))
+	}
+	st := tui.NewStyle(c.Out)
+	if modeArg == "off" || modeArg == "exit" || modeArg == "cancel" {
+		exitPlanMode(c, "[System Note] Plan mode disabled without approval. Returning to act mode.")
+		fmt.Fprintln(c.Out, st.Yellow("Plan mode disabled without approval. Act mode restored."))
+		return nil
+	}
+	if c.Agent != nil {
+		c.Agent.EnterPlanMode()
+		c.Session.AddUser("[System Note] Plan mode enabled.")
+	}
+	fmt.Fprintln(c.Out, st.Yellow("Plan mode enabled. Keep chatting to design/refine the plan; writes are restricted to .vibe-coder/plans."))
+	fmt.Fprintln(c.Out,
+		st.Yellow("When ready to execute implementation changes, run ")+
+			st.BrightWhite("/approve")+
+			st.Yellow(" to return to act mode."),
+	)
+	fmt.Fprintln(c.Out,
+		st.Yellow("If you want to leave plan mode without approving, run ")+
+			st.Green("/code")+
+			st.Yellow("."),
+	)
+	return nil
+}
+
+func exitPlanMode(c *Ctx, note string) {
+	if c.Agent == nil {
+		return
+	}
+	c.Agent.ExitPlanMode()
+	c.Session.AddUser(note)
 }
 
 func renderTokenBar(pct, width int) string {
@@ -335,11 +355,12 @@ func runGit(cwd string, args ...string) (string, error) {
 
 // runSessionsCommand dispatches /sessions and its subcommands.
 // Supported forms:
-//   /sessions                    -> list (default)
-//   /sessions list               -> list (explicit)
-//   /sessions delete <id>        -> remove a single saved session
-//   /sessions delete --all       -> wipe every saved session + index
-//   /sessions rm <id>            -> alias for delete
+//
+//	/sessions                    -> list (default)
+//	/sessions list               -> list (explicit)
+//	/sessions delete <id>        -> remove a single saved session
+//	/sessions delete --all       -> wipe every saved session + index
+//	/sessions rm <id>            -> alias for delete
 func runSessionsCommand(c *Ctx, args []string) error {
 	sub := "list"
 	if len(args) > 0 {
@@ -357,9 +378,10 @@ func runSessionsCommand(c *Ctx, args []string) error {
 }
 
 // runSessionAlias supports "/session" as a shorthand UX command:
-//   /session            -> /sessions list
-//   /session <id>       -> /resume <id>
-//   /session delete ... -> /sessions delete ...
+//
+//	/session            -> /sessions list
+//	/session <id>       -> /resume <id>
+//	/session delete ... -> /sessions delete ...
 func runSessionAlias(c *Ctx, args []string) error {
 	if len(args) == 0 {
 		return runSessionsList(c)

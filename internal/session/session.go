@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -193,36 +194,19 @@ func (s *Session) Save() error {
 		return err
 	}
 
-	tmpFile, err := os.CreateTemp(s.cfg.SessionsDir, "*.jsonl.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp session file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-
-	writer := bufio.NewWriter(tmpFile)
-	enc := json.NewEncoder(writer)
-	for _, msg := range s.messages {
-		if err := enc.Encode(msg); err != nil {
-			_ = tmpFile.Close()
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("encode message: %w", err)
+	if err := writeAtomicFile(s.cfg.SessionsDir, "*.jsonl.tmp", target, 0o600, func(w io.Writer) error {
+		writer := bufio.NewWriter(w)
+		enc := json.NewEncoder(writer)
+		for _, msg := range s.messages {
+			if err := enc.Encode(msg); err != nil {
+				return fmt.Errorf("encode message: %w", err)
+			}
 		}
-	}
-	if err := writer.Flush(); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("flush session temp file: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("close session temp file: %w", err)
-	}
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("chmod session temp file: %w", err)
-	}
-	if err := os.Rename(tmpPath, target); err != nil {
-		_ = os.Remove(tmpPath)
+		if err := writer.Flush(); err != nil {
+			return fmt.Errorf("flush session temp file: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("atomic session replace: %w", err)
 	}
 
@@ -427,26 +411,7 @@ func pruneProjectIndex(dir, id string) error {
 	if err != nil {
 		return fmt.Errorf("encode pruned project index: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, "*.index.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp index file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(out); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write temp index file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("close temp index file: %w", err)
-	}
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("chmod temp index file: %w", err)
-	}
-	if err := os.Rename(tmpPath, indexPath); err != nil {
-		_ = os.Remove(tmpPath)
+	if err := writeAtomicBytes(dir, "*.index.tmp", indexPath, 0o600, out); err != nil {
 		return fmt.Errorf("replace index file: %w", err)
 	}
 	return nil
@@ -613,28 +578,50 @@ func (s *Session) writeProjectIndex() error {
 	if err != nil {
 		return fmt.Errorf("encode project index: %w", err)
 	}
-	tmp, err := os.CreateTemp(s.cfg.SessionsDir, "*.index.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp index file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write temp index file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("close temp index file: %w", err)
-	}
-	if err := os.Chmod(tmpPath, 0o600); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("chmod temp index file: %w", err)
-	}
-	if err := os.Rename(tmpPath, indexPath); err != nil {
-		_ = os.Remove(tmpPath)
+	if err := writeAtomicBytes(s.cfg.SessionsDir, "*.index.tmp", indexPath, 0o600, raw); err != nil {
 		return fmt.Errorf("replace index file: %w", err)
 	}
+	return nil
+}
+
+func writeAtomicBytes(dir, pattern, target string, mode os.FileMode, data []byte) error {
+	return writeAtomicFile(dir, pattern, target, mode, func(w io.Writer) error {
+		if _, err := w.Write(data); err != nil {
+			return fmt.Errorf("write temp file: %w", err)
+		}
+		return nil
+	})
+}
+
+// writeAtomicFile keeps session and index writes crash-safe: callers fill a
+// temp file, then we chmod and rename it into place as the final step.
+func writeAtomicFile(dir, pattern, target string, mode os.FileMode, write func(io.Writer) error) error {
+	tmp, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := write(tmp); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, target); err != nil {
+		return err
+	}
+	cleanup = false
 	return nil
 }
 

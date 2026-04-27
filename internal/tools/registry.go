@@ -33,12 +33,7 @@ func (r *Registry) Get(name string) Tool {
 func (r *Registry) Names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return r.sortedNamesLocked()
 }
 
 func (r *Registry) Schemas() []Schema {
@@ -47,17 +42,22 @@ func (r *Registry) Schemas() []Schema {
 	if r.schemas != nil {
 		return r.schemas
 	}
-	names := make([]string, 0, len(r.tools))
-	for name := range r.tools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := r.sortedNamesLocked()
 	result := make([]Schema, 0, len(names))
 	for _, name := range names {
 		result = append(result, r.tools[name].Schema())
 	}
 	r.schemas = result
 	return result
+}
+
+func (r *Registry) sortedNamesLocked() []string {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (r *Registry) RegisterDefaults() {

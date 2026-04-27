@@ -343,16 +343,16 @@ func TestInferSingleToolCallMarkdownPattern(t *testing.T) {
 }
 
 func TestIsEmptyAssistantResponseErr(t *testing.T) {
-	if isEmptyAssistantResponseErr(nil) {
+	if IsEmptyAssistantResponseErr(nil) {
 		t.Fatal("nil should be false")
 	}
-	if isEmptyAssistantResponseErr(errors.New("something else")) {
+	if IsEmptyAssistantResponseErr(errors.New("something else")) {
 		t.Fatal("unrelated error should be false")
 	}
-	if !isEmptyAssistantResponseErr(errors.New("empty assistant response")) {
+	if !IsEmptyAssistantResponseErr(errors.New("empty assistant response")) {
 		t.Fatal("expected true for empty assistant response")
 	}
-	if !isEmptyAssistantResponseErr(errors.New("EMPTY ASSISTANT RESPONSE")) {
+	if !IsEmptyAssistantResponseErr(errors.New("EMPTY ASSISTANT RESPONSE")) {
 		t.Fatal("expected true for uppercase variant")
 	}
 }

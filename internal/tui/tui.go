@@ -203,14 +203,7 @@ func (u *PlainUI) EndAssistant() {
 		u.markdown.Flush(u.out)
 		u.markdown.Reset()
 	}
-	if u.thinkingActive {
-		elapsed := formatElapsed(time.Since(u.thinkingStart))
-		fmt.Fprintf(u.out, "\n%s %s\n",
-			u.style.Dim(iconRule),
-			u.style.Dim("thought for "+elapsed),
-		)
-		u.thinkingActive = false
-	}
+	u.closeThinkingLocked(true)
 	if u.streamingAssistant && u.assistantHadVisible && !u.assistantReplyStart.IsZero() {
 		elapsed := formatElapsed(time.Since(u.assistantReplyStart))
 		if u.style.Enabled() {
@@ -242,10 +235,7 @@ func (u *PlainUI) StreamThinking(text string) {
 	defer u.mu.Unlock()
 
 	u.flushPendingToolLocked()
-	if u.streamingAssistant {
-		fmt.Fprintln(u.out)
-		u.streamingAssistant = false
-	}
+	u.endAssistantLineLocked()
 	if !u.thinkingActive {
 		// No "thinking" header on purpose: the streamed bullets prefixed
 		// with `│` already convey the panel, and EndThinking will close
@@ -266,14 +256,7 @@ func (u *PlainUI) EndThinking() {
 	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.thinkingActive {
-		elapsed := formatElapsed(time.Since(u.thinkingStart))
-		fmt.Fprintf(u.out, "\n%s %s\n",
-			u.style.Dim(iconRule),
-			u.style.Dim("thought for "+elapsed),
-		)
-		u.thinkingActive = false
-	}
+	u.closeThinkingLocked(true)
 }
 
 // ShowToolCall opens a "running" tool card. In TTY mode the card is rendered
@@ -287,14 +270,8 @@ func (u *PlainUI) ShowToolCall(name string, params map[string]any) {
 	u.stopSpinner()
 	u.mu.Lock()
 
-	if u.streamingAssistant {
-		fmt.Fprintln(u.out)
-		u.streamingAssistant = false
-	}
-	if u.thinkingActive {
-		fmt.Fprintln(u.out)
-		u.thinkingActive = false
-	}
+	u.endAssistantLineLocked()
+	u.closeThinkingLocked(false)
 	u.flushPendingToolLocked()
 
 	compact := CompactToolHeader(name, params)
@@ -367,10 +344,7 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	u.stopSpinner()
 	u.mu.Lock()
 	u.flushPendingToolLocked()
-	if u.streamingAssistant {
-		fmt.Fprintln(u.out)
-		u.streamingAssistant = false
-	}
+	u.endAssistantLineLocked()
 	if u.style.Enabled() {
 		userIcon := u.style.BrightGreen(iconUser)
 		userLabel := u.style.BoldGreen("user")
@@ -575,6 +549,30 @@ func (u *PlainUI) writeThinkingChunkLocked(text string) {
 	}
 	indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
 	fmt.Fprint(u.out, u.style.Dim(indented))
+}
+
+func (u *PlainUI) endAssistantLineLocked() {
+	if !u.streamingAssistant {
+		return
+	}
+	fmt.Fprintln(u.out)
+	u.streamingAssistant = false
+}
+
+func (u *PlainUI) closeThinkingLocked(withElapsed bool) {
+	if !u.thinkingActive {
+		return
+	}
+	if withElapsed {
+		elapsed := formatElapsed(time.Since(u.thinkingStart))
+		fmt.Fprintf(u.out, "\n%s %s\n",
+			u.style.Dim(iconRule),
+			u.style.Dim("thought for "+elapsed),
+		)
+	} else {
+		fmt.Fprintln(u.out)
+	}
+	u.thinkingActive = false
 }
 
 // splitThinking pulls one <think>...</think> (or <thinking>...) segment from
