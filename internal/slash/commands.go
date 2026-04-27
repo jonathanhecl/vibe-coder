@@ -134,7 +134,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 func printStatus(c *Ctx) {
 	ctxPct := 0
 	if c.Cfg.ContextWindow > 0 {
-		// Lightweight estimate during MVP.
+		// /status stays cheap and approximate; /tokens does the fuller estimate.
 		ctxPct = min(100, (c.Session.MessageCount()*120)/c.Cfg.ContextWindow)
 	}
 	fmt.Fprintf(c.Out, "Model: %s\n", c.Cfg.Model)

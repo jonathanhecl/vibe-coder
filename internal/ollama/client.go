@@ -176,8 +176,7 @@ func (c *HTTPClient) Tags(ctx context.Context) ([]Model, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return nil, fmt.Errorf("ollama tags failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("ollama tags failed: %s (%s)", resp.Status, readLimitedBody(resp.Body, 16*1024))
 	}
 
 	var out tagsResponse
@@ -218,8 +217,7 @@ func (c *HTTPClient) Show(ctx context.Context, model string) (Model, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return Model{}, fmt.Errorf("ollama show failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
+		return Model{}, fmt.Errorf("ollama show failed: %s (%s)", resp.Status, readLimitedBody(resp.Body, 16*1024))
 	}
 	var out showResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -318,8 +316,7 @@ func (c *HTTPClient) Version(ctx context.Context) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return "", fmt.Errorf("ollama version failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("ollama version failed: %s (%s)", resp.Status, readLimitedBody(resp.Body, 16*1024))
 	}
 
 	var out versionResponse
@@ -360,9 +357,8 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 		if resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+		bodyStr := readLimitedBody(resp.Body, 32*1024)
 		_ = resp.Body.Close()
-		bodyStr := string(body)
 		if resp.StatusCode == http.StatusBadRequest && attempt.Think && isThinkingUnsupportedBody(bodyStr) {
 			c.markThinkUnsupported(attempt.Model)
 			attempt.Think = false
@@ -508,8 +504,7 @@ func (c *HTTPClient) Pull(ctx context.Context, model string, progress func(PullE
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return fmt.Errorf("ollama pull failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("ollama pull failed: %s (%s)", resp.Status, readLimitedBody(resp.Body, 16*1024))
 	}
 
 	scanner := newStreamScanner(resp.Body)
@@ -541,6 +536,12 @@ func newStreamScanner(r io.Reader) *bufio.Scanner {
 	return scanner
 }
 
+func readLimitedBody(r io.Reader, limit int64) string {
+	// Error bodies are diagnostic only; return best effort text for messages.
+	body, _ := io.ReadAll(io.LimitReader(r, limit))
+	return strings.TrimSpace(string(body))
+}
+
 func mapChatError(statusCode int, body string) error {
 	bodyLower := strings.ToLower(body)
 	switch statusCode {
@@ -561,7 +562,9 @@ func mapChatError(statusCode int, body string) error {
 	return fmt.Errorf("http %d: %s", statusCode, trimmed)
 }
 
+// Compiled once; ChatSync may redact thinking blocks on every non-streaming reply.
+var thinkBlockRE = regexp.MustCompile(`(?is)<think>.*?</think>`)
+
 func stripThinkBlocks(text string) string {
-	re := regexp.MustCompile(`(?is)<think>.*?</think>`)
-	return strings.TrimSpace(re.ReplaceAllString(text, ""))
+	return strings.TrimSpace(thinkBlockRE.ReplaceAllString(text, ""))
 }

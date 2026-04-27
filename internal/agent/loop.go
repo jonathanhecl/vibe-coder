@@ -170,7 +170,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			} else if !executed {
 				return nil
 			}
-			_ = a.sess.Compact(ctx, false)
+			a.compactBestEffort(ctx)
 			// MVP-11 safety: infer one tool call once only.
 			wantsTool = false
 			continue
@@ -196,7 +196,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			tool := a.reg.Get(toolName)
 			if tool == nil {
 				a.sess.AddAssistant(reply)
-				_ = a.sess.Compact(ctx, false)
+				a.compactBestEffort(ctx)
 				return nil
 			}
 			result, executed, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
@@ -209,7 +209,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				return nil
 			}
 			userInput = session.ToolObservationUserContent(toolName, strings.TrimSpace(result.Output))
-			_ = a.sess.Compact(ctx, false)
+			a.compactBestEffort(ctx)
 			continue
 		}
 		if assistantVisibleText(reply) == "" {
@@ -220,22 +220,22 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			thinkingOnlyRetries = 0
 			if a.hasPendingTodos() {
 				a.sess.AddSystemNote("Model reply was empty while TODO items remain. Continue with the next pending step via a tool call; do not re-investigate completed steps.")
-				_ = a.sess.Compact(ctx, false)
+				a.compactBestEffort(ctx)
 				continue
 			}
 			a.sess.AddSystemNote("Model reply was empty; ending this run without a visible assistant message.")
-			_ = a.sess.Compact(ctx, false)
+			a.compactBestEffort(ctx)
 			return nil
 		}
 		thinkingOnlyRetries = 0
 		if a.hasPendingTodos() {
 			a.sess.AddAssistant(reply)
 			a.sess.AddSystemNote("There are still pending TODO items. Continue executing the remaining steps with tool calls — do not finish the turn with plain text.")
-			_ = a.sess.Compact(ctx, false)
+			a.compactBestEffort(ctx)
 			continue
 		}
 		a.sess.AddAssistant(reply)
-		_ = a.sess.Compact(ctx, false)
+		a.compactBestEffort(ctx)
 		return nil
 	}
 	return fmt.Errorf("iteration cap reached (%d)", MaxIterations)
@@ -271,17 +271,22 @@ func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool
 	if a.hasPendingTodos() && *retries < 2 {
 		*retries++
 		a.sess.AddSystemNote("Model returned an empty response while TODO items remain. Retrying the next pending step.")
-		_ = a.sess.Compact(ctx, false)
+		a.compactBestEffort(ctx)
 		return false, nil
 	}
 	if a.hasPendingTodos() {
 		a.sess.AddSystemNote("Model returned repeated empty responses while TODO items remain; cannot complete the current run.")
-		_ = a.sess.Compact(ctx, false)
+		a.compactBestEffort(ctx)
 		return true, fmt.Errorf("empty assistant response with pending todos")
 	}
 	a.sess.AddSystemNote("Model returned repeated empty responses; ending this run cleanly.")
-	_ = a.sess.Compact(ctx, false)
+	a.compactBestEffort(ctx)
 	return true, nil
+}
+
+func (a *Agent) compactBestEffort(ctx context.Context) {
+	// Best-effort context compaction; failures should not break the active turn.
+	_ = a.sess.Compact(ctx, false)
 }
 
 func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName string, toolParams map[string]any, mode toolExecutionMode) (tools.Result, bool, error) {
@@ -429,12 +434,8 @@ func (a *Agent) maybeShowTodos(toolName string) {
 	if toolName != "TodoWrite" {
 		return
 	}
-	t := a.reg.Get("TodoWrite")
-	if t == nil {
-		return
-	}
-	tw, ok := t.(*tools.TodoWriteTool)
-	if !ok {
+	tw := a.todoWriteTool()
+	if tw == nil {
 		return
 	}
 	snap := tw.Store().Snapshot()
@@ -462,12 +463,8 @@ func (a *Agent) maybeShowTodos(toolName string) {
 // are still pending or in_progress. The agent loop uses this to refuse ending
 // the turn with plain text while work remains unfinished.
 func (a *Agent) hasPendingTodos() bool {
-	t := a.reg.Get("TodoWrite")
-	if t == nil {
-		return false
-	}
-	tw, ok := t.(*tools.TodoWriteTool)
-	if !ok {
+	tw := a.todoWriteTool()
+	if tw == nil {
 		return false
 	}
 	for _, it := range tw.Store().Snapshot() {
@@ -557,12 +554,8 @@ func fileEditCompletionNote(toolName string, params map[string]any) string {
 // model can remember what it has already completed and what remains. Injected
 // as a system note before every chat turn while a plan is active.
 func (a *Agent) todoProgressNote() string {
-	t := a.reg.Get("TodoWrite")
-	if t == nil {
-		return ""
-	}
-	tw, ok := t.(*tools.TodoWriteTool)
-	if !ok {
+	tw := a.todoWriteTool()
+	if tw == nil {
 		return ""
 	}
 	snap := tw.Store().Snapshot()
@@ -599,6 +592,12 @@ func (a *Agent) todoProgressNote() string {
 	}
 	b.WriteString("Use the data from earlier tool results to complete pending steps. Do not re-investigate what you already know.")
 	return b.String()
+}
+
+func (a *Agent) todoWriteTool() *tools.TodoWriteTool {
+	// Tests may use partial registries, so missing or replaced TodoWrite is valid.
+	tw, _ := a.reg.Get("TodoWrite").(*tools.TodoWriteTool)
+	return tw
 }
 
 func isMeaningfulTodoContent(content string) bool {
@@ -690,7 +689,11 @@ func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
 	return strings.HasPrefix(pathAbs, rootAbs+string(filepath.Separator))
 }
 
-var numberedTaskPattern = regexp.MustCompile(`(?m)^\s*(\d+[\.\)]\s+.+)$`)
+var (
+	numberedTaskPattern = regexp.MustCompile(`(?m)^\s*(\d+[\.\)]\s+.+)$`)
+	// Strip list prefix from a single numbered line; shared across matches.
+	numberedListPrefixPattern = regexp.MustCompile(`^\d+[\.\)]\s*`)
+)
 
 func detectParallelTasks(input string) ([]any, bool) {
 	matches := numberedTaskPattern.FindAllString(input, -1)
@@ -698,7 +701,7 @@ func detectParallelTasks(input string) ([]any, bool) {
 		out := make([]any, 0, len(matches))
 		for _, m := range matches {
 			task := strings.TrimSpace(numberedTaskPattern.ReplaceAllString(m, "$1"))
-			task = regexp.MustCompile(`^\d+[\.\)]\s*`).ReplaceAllString(task, "")
+			task = numberedListPrefixPattern.ReplaceAllString(task, "")
 			if task == "" {
 				continue
 			}

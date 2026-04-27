@@ -33,15 +33,13 @@ func main() {
 	args, persistModelSettings := extractPersistDirective(os.Args[1:])
 	cfg, err := config.Load(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		exitWithError(err)
 	}
 
 	if persistModelSettings {
 		cfg.PersistSidecarOffFromSave(true)
 		if err := config.SaveModelSettings(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "error: failed to save model settings: %v\n", err)
-			os.Exit(1)
+			exitWithError(fmt.Errorf("failed to save model settings: %w", err))
 		}
 		fmt.Fprintf(os.Stdout, "Saved model settings to %s\n", cfg.ConfigFile)
 	}
@@ -63,8 +61,7 @@ func main() {
 				fmt.Fprintln(os.Stdout, "\nBye.")
 				os.Exit(130)
 			}
-			fmt.Fprintf(os.Stderr, "error: first-run setup failed: %v\n", err)
-			os.Exit(1)
+			exitWithError(fmt.Errorf("first-run setup failed: %w", err))
 		}
 	}
 
@@ -73,8 +70,7 @@ func main() {
 	sess.SetClient(client)
 	ui, err := tui.NewFromMode(cfg.UI)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+		exitWithError(err)
 	}
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()
@@ -109,8 +105,7 @@ func main() {
 
 	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, client, ag)
 	if ragErr != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", ragErr)
-		os.Exit(1)
+		exitWithError(ragErr)
 	}
 	if ragHandled {
 		if strings.TrimSpace(ragMsg) != "" {
@@ -121,16 +116,14 @@ func main() {
 
 	if cfg.ListSessions {
 		if err := printAvailableModels(rootCtx, client); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+			exitWithError(err)
 		}
 		return
 	}
 
 	if cfg.Resume {
 		if err := resumeConfiguredSession(cfg, sess); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+			exitWithError(err)
 		}
 	}
 
@@ -138,8 +131,7 @@ func main() {
 	if cfg.Prompt != "" {
 		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+			exitWithError(err)
 		}
 		bannerPrinted = true
 		if !shouldContinue {
@@ -152,6 +144,12 @@ func main() {
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
 	}
 	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui)
+}
+
+func exitWithError(err error) {
+	// Centralizes fatal CLI errors so the top-level flow stays readable.
+	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	os.Exit(1)
 }
 
 func printAvailableModels(rootCtx context.Context, client ollama.Client) error {
@@ -208,8 +206,8 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	}
 	return shouldContinueInteractiveAfterPrompt(
 		cfg,
-		term.IsTerminal(int(os.Stdin.Fd())),
-		term.IsTerminal(int(os.Stdout.Fd())),
+		stdinIsTTY(),
+		stdoutIsTTY(),
 	), nil
 }
 
@@ -283,7 +281,7 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 		if !agent.IsEmptyAssistantResponseErr(err) {
 			return err
 		}
-		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		if !stdioIsTTY() {
 			return err
 		}
 		retryCount++
@@ -317,7 +315,7 @@ func shouldRunFirstRunOnboarding(cfg *config.Config, persistModelSettings bool) 
 	if strings.TrimSpace(cfg.RAGIndex) != "" {
 		return false
 	}
-	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+	return stdioIsTTY()
 }
 
 func shouldContinueInteractiveAfterPrompt(cfg *config.Config, stdinTTY, stdoutTTY bool) bool {
@@ -325,6 +323,19 @@ func shouldContinueInteractiveAfterPrompt(cfg *config.Config, stdinTTY, stdoutTT
 		return false
 	}
 	return stdinTTY && stdoutTTY
+}
+
+func stdioIsTTY() bool {
+	// TTY checks gate interactive retry prompts and first-run setup.
+	return stdinIsTTY() && stdoutIsTTY()
+}
+
+func stdinIsTTY() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+func stdoutIsTTY() bool {
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {
