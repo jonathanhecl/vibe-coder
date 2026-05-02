@@ -6,30 +6,63 @@ import (
 	"unicode/utf8"
 )
 
+// toolEnvelopeScanOverlap is how many bytes before the previous buffer end we
+// rescan for a tool envelope start so a tag split across stream chunks is not
+// missed. Must be >= len("<tool_call")-1 and cover UTF-8 rune after '<'.
+const toolEnvelopeScanOverlap = 32
+
 // toolEnvelopeByteIndex returns the byte index where tool XML starts, or -1 if none yet.
 // Matches <invoke, <tool_call, and <ToolName> (leading uppercase ASCII letter after '<').
 func toolEnvelopeByteIndex(s string) int {
 	best := -1
-	low := strings.ToLower(s)
-	if i := strings.Index(low, "<invoke"); i >= 0 {
-		best = i
-	}
-	if i := strings.Index(low, "<tool_call"); i >= 0 && (best < 0 || i < best) {
-		best = i
-	}
-	for i := 0; i+1 < len(s); i++ {
-		if s[i] != '<' || s[i+1] == '/' {
+	n := len(s)
+	for i := 0; i < n; i++ {
+		if s[i] != '<' {
 			continue
 		}
-		r, _ := utf8.DecodeRuneInString(s[i+1:])
-		if r == utf8.RuneError || !unicode.IsUpper(r) {
+		// <invoke (case-insensitive)
+		if i+7 <= n && asciiPrefixFold(s[i+1:], "invoke") {
+			if best < 0 || i < best {
+				best = i
+			}
 			continue
 		}
-		if best < 0 || i < best {
-			best = i
+		// <tool_call (case-insensitive)
+		if i+10 <= n && asciiPrefixFold(s[i+1:], "tool_call") {
+			if best < 0 || i < best {
+				best = i
+			}
+			continue
+		}
+		// <ToolName> style (not </...)
+		if i+1 < n && s[i+1] != '/' {
+			r, _ := utf8.DecodeRuneInString(s[i+1:])
+			if r != utf8.RuneError && unicode.IsUpper(r) {
+				if best < 0 || i < best {
+					best = i
+				}
+			}
 		}
 	}
 	return best
+}
+
+// asciiPrefixFold reports whether p starts with prefixLower (ASCII letters,
+// all lowercase in prefixLower) under ASCII case folding.
+func asciiPrefixFold(p, prefixLower string) bool {
+	if len(p) < len(prefixLower) {
+		return false
+	}
+	for j := 0; j < len(prefixLower); j++ {
+		c := p[j]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != prefixLower[j] {
+			return false
+		}
+	}
+	return true
 }
 
 // assistantTextAfterFirstClosedTool returns prose after the first complete tool envelope

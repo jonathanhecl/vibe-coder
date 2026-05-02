@@ -329,6 +329,27 @@ func TestLoadChatTimeoutFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoadNoThinkFromEnvAndCLI(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "localapp"))
+	t.Setenv("VIBE_CODER_NO_THINK", "true")
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OllamaNoThink {
+		t.Fatal("expected OllamaNoThink from env")
+	}
+	t.Setenv("VIBE_CODER_NO_THINK", "")
+	cfg2, err := Load([]string{"--no-think"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg2.OllamaNoThink {
+		t.Fatal("expected OllamaNoThink from CLI")
+	}
+}
+
 func TestLoadUIModePrecedence(t *testing.T) {
 	tmp := t.TempDir()
 	configFile := filepath.Join(tmp, "config.env")

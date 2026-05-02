@@ -605,7 +605,7 @@ func printResumeContext(c *Ctx, byProject bool) {
 			st.Dim(fmt.Sprintf("(%d messages)", c.Session.MessageCount())),
 		)
 	}
-	msgs := c.Session.Messages()
+	msgs := c.Session.MessagesReadOnly()
 	if len(msgs) == 0 {
 		return
 	}

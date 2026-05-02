@@ -61,6 +61,8 @@ type Config struct {
 	HistoryFile string
 	// ChatTimeout caps one streaming chat call to Ollama (0 = use default, see EffectiveChatTimeout).
 	ChatTimeout time.Duration
+	// OllamaNoThink disables native thinking in /api/chat when false is sent (faster replies; quality trade-off).
+	OllamaNoThink bool
 }
 
 func Load(args []string) (*Config, error) {
@@ -197,6 +199,7 @@ Flags:
   --rag-topk int            RAG top-k chunks
   --rag-model string        RAG embedding model
   --rag-index string        Build/index RAG path and exit
+  --no-think                Disable Ollama native thinking (faster replies)
 
 Special directive:
   /save                     Persist model, sidecar, host to config.env; with --no-sidecar also SIDECAR_DISABLED=true
@@ -279,6 +282,11 @@ func applyEnv(cfg *Config) {
 			cfg.ChatTimeout = parsed
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_NO_THINK")); v != "" {
+		if b, ok := parseBoolish(v); ok && b {
+			cfg.OllamaNoThink = true
+		}
+	}
 }
 
 func applyConfigFile(cfg *Config, path string) error {
@@ -351,6 +359,10 @@ func applyConfigFile(cfg *Config, path string) error {
 			if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
 				cfg.ChatTimeout = parsed
 			}
+		case "NO_THINK":
+			if b, ok := parseBoolish(value); ok {
+				cfg.OllamaNoThink = b
+			}
 		}
 	}
 
@@ -397,6 +409,7 @@ type cliOptions struct {
 	ragIndex      optionalString
 	help          optionalBool
 	version       optionalBool
+	noThink       bool
 }
 
 func parseCLI(args []string) (cliOptions, error) {
@@ -430,6 +443,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ragIndex, "rag-index", "rag index path")
 	fs.Var(&opts.help, "help", "show help")
 	fs.Var(&opts.version, "version", "show version")
+	fs.BoolVar(&opts.noThink, "no-think", false, "disable Ollama native thinking")
 
 	if err := fs.Parse(args); err != nil {
 		return opts, err
@@ -509,6 +523,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.version.set {
 		cfg.ShowVer = cli.version.value
+	}
+	if cli.noThink {
+		cfg.OllamaNoThink = true
 	}
 }
 

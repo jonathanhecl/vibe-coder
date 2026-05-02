@@ -421,7 +421,7 @@ func decodeSingleChatResponse(body io.ReadCloser) (<-chan Chunk, error) {
 }
 
 func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
-	ch := make(chan Chunk)
+	ch := make(chan Chunk, 8)
 	go func() {
 		defer close(ch)
 		defer body.Close()

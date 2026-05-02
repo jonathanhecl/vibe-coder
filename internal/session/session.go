@@ -59,6 +59,12 @@ func (s *Session) Messages() []Message {
 	return out
 }
 
+// MessagesReadOnly returns the live transcript slice. Callers must treat it
+// as read-only: do not mutate elements or reorder the backing slice in place.
+func (s *Session) MessagesReadOnly() []Message {
+	return s.messages
+}
+
 func (s *Session) MessageCount() int {
 	return len(s.messages)
 }
