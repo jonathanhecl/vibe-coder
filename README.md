@@ -11,6 +11,7 @@ It runs as a single CLI binary and supports one-shot prompts (`-p`), interactive
 - Session persistence with project-aware indexing and compaction.
 - Optional RAG indexing and retrieval (build/runtime features already wired).
 - Safety and permission layers for potentially dangerous operations.
+- Search and read tools are tuned for coding workflows: ignored heavy directories, bounded results, and partial file reads.
 
 ## Requirements
 
@@ -119,10 +120,12 @@ requests piling up.
 The sidecar is invoked in three places today:
 
 1. **Session compaction** — when the session has more than 300 messages
-   or the rolling token estimate exceeds 70% of `ContextWindow`,
+   or the incremental token estimate exceeds 70% of `ContextWindow`,
    `Session.Compact()` sends the oldest messages to the sidecar with a
    "Summarize the conversation concisely" prompt and replaces them with
-   the summary. The last 30 messages are kept verbatim.
+   the summary. The last 30 messages are kept verbatim. The token estimate
+   is maintained as messages are added, so long sessions do not need a full
+   transcript scan before every compaction check.
 2. **Tool-output condensation** — when a tool (typically `Read`, `Bash`,
    `Grep`) returns more than ~6 KB, the output is sent to the sidecar
    with a strict "produce 4-10 bullets, preserve paths/symbols/errors,
@@ -203,6 +206,22 @@ Current top-level flags:
 - `--rag-model` RAG embedding model
 - `--rag-index` build/index RAG path and exit
 - `/save` persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`; if combined with `--no-sidecar`, also persists `SIDECAR_DISABLED=true`
+
+## Built-in Tool Notes
+
+The agent exposes tools to the model through the system prompt. Users normally
+do not call these directly, but their behavior affects speed and context usage:
+
+- `Read` accepts `start_line`, `end_line`, `offset`, `limit`, and `max_bytes`
+  for partial file reads. Without those parameters it keeps the previous
+  behavior and reads the full file with line numbers.
+- `Glob` accepts `head_limit` to bound large file listings.
+- `Grep` accepts `head_limit`, `offset`, `glob`, `output_mode`, `multiline`,
+  `-i`, `-A`, `-B`, and `-C`.
+- `Glob` and `Grep` skip heavy directories such as `.git`, `.hg`, `.svn`,
+  `node_modules`, `vendor`, `dist`, `build`, `target`, and `.vibe-coder`.
+- `Read`, `Glob`, and `Grep` respect cancellation, so ESC/Ctrl-C can stop
+  long file operations cleanly.
 
 ## RAG Usage
 
