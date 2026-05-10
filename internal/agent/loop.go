@@ -299,6 +299,9 @@ func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool
 
 func (a *Agent) compactBestEffort(ctx context.Context) {
 	// Best-effort context compaction; failures should not break the active turn.
+	if !a.sess.ShouldCompact() {
+		return
+	}
 	_ = a.sess.Compact(ctx, false)
 }
 

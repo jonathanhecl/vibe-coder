@@ -211,6 +211,22 @@ func TestWriteAndGlobErrorBranches(t *testing.T) {
 		t.Fatalf("unexpected glob ** output: %s", out.Output)
 	}
 
+	ignored := filepath.Join(tmp, "node_modules")
+	if err := os.MkdirAll(ignored, 0o755); err != nil {
+		t.Fatalf("mkdir ignored: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ignored, "ignored.go"), []byte("package ignored"), 0o644); err != nil {
+		t.Fatalf("write ignored: %v", err)
+	}
+	out = NewGlobTool().Execute(context.Background(), map[string]any{
+		"pattern":    "**/*.go",
+		"path":       tmp,
+		"head_limit": 10,
+	})
+	if out.IsError || strings.Contains(out.Output, "node_modules") {
+		t.Fatalf("glob should skip ignored dirs: %s", out.Output)
+	}
+
 	// Non-absolute write path branch.
 	if out := NewWriteTool().Execute(context.Background(), map[string]any{
 		"file_path": "relative.txt",

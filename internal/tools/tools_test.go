@@ -110,6 +110,32 @@ func TestReadLongSingleLine(t *testing.T) {
 	}
 }
 
+func TestReadPartialRange(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "range.txt")
+	if err := os.WriteFile(p, []byte("one\ntwo\nthree\nfour\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := NewReadTool().Execute(context.Background(), map[string]any{
+		"file_path":  p,
+		"start_line": 2,
+		"limit":      2,
+	})
+	if res.IsError {
+		t.Fatalf("partial read failed: %s", res.Output)
+	}
+	if strings.Contains(res.Output, "one") || strings.Contains(res.Output, "four") {
+		t.Fatalf("partial read included out-of-range lines: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "     2|two") || !strings.Contains(res.Output, "     3|three") {
+		t.Fatalf("partial read missed expected lines: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "read truncated") {
+		t.Fatalf("expected truncation hint, got: %s", res.Output)
+	}
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -139,6 +165,35 @@ func TestGrepModes(t *testing.T) {
 	})
 	if !strings.Contains(res.Output, "a.txt:2") {
 		t.Fatalf("unexpected grep count output: %s", res.Output)
+	}
+}
+
+func TestGrepSkipsIgnoredDirsAndLimitsOutput(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "a.txt"), []byte("hit\nhit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ignored := filepath.Join(tmp, "node_modules")
+	if err := os.MkdirAll(ignored, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ignored, "b.txt"), []byte("hit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := NewGrepTool().Execute(context.Background(), map[string]any{
+		"pattern":    "hit",
+		"path":       tmp,
+		"head_limit": 1,
+	})
+	if res.IsError {
+		t.Fatalf("grep failed: %s", res.Output)
+	}
+	if strings.Contains(res.Output, "node_modules") {
+		t.Fatalf("grep should skip ignored dirs: %s", res.Output)
+	}
+	if got := len(strings.Split(strings.TrimSpace(res.Output), "\n")); got != 1 {
+		t.Fatalf("expected one output line, got %d: %s", got, res.Output)
 	}
 }
 

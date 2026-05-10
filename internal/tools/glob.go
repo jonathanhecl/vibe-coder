@@ -27,8 +27,9 @@ func (t *GlobTool) Schema() Schema {
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"pattern": map[string]any{"type": "string"},
-					"path":    map[string]any{"type": "string"},
+					"pattern":    map[string]any{"type": "string"},
+					"path":       map[string]any{"type": "string"},
+					"head_limit": map[string]any{"type": "integer"},
 				},
 				"required": []string{"pattern"},
 			},
@@ -36,7 +37,7 @@ func (t *GlobTool) Schema() Schema {
 	}
 }
 
-func (t *GlobTool) Execute(_ context.Context, params map[string]any) Result {
+func (t *GlobTool) Execute(ctx context.Context, params map[string]any) Result {
 	pattern, ok := params["pattern"].(string)
 	if !ok || strings.TrimSpace(pattern) == "" {
 		return errResult("pattern is required")
@@ -56,6 +57,10 @@ func (t *GlobTool) Execute(_ context.Context, params map[string]any) Result {
 		}
 		basePath = abs
 	}
+	limit := asInt(params["head_limit"], 1000)
+	if limit <= 0 {
+		limit = 1000
+	}
 
 	type item struct {
 		path  string
@@ -65,8 +70,14 @@ func (t *GlobTool) Execute(_ context.Context, params map[string]any) Result {
 
 	if strings.Contains(pattern, "**") {
 		err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if err != nil {
 				return nil
+			}
+			if d.IsDir() && path != basePath && isIgnoredSearchDir(d.Name()) {
+				return filepath.SkipDir
 			}
 			rel, err := filepath.Rel(basePath, path)
 			if err != nil {
@@ -83,6 +94,9 @@ func (t *GlobTool) Execute(_ context.Context, params map[string]any) Result {
 			return nil
 		})
 		if err != nil {
+			if ctx.Err() != nil {
+				return errResult(ctx.Err().Error())
+			}
 			return errResult(fmt.Sprintf("walk path: %v", err))
 		}
 	} else {
@@ -92,6 +106,12 @@ func (t *GlobTool) Execute(_ context.Context, params map[string]any) Result {
 			return errResult(fmt.Sprintf("glob pattern: %v", err))
 		}
 		for _, path := range paths {
+			if ctx.Err() != nil {
+				return errResult(ctx.Err().Error())
+			}
+			if hasIgnoredPathSegment(basePath, path) {
+				continue
+			}
 			info, err := os.Stat(path)
 			if err == nil {
 				matches = append(matches, item{path: path, mtime: info.ModTime().UnixNano()})
@@ -100,14 +120,27 @@ func (t *GlobTool) Execute(_ context.Context, params map[string]any) Result {
 	}
 
 	sort.Slice(matches, func(i, j int) bool { return matches[i].mtime > matches[j].mtime })
-	if len(matches) > 1000 {
-		matches = matches[:1000]
+	if len(matches) > limit {
+		matches = matches[:limit]
 	}
 	lines := make([]string, 0, len(matches))
 	for _, m := range matches {
 		lines = append(lines, m.path)
 	}
 	return Result{Output: strings.Join(lines, "\n")}
+}
+
+func hasIgnoredPathSegment(basePath, path string) bool {
+	rel, err := filepath.Rel(basePath, path)
+	if err != nil {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if isIgnoredSearchDir(part) {
+			return true
+		}
+	}
+	return false
 }
 
 func pathMatchDoubleStar(pattern, rel string) (bool, error) {

@@ -272,3 +272,36 @@ func TestCompactFallbackAndSidecar(t *testing.T) {
 		t.Fatalf("expected compacted messages, got %d", s.MessageCount())
 	}
 }
+
+func TestTokenEstimateIsMaintainedIncrementally(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+		ContextWindow: 1000,
+	}
+	s := New(cfg)
+	if s.TokenEstimate() != 0 {
+		t.Fatalf("new session token estimate = %d", s.TokenEstimate())
+	}
+	s.AddUser(strings.Repeat("a", 40))
+	if s.TokenEstimate() == 0 {
+		t.Fatal("expected token estimate to update after AddUser")
+	}
+	before := s.TokenEstimate()
+	if err := s.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded := New(cfg)
+	if err := loaded.Load(s.ID()); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.TokenEstimate() != before {
+		t.Fatalf("loaded token estimate = %d, want %d", loaded.TokenEstimate(), before)
+	}
+	loaded.Clear()
+	if loaded.TokenEstimate() != 0 {
+		t.Fatalf("clear should reset token estimate, got %d", loaded.TokenEstimate())
+	}
+}

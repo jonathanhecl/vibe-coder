@@ -31,10 +31,11 @@ type Message struct {
 }
 
 type Session struct {
-	cfg      *config.Config
-	id       string
-	messages []Message
-	client   ollama.Client
+	cfg           *config.Config
+	id            string
+	messages      []Message
+	client        ollama.Client
+	tokenEstimate int
 }
 
 func New(cfg *config.Config) *Session {
@@ -74,7 +75,7 @@ func (s *Session) SetClient(client ollama.Client) {
 }
 
 func (s *Session) AddUser(content string) {
-	s.messages = append(s.messages, Message{
+	s.addMessage(Message{
 		Role:      "user",
 		Content:   content,
 		Timestamp: time.Now().UTC(),
@@ -82,7 +83,7 @@ func (s *Session) AddUser(content string) {
 }
 
 func (s *Session) AddAssistant(content string) {
-	s.messages = append(s.messages, Message{
+	s.addMessage(Message{
 		Role:      "assistant",
 		Content:   content,
 		Timestamp: time.Now().UTC(),
@@ -118,7 +119,7 @@ func ToolObservationUserContent(toolName, output string) string {
 
 func (s *Session) AddToolObservation(toolName, output string) {
 	content := ToolObservationUserContent(toolName, output)
-	s.messages = append(s.messages, Message{
+	s.addMessage(Message{
 		Role:      "user",
 		Content:   content,
 		Timestamp: time.Now().UTC(),
@@ -130,26 +131,35 @@ func (s *Session) AddToolObservation(toolName, output string) {
 // stored under the assistant role for visibility but prefixed so the model
 // recognises it as a system status rather than its own reasoning.
 func (s *Session) AddSystemNote(text string) {
-	s.messages = append(s.messages, Message{
+	s.addMessage(Message{
 		Role:      "assistant",
 		Content:   "[runtime] " + strings.TrimSpace(text),
 		Timestamp: time.Now().UTC(),
 	})
 }
 
+func (s *Session) addMessage(msg Message) {
+	s.messages = append(s.messages, msg)
+	s.tokenEstimate += estimateTextTokens(msg.Content)
+}
+
 func (s *Session) TokenEstimate() int {
-	total := 0
-	for _, msg := range s.messages {
-		total += estimateTextTokens(msg.Content)
+	return s.tokenEstimate
+}
+
+func (s *Session) ShouldCompact() bool {
+	if s == nil || s.cfg == nil {
+		return false
 	}
-	return total
+	if len(s.messages) <= 30 {
+		return false
+	}
+	return len(s.messages) > 300 || s.tokenEstimate > int(0.7*float64(s.cfg.ContextWindow))
 }
 
 func (s *Session) Compact(ctx context.Context, force bool) error {
-	if !force {
-		if len(s.messages) <= 300 && s.TokenEstimate() <= int(0.7*float64(s.cfg.ContextWindow)) {
-			return nil
-		}
+	if !force && !s.ShouldCompact() {
+		return nil
 	}
 	if len(s.messages) <= 30 {
 		return nil
@@ -182,12 +192,14 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 	for len(s.messages) > 0 && strings.TrimSpace(s.messages[0].Role) == "" {
 		s.messages = s.messages[1:]
 	}
+	s.recomputeTokenEstimate()
 	return nil
 }
 
 func (s *Session) Clear() {
 	s.id = newSessionID()
 	s.messages = s.messages[:0]
+	s.tokenEstimate = 0
 }
 
 func (s *Session) Save() error {
@@ -265,6 +277,7 @@ func (s *Session) Load(id string) error {
 
 	s.id = sanitized
 	s.messages = loaded
+	s.recomputeTokenEstimate()
 	return nil
 }
 
@@ -676,6 +689,15 @@ func (s *Session) sessAddSummary(summary string) {
 		Content:   "[Earlier conversation summary]\n" + summary,
 		Timestamp: time.Now().UTC(),
 	}}
+	s.recomputeTokenEstimate()
+}
+
+func (s *Session) recomputeTokenEstimate() {
+	total := 0
+	for _, msg := range s.messages {
+		total += estimateTextTokens(msg.Content)
+	}
+	s.tokenEstimate = total
 }
 
 func cwdHash(cwd string) (string, error) {

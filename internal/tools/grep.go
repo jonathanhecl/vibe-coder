@@ -48,7 +48,7 @@ func (t *GrepTool) Schema() Schema {
 	}
 }
 
-func (t *GrepTool) Execute(_ context.Context, params map[string]any) Result {
+func (t *GrepTool) Execute(ctx context.Context, params map[string]any) Result {
 	pattern, ok := params["pattern"].(string)
 	if !ok || strings.TrimSpace(pattern) == "" {
 		return errResult("pattern is required")
@@ -80,9 +80,9 @@ func (t *GrepTool) Execute(_ context.Context, params map[string]any) Result {
 	globPattern, _ := params["glob"].(string)
 	before := asInt(params["-B"], 0)
 	after := asInt(params["-A"], 0)
-	ctx := asInt(params["-C"], 0)
-	if ctx > 0 {
-		before, after = ctx, ctx
+	contextLines := asInt(params["-C"], 0)
+	if contextLines > 0 {
+		before, after = contextLines, contextLines
 	}
 
 	pat := pattern
@@ -98,8 +98,14 @@ func (t *GrepTool) Execute(_ context.Context, params map[string]any) Result {
 	}
 
 	files := make([]string, 0, 256)
-	_ = filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil || d.IsDir() {
+			if err == nil && d != nil && d.IsDir() && path != basePath && isIgnoredSearchDir(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if globPattern != "" {
@@ -110,12 +116,24 @@ func (t *GrepTool) Execute(_ context.Context, params map[string]any) Result {
 		}
 		files = append(files, path)
 		return nil
-	})
+	}); err != nil {
+		if ctx.Err() != nil {
+			return errResult(ctx.Err().Error())
+		}
+		return errResult(fmt.Sprintf("walk path: %v", err))
+	}
 	sort.Strings(files)
 
 	matches := make([]string, 0, 1024)
 	fileHits := map[string]int{}
+	outputGoal := offset + headLimit
+	if headLimit <= 0 {
+		outputGoal = 0
+	}
 	for _, file := range files {
+		if ctx.Err() != nil {
+			return errResult(ctx.Err().Error())
+		}
 		data, err := os.ReadFile(file)
 		if err != nil {
 			continue
@@ -128,6 +146,9 @@ func (t *GrepTool) Execute(_ context.Context, params map[string]any) Result {
 		case "files_with_matches":
 			if re.MatchString(content) {
 				fileHits[file]++
+				if outputGoal > 0 && len(fileHits) >= outputGoal {
+					goto doneScanning
+				}
 			}
 		case "count":
 			found := re.FindAllStringIndex(content, -1)
@@ -152,10 +173,14 @@ func (t *GrepTool) Execute(_ context.Context, params map[string]any) Result {
 				for j := start; j <= end; j++ {
 					matches = append(matches, fmt.Sprintf("%s:%d:%s", file, j+1, lines[j]))
 				}
+				if outputGoal > 0 && len(matches) >= outputGoal {
+					goto doneScanning
+				}
 			}
 		}
 	}
 
+doneScanning:
 	orderedFiles := make([]string, 0, len(fileHits))
 	for f := range fileHits {
 		orderedFiles = append(orderedFiles, f)
