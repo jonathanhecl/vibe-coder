@@ -1,17 +1,63 @@
 # vibe-coder
 
 `vibe-coder` is a local-first coding agent for Ollama, built in Go.
-It runs as a single CLI binary and supports one-shot prompts (`-p`), interactive sessions, tools, permissions, session persistence, and optional RAG.
+It runs as a single static CLI binary and supports one-shot prompts, interactive REPL sessions, a rich tool system, session persistence with compaction, and optional RAG — all without leaving your machine.
 
-## Highlights
+## Features
 
-- Local-first by default (Ollama-based workflow).
-- Interactive REPL plus one-shot prompt mode (`-p`).
-- Built-in tool system (`Read`, `Write`, `Edit`, `Glob`, `Bash`, `Grep`, web tools, notebook editing, tasks, subagents, and more).
-- Session persistence with project-aware indexing and compaction.
-- Optional RAG indexing and retrieval (build/runtime features already wired).
-- Safety and permission layers for potentially dangerous operations.
-- Search and read tools are tuned for coding workflows: ignored heavy directories, bounded results, and partial file reads.
+### Core agent
+
+- **One-shot prompts** (`-p`) and **interactive REPL** with streaming output.
+- **Multi-turn agent loop** (up to 50 iterations, 2 retries) with tool observation feedback.
+- **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
+- **XML fallback parser** — handles non-conformant LLMs that emit `<invoke>` blocks instead of native tool calls.
+- **Auto-parallel detection** — recognizes 2-4 conjoined tasks in the user message and routes through `ParallelAgents`.
+
+### Tools (exposed to the model)
+
+- **File ops**: `Read`, `Write`, `Edit` (with inline unified-diff preview in the TUI).
+- **Search**: `Glob`, `Grep` (multiline, context lines, output modes).
+- **Shell**: `Bash` and `InteractiveBash` with dangerous-command blocklists and protected-path guards.
+- **Web**: `WebFetch` and `WebSearch` (DuckDuckGo scrape) with SSRF protection.
+- **Notebook**: `NotebookEdit` for `.ipynb` JSON round-trip.
+- **Tasks**: `TodoWrite` (live to-do panel), `TaskStart`, `TaskList`, `TaskComplete`, `TaskCancel`.
+- **Questions**: `AskUserQuestion` for interactive multi-choice prompts.
+- **Orchestration**: `SubAgent` (bounded fan-out) and `ParallelAgents`.
+- **All file-search tools** skip heavy directories (`.git`, `node_modules`, `vendor`, etc.) and respect cancellation.
+
+### Session management
+
+- **Atomic persistence** — append-only JSONL with temp-file + rename (`0o600`).
+- **Project-aware indexing** — sessions are keyed by `sha256(cwd)[:16]` so `--resume` picks up where you left off per project.
+- **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model summarizes the oldest messages while keeping the last 30 verbatim.
+- **Token estimate** — maintained incrementally so compaction checks are O(1).
+
+### Safety and permissions
+
+- **Three permission tiers**: Safe (always allow), Ask (prompt), Network (always prompt).
+- **`-y` mode** flips global allow except for always-confirm Bash patterns.
+- **In-session memory** — `/yes` and `/no` toggle at runtime; decisions are remembered for the current session.
+- **Persistent permissions** — saved to `<configDir>/permissions.json` (skips `Bash:allow`).
+- **Dangerous-command blocklist** (`rm -rf /`, `> /dev/sda`, etc.) and **protected-path guard** (`/proc`, `/sys`, `~/.ssh/id_*`, `~/.aws/credentials`, etc.).
+- **Environment scrubbing** — `Bash` runs with `safety.CleanEnv()` to strip secrets.
+- **Plan mode** — `/plan` restricts writes to `<cwd>/.vibe-coder/plans/` until `/approve` returns to act mode.
+
+### TUI
+
+- **Two UI modes**: `plain` (default, line-based) and `rich` (Bubble Tea + Lipgloss with pinned status bar, themed markdown, and syntax highlighting). Select with `--ui rich`.
+- **To-do panel** — `TodoWrite` renders a live Cursor-style task list with status glyphs.
+- **Inline diff renderer** — `Edit` tool shows colored unified-diff (red/green/cyan) with 50-line truncation.
+- **Type-ahead** — keystrokes pressed mid-generation are captured and prefilled into the next prompt.
+- **Multiline input** — dedicated keybinding starts multi-line mode; plain Enter submits.
+- **Terminal restoration** — signal handler ensures raw mode is never left behind on Ctrl+C or panic.
+
+### Integrations
+
+- **RAG** (optional, `-tags rag`) — SQLite-backed indexing and cosine-similarity retrieval. Build with `--rag-index`, query with `--rag`.
+- **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`.
+- **Skills auto-load** — searches three directories for skill markdown files (50 KiB cap, sanitized).
+- **Git checkpoint + auto-test** — pre-Edit/Write stash; failing tests are re-injected as `[AUTO-TEST]` observations.
+- **File watcher** — external file changes appear as `[System Note] N file change(s) detected` on the next iteration.
 
 ## Requirements
 
@@ -50,10 +96,18 @@ Windows:
 go build -o vibe-coder.exe ./cmd/vibe-coder
 ```
 
-Windows helper script:
+Helper scripts (PowerShell and Bash):
 
 ```powershell
-.\build.ps1
+.\build.ps1      # dev build with timestamp + short hash
+.\run.ps1        # build + run with forwarded flags
+.\release.ps1    # cross-compile archives + checksums.txt
+```
+
+```bash
+./build.sh
+./run.sh
+./release.sh
 ```
 
 ## Quick Start
@@ -74,6 +128,12 @@ Use a specific model and host:
 
 ```bash
 ./vibe-coder --model llama3.1:8b --ollama-host http://127.0.0.1:11434
+```
+
+Send an initial prompt and keep chatting:
+
+```bash
+./vibe-coder -p "Refactor main.go" -i
 ```
 
 ## Model Configuration
@@ -123,26 +183,15 @@ The sidecar is invoked in three places today:
    or the incremental token estimate exceeds 70% of `ContextWindow`,
    `Session.Compact()` sends the oldest messages to the sidecar with a
    "Summarize the conversation concisely" prompt and replaces them with
-   the summary. The last 30 messages are kept verbatim. The token estimate
-   is maintained as messages are added, so long sessions do not need a full
-   transcript scan before every compaction check.
+   the summary. The last 30 messages are kept verbatim.
 2. **Tool-output condensation** — when a tool (typically `Read`, `Bash`,
    `Grep`) returns more than ~6 KB, the output is sent to the sidecar
    with a strict "produce 4-10 bullets, preserve paths/symbols/errors,
    no prose" system prompt. The condensed bullets replace the raw bytes
-   in the model's context (the unredacted output is still printed live
-   in the TUI). This keeps the main model focused and dramatically
-   reduces tokens-per-turn on big files.
+   in the model's context.
 3. **Path disambiguation** — when the agent rescues a relative path
    (e.g. `Read("config.go")`) and finds **multiple** known absolute
-   candidates, the sidecar picks one based on the user's current goal
-   (`PICK: <n>` reply). If it declines or is unavailable, the rescue is
-   skipped, matching the previous behaviour.
-
-The TUI spinner (`waiting for <MODEL>…`) is always the **main** model;
-sidecar calls are short and run in the background so you only see them
-through tool-result hints like `sidecar condensed 12345 bytes → summary
-stored in context` or `sidecar disambiguated "config.go" → <abs>`.
+   candidates, the sidecar picks one based on the user's current goal.
 
 Pick a sidecar that is **fast and cheap** (e.g. `llama3.2:3b`,
 `qwen3.5:4b`, `phi3:mini`). Leave it empty to disable all three
@@ -180,32 +229,75 @@ If you use PowerShell and want to run from source with the same flags:
 
 ## CLI Flags
 
-Current top-level flags:
+- `--version` — print version and exit
+- `--help` — show usage and exit
+- `--ui <mode>` — UI mode (`plain` or `rich`)
+- `-p <text>` — one-shot prompt
+- `-i, --interactive` — interactive mode (combine with `-p` to send an initial prompt and keep chatting)
+- `-m, --model <name>` — model name
+- `--sidecar <name>` — sidecar model name
+- `--no-sidecar` — disable sidecar for this session only; with `/save`, persists `SIDECAR_DISABLED=true`
+- `-y` — enable yes mode (auto-approve non-dangerous tools)
+- `--debug` — enable debug logs
+- `--resume` — resume the last session for this project
+- `--session-id <id>` — resume a specific session
+- `--list-sessions` — list known sessions
+- `--ollama-host <url>` — Ollama base URL
+- `--max-tokens <n>` — max generated tokens
+- `--temperature <f>` — sampling temperature
+- `--context-window <n>` — model context window
+- `--no-think` — disable Ollama native thinking (faster replies)
+- `--rag` — enable RAG mode
+- `--rag-mode <type>` — RAG mode type
+- `--rag-path <path>` — RAG database path
+- `--rag-topk <n>` — RAG top-k chunks
+- `--rag-model <name>` — RAG embedding model
+- `--rag-index <path>` — build/index RAG path and exit
+- `/save` — persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`
 
-- `--version` print version and exit
-- `--help` show help
-- `--ui` UI mode (`plain` or `rich`)
-- `-p` one-shot prompt
-- `-i, --interactive` interactive mode (combine with `-p` to send an initial prompt and keep chatting)
-- `-m, --model` model name
-- `--sidecar` sidecar model name (`SIDECAR_MODEL` in `config.env`)
-- `--no-sidecar` do not use the sidecar; with `/save`, writes `SIDECAR_DISABLED=true` to `config.env` so it stays off on future runs
-- `-y` yes mode
-- `--debug` debug logs
-- `--resume` resume last project session
-- `--session-id` resume a specific session
-- `--list-sessions` list known sessions
-- `--ollama-host` Ollama base URL
-- `--max-tokens` max generated tokens
-- `--temperature` sampling temperature
-- `--context-window` model context window
-- `--rag` enable RAG mode
-- `--rag-mode` RAG mode
-- `--rag-path` RAG path
-- `--rag-topk` RAG top-k chunks
-- `--rag-model` RAG embedding model
-- `--rag-index` build/index RAG path and exit
-- `/save` persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`; if combined with `--no-sidecar`, also persists `SIDECAR_DISABLED=true`
+## Slash Commands
+
+Slash commands are entered at the `>` prompt during an interactive session.
+
+### Session
+
+- `/save` — persist the current session to disk
+- `/clear` — save and start a brand new session
+- `/sessions` — list saved sessions (`*` = current project)
+- `/session <id>` — resume a specific session quickly
+- `/sessions delete <id>` — delete a specific session
+- `/sessions delete --all` — delete every saved session
+- `/resume` — resume the last session for this project path
+- `/resume <id>` — resume a specific session by id (or unique prefix)
+- `/compact` — force a sidecar-summarized compaction
+- `/tokens` — show token usage vs the context window
+- `/status` — show model, cwd, session and sidecar status
+
+### Model
+
+- `/model` — show the active model
+- `/model <name>` — switch the active model for this run
+- `/sidecar on|off` — toggle the sidecar for this session
+- `/sidecar perm-on|perm-off` — persist sidecar state to `config.env`
+- `/sidecar status` — show current sidecar state
+
+### Mode
+
+- `/yes` — auto-approve subsequent permission prompts
+- `/no` — require manual approval (default)
+- `/plan` — enter plan mode (writes restricted to `.vibe-coder/plans/`)
+- `/plan <goal>` — enter plan mode and immediately start planning that goal
+- `/code` — exit plan mode and return to coding mode
+- `/approve` — exit plan mode and resume act mode in the same chat
+
+### Git
+
+- `/commit` — stage + commit current changes (LLM-suggested message)
+
+### Misc
+
+- `/help` — show the command reference
+- `/exit`, `/quit`, `/q` — save and exit
 
 ## Built-in Tool Notes
 
@@ -213,13 +305,24 @@ The agent exposes tools to the model through the system prompt. Users normally
 do not call these directly, but their behavior affects speed and context usage:
 
 - `Read` accepts `start_line`, `end_line`, `offset`, `limit`, and `max_bytes`
-  for partial file reads. Without those parameters it keeps the previous
-  behavior and reads the full file with line numbers.
+  for partial file reads. Without those parameters it reads the full file
+  with line numbers.
+- `Write` creates or overwrites a file; dangerous paths and protected
+  directories are blocked.
+- `Edit` applies a replacement; the TUI renders a colored unified-diff preview.
 - `Glob` accepts `head_limit` to bound large file listings.
 - `Grep` accepts `head_limit`, `offset`, `glob`, `output_mode`, `multiline`,
   `-i`, `-A`, `-B`, and `-C`.
-- `Glob` and `Grep` skip heavy directories such as `.git`, `.hg`, `.svn`,
-  `node_modules`, `vendor`, `dist`, `build`, `target`, and `.vibe-coder`.
+- `Bash` runs a shell command with cleaned environment and dangerous-pattern
+  guards. `InteractiveBash` starts a persistent terminal session for
+  multi-step CLI workflows.
+- `WebFetch` and `WebSearch` fetch web content with SSRF protection.
+- `NotebookEdit` edits `.ipynb` cells by JSON round-trip.
+- `TodoWrite` maintains a live task list that the TUI renders as a panel.
+- `AskUserQuestion` pauses the agent to ask the user a multi-choice question.
+- `SubAgent` and `ParallelAgents` spawn child agents with bounded fan-out.
+- `Glob` and `Grep` skip heavy directories such as `.git`, `node_modules`,
+  `vendor`, `dist`, `build`, `target`, and `.vibe-coder`.
 - `Read`, `Glob`, and `Grep` respect cancellation, so ESC/Ctrl-C can stop
   long file operations cleanly.
 
@@ -237,16 +340,80 @@ Run with RAG enabled:
 ./vibe-coder --rag -p "Find where permissions are enforced"
 ```
 
+RAG is an optional build feature. To compile with RAG support:
+
+```bash
+go build -tags rag -o vibe-coder ./cmd/vibe-coder
+```
+
 ## Development
 
-Run tests:
+### Running tests
 
 ```bash
+# Default tests (no RAG)
 go test ./...
-```
 
-Run tests with RAG tag:
-
-```bash
+# With RAG support
 go test -tags rag ./...
 ```
+
+### Helper scripts
+
+| Script | Purpose |
+|--------|---------|
+| `build.ps1` / `build.sh` | Dev build with timestamp + short Git hash |
+| `run.ps1` / `run.sh` | Build + run with forwarded CLI flags |
+| `release.ps1` / `release.sh` | Cross-compile for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64; produces archives + `checksums.txt` |
+
+### Project layout
+
+```
+cmd/vibe-coder/          # Entry point and CLI wiring
+internal/
+  agent/                 # Agent loop, chat orchestration, tool execution
+  config/                # Config loader (defaults < file < env < CLI)
+  git/                   # Git checkpoint + auto-test
+  mcp/                   # MCP stdio JSON-RPC client
+  ollama/                # Ollama HTTP client (streaming NDJSON)
+  onboarding/            # First-run interactive setup
+  permissions/           # Permission tiers + in-session memory + persistence
+  prompt/                # System prompt builder + instruction-file walk
+  rag/                   # Optional SQLite RAG engine (build tag: rag)
+  safety/                # Dangerous-command blocklist + env scrub
+  session/               # Session persistence, compaction, project index
+  sidecar/               # Sidecar model worker pool
+  skills/                # Skill markdown auto-load
+  slash/                 # Slash command dispatcher
+  terminal/              # Interactive Bash session manager
+  tools/                 # Built-in tool registry + implementations
+  tui/                   # Plain and rich UI implementations
+  version/               # Build-time version string
+  watcher/               # File-change poller
+```
+
+## Architecture Overview
+
+`vibe-coder` is structured as a thin `cmd/` layer over focused `internal/`
+packages:
+
+1. **Config** (`internal/config`) loads settings with the precedence
+   `defaults < config.env < environment < CLI flags`.
+2. **Agent** (`internal/agent`) runs the multi-turn loop: chat once,
+   parse tool calls, execute, feed results back, repeat. Capped at 50
+   iterations with 2 retries.
+3. **Session** (`internal/session`) stores the transcript as append-only
+   JSONL. It compacts automatically via the sidecar when the token estimate
+   exceeds 70 % of the context window or message count exceeds 300.
+4. **Tools** (`internal/tools`) register themselves into a central
+   registry. The agent exposes their schemas to the model through the system
+   prompt. MCP tools are discovered at startup and injected dynamically.
+5. **TUI** (`internal/tui`) abstracts rendering behind a `UI` interface.
+   `PlainUI` is the default; `RichUI` (Bubble Tea + Lipgloss) is selected
+   with `--ui rich`.
+6. **Ollama client** (`internal/ollama`) handles streaming NDJSON chat,
+   model tags, version, and pull progress.
+
+## License
+
+MIT
