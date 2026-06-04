@@ -11,6 +11,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/onboarding"
@@ -30,6 +31,18 @@ func main() {
 	if err != nil {
 		exitWithError(err)
 	}
+
+	closer, logErr := logger.Init(cfg.ConfigDir)
+	if logErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to initialize log file: %v\n", logErr)
+	} else if closer != nil {
+		defer closer.Close()
+	}
+
+	logger.Infof("vibe-coder %s starting", version.Value)
+	logger.Infof("CLI args: %v", os.Args)
+	logger.Infof("ConfigDir: %s, ConfigFile: %s", cfg.ConfigDir, cfg.ConfigFile)
+	logger.Infof("OllamaHost: %s, Model: %s, UI: %s", cfg.OllamaHost, cfg.Model, cfg.UI)
 
 	if persistModelSettings {
 		cfg.PersistSidecarOffFromSave(true)
@@ -51,13 +64,16 @@ func main() {
 	}
 
 	if shouldRunFirstRunOnboarding(cfg, persistModelSettings) {
+		logger.Infof("Onboarding flow detected, starting...")
 		if err := onboarding.RunFirstRun(context.Background(), cfg, version.Value, os.Stdin, os.Stdout); err != nil {
 			if errors.Is(err, onboarding.ErrInterrupted) {
+				logger.Infof("Onboarding interrupted by user.")
 				fmt.Fprintln(os.Stdout, "\nBye.")
 				os.Exit(130)
 			}
 			exitWithError(fmt.Errorf("first-run setup failed: %w", err))
 		}
+		logger.Infof("Onboarding flow completed successfully.")
 	}
 
 	client := ollama.NewHTTP(cfg.OllamaHost)
@@ -100,11 +116,13 @@ func main() {
 	defer rootCancel()
 	installSignalHandler(ui, sess, rootCancel)
 
+	logger.Infof("Configuring RAG...")
 	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, client, ag)
 	if ragErr != nil {
 		exitWithError(ragErr)
 	}
 	if ragHandled {
+		logger.Infof("RAG hand-off completed.")
 		if strings.TrimSpace(ragMsg) != "" {
 			fmt.Fprintln(os.Stdout, ragMsg)
 		}
@@ -112,6 +130,7 @@ func main() {
 	}
 
 	if cfg.ListSessions {
+		logger.Infof("Listing available models from host...")
 		if err := printAvailableModels(rootCtx, client); err != nil {
 			exitWithError(err)
 		}
@@ -119,6 +138,7 @@ func main() {
 	}
 
 	if cfg.Resume {
+		logger.Infof("Resuming session configuration...")
 		if err := resumeConfiguredSession(cfg, sess); err != nil {
 			exitWithError(err)
 		}
@@ -126,12 +146,14 @@ func main() {
 
 	bannerPrinted := false
 	if cfg.Prompt != "" {
+		logger.Infof("Running one-shot prompt flow: %q", cfg.Prompt)
 		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui)
 		if err != nil {
 			exitWithError(err)
 		}
 		bannerPrinted = true
 		if !shouldContinue {
+			logger.Infof("One-shot prompt completed without continuation.")
 			return
 		}
 		cfg.Prompt = ""
@@ -140,11 +162,14 @@ func main() {
 	if !bannerPrinted {
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
 	}
+	logger.Infof("Entering interactive REPL loop.")
 	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui)
+	logger.Infof("Exiting interactive REPL loop, finishing execution.")
 }
 
 func exitWithError(err error) {
 	// Centralizes fatal CLI errors so the top-level flow stays readable.
+	logger.Errorf("Fatal error: %v", err)
 	fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	os.Exit(1)
 }

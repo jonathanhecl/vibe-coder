@@ -53,7 +53,7 @@ func TestRunFirstRunDefaultPathUsesInstalledRecommendedWithoutPull(t *testing.T)
 	tmp := t.TempDir()
 	cfg := &config.Config{
 		ConfigDir:    tmp,
-		ConfigFile:   filepath.Join(tmp, "config.env"),
+		ConfigFile:   filepath.Join(tmp, "vibe-coder.env"),
 		OllamaHost:   defaultOllamaHost,
 		Model:        "",
 		SidecarModel: "",
@@ -139,7 +139,7 @@ func TestRunFirstRunCustomModelAndCustomSidecarPullsBoth(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
 		ConfigDir:  tmp,
-		ConfigFile: filepath.Join(tmp, "config.env"),
+		ConfigFile: filepath.Join(tmp, "vibe-coder.env"),
 	}
 
 	in := bytes.NewBufferString(strings.Join([]string{
@@ -178,7 +178,7 @@ func TestRunFirstRunInterruptReturnsErrInterrupted(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
 		ConfigDir:  tmp,
-		ConfigFile: filepath.Join(tmp, "config.env"),
+		ConfigFile: filepath.Join(tmp, "vibe-coder.env"),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

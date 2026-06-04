@@ -225,7 +225,7 @@ func TestLoadConfigFileExistsFalseWhenMissing(t *testing.T) {
 
 func TestSaveModelSettingsPreservesOtherConfig(t *testing.T) {
 	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.env")
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
 	initial := strings.Join([]string{
 		"# keep this comment",
 		"MAX_TOKENS=2048",
@@ -273,7 +273,7 @@ func TestSaveModelSettingsPreservesOtherConfig(t *testing.T) {
 func TestSaveModelSettingsSidecarDisabled(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.env")
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
 	if err := os.WriteFile(cfgPath, []byte("MODEL=a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestLoadNoThinkFromEnvAndCLI(t *testing.T) {
 
 func TestLoadUIModePrecedence(t *testing.T) {
 	tmp := t.TempDir()
-	configFile := filepath.Join(tmp, "config.env")
+	configFile := filepath.Join(tmp, "vibe-coder.env")
 	if err := os.WriteFile(configFile, []byte("UI=plain\n"), 0o600); err != nil {
 		t.Fatalf("write config file: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestLoadHideThinkFromEnvAndCLI(t *testing.T) {
 
 func TestSaveModelSettingsHideThink(t *testing.T) {
 	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.env")
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
 	if err := os.WriteFile(cfgPath, []byte("MODEL=a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -467,6 +467,39 @@ func TestSaveModelSettingsHideThink(t *testing.T) {
 	data, _ = os.ReadFile(cfgPath)
 	if !strings.Contains(string(data), "HIDE_THINK=false") {
 		t.Fatalf("expected HIDE_THINK=false, got:\n%s", string(data))
+	}
+}
+
+func TestLoadMigratesLegacyConfig(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", tmp)
+	
+	// Create legacy config.env
+	legacyPath := filepath.Join(tmp, "vibe-coder", "config.env")
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, []byte("MODEL=my-migrated-model\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	
+	// Load config (which should trigger migration to vibe-coder.env)
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	
+	if cfg.Model != "my-migrated-model" {
+		t.Fatalf("expected migrated model, got %q", cfg.Model)
+	}
+	
+	// Check that vibe-coder.env exists and config.env is gone (or renamed)
+	newPath := filepath.Join(tmp, "vibe-coder", "vibe-coder.env")
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("expected vibe-coder.env to exist: %v", err)
+	}
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatal("expected legacy config.env to be removed/renamed")
 	}
 }
 

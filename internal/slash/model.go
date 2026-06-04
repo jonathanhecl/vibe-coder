@@ -22,7 +22,7 @@ func runSidecarCommand(c *Ctx, args []string) error {
 	case "on", "enable":
 		c.Cfg.SidecarSkipSession = false
 		if c.Cfg.SidecarDisabled {
-			fmt.Fprintln(c.Out, "Sidecar is still off in config (SIDECAR_DISABLED). Use /sidecar perm-on or edit config.env.")
+			fmt.Fprintln(c.Out, "Sidecar is still off in config (SIDECAR_DISABLED). Use /sidecar perm-on or edit vibe-coder.env.")
 		} else {
 			fmt.Fprintln(c.Out, "Sidecar enabled for this session (if SIDECAR_MODEL is set).")
 		}

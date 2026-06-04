@@ -114,7 +114,7 @@ func applyConfigFile(cfg *Config, path string) error {
 func SaveModelSettings(cfg *Config) error {
 	path := strings.TrimSpace(cfg.ConfigFile)
 	if path == "" {
-		path = filepath.Join(cfg.ConfigDir, "config.env")
+		path = filepath.Join(cfg.ConfigDir, "vibe-coder.env")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)

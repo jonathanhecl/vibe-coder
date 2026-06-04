@@ -7,13 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
 func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName string, toolParams map[string]any, mode toolExecutionMode) (tools.Result, bool, error) {
+	logger.Infof("Tool execution request: tool=%s, params=%+v", toolName, toolParams)
 	if a.InPlanMode() && toolName == "Write" && !a.isWriteAllowedInPlan(toolParams) {
 		blockMsg := "Write blocked in plan mode. Allowed path: <cwd>/.vibe-coder/plans/"
+		logger.Errorf("Tool Write blocked in plan mode")
 		a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
 		a.sess.AddSystemNote(blockMsg)
 		return tools.Result{}, false, nil
@@ -22,6 +25,7 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	a.rescuePathParam(ctx, toolName, toolParams)
 	if !a.perm.Check(toolName, toolParams, a.ui) {
 		deny := permissionDeniedNote(a.perm)
+		logger.Errorf("Tool %s execution denied by permissions", toolName)
 		if mode.showPermissionDeniedResult {
 			a.ui.ShowToolResult(toolName, deny, true, toolParams)
 		}
@@ -35,12 +39,19 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if toolName == "Write" || toolName == "Edit" {
 		// Create a checkpoint before mutating files so failed edits can be
 		// inspected or rolled back by the user outside the agent loop.
+		logger.Infof("Creating checkpoint pre-edit")
 		if err := a.cp.Create("pre-edit"); err != nil {
+			logger.Errorf("Failed to create checkpoint: %v", err)
 			return tools.Result{}, false, err
 		}
 	}
 
+	logger.Infof("Calling Tool Execute: tool=%s", toolName)
 	result := tool.Execute(ctx, toolParams)
+	logger.Infof("Tool %s Execute completed. is_error=%t, output_len=%d", toolName, result.IsError, len(result.Output))
+	if result.IsError {
+		logger.Errorf("Tool %s execution returned error output: %q", toolName, result.Output)
+	}
 	if result.Diff != "" {
 		if toolParams == nil {
 			toolParams = map[string]any{}

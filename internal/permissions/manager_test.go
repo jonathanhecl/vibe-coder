@@ -52,7 +52,7 @@ func TestAlwaysConfirmBashEvenWithYesMode(t *testing.T) {
 func TestAllowSessionDoesNotWritePermFile(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.env")
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
 	if err := os.WriteFile(cfgPath, []byte("MODEL=test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestCancelSetsWasCancelled(t *testing.T) {
 
 func TestPersistentRulesLoadAndSave(t *testing.T) {
 	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.env")
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
 	seed := `MODEL=test
 TOOL_PERMISSIONS={"write":"allow","bash":"allow","edit":"deny"}
 `
@@ -118,6 +118,6 @@ TOOL_PERMISSIONS={"write":"allow","bash":"allow","edit":"deny"}
 		t.Fatalf("bash allow must not be persisted: %s", string(raw))
 	}
 	if !strings.Contains(string(raw), "TOOL_PERMISSIONS=") {
-		t.Fatalf("expected TOOL_PERMISSIONS in config.env")
+		t.Fatalf("expected TOOL_PERMISSIONS in vibe-coder.env")
 	}
 }

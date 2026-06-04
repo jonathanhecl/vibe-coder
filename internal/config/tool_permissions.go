@@ -9,12 +9,12 @@ import (
 	"strings"
 )
 
-// ToolPermissionsKey is the env-style key used inside config.env for saved
+// ToolPermissionsKey is the env-style key used inside vibe-coder.env for saved
 // allow/deny rules (JSON object: {"write":"allow",...}).
 const ToolPermissionsKey = "TOOL_PERMISSIONS"
 
 // ParseToolPermissionsFromEnvContent extracts the TOOL_PERMISSIONS JSON object
-// from a config.env-style file body.
+// from a vibe-coder.env-style file body.
 func ParseToolPermissionsFromEnvContent(data []byte) (map[string]string, bool) {
 	raw := strings.ReplaceAll(string(data), "\r\n", "\n")
 	for _, line := range strings.Split(raw, "\n") {

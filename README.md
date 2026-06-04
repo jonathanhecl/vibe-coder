@@ -182,8 +182,8 @@ Model settings are loaded with this precedence:
 
 Default config file path:
 
-- Windows: `%LOCALAPPDATA%\vibe-coder\config.env`
-- Linux/macOS: `~/.config/vibe-coder/config.env`
+- Windows: `%LOCALAPPDATA%\vibe-coder\vibe-coder.env`
+- Linux/macOS: `~/.config/vibe-coder/vibe-coder.env`
 
 You can override the config file path with:
 
@@ -247,7 +247,7 @@ What this does:
 
 - Applies model, sidecar model, and host for the current run.
 - Writes `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` to
-  `%LOCALAPPDATA%\vibe-coder\config.env`.
+  `%LOCALAPPDATA%\vibe-coder\vibe-coder.env`.
 - Keeps the change scoped to `vibe-coder` only (no `setx` needed).
 
 Next runs can simply use:
@@ -289,7 +289,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `OLLAMA_HOST`, and `HIDE_THINK` into `config.env`
+- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `OLLAMA_HOST`, and `HIDE_THINK` into `vibe-coder.env`
 
 ## Slash Commands
 
@@ -314,7 +314,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/model` — show the active model
 - `/model <name>` — switch the active model for this run
 - `/sidecar on|off` — toggle the sidecar for this session
-- `/sidecar perm-on|perm-off` — persist sidecar state to `config.env`
+- `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/sidecar status` — show current sidecar state
 - `/hide-think` — hide model thinking blocks in CLI output
 - `/show-think` — show model thinking blocks in CLI output (default)
@@ -436,7 +436,7 @@ internal/
 packages:
 
 1. **Config** (`internal/config`) loads settings with the precedence
-   `defaults < config.env < environment < CLI flags`.
+   `defaults < vibe-coder.env < environment < CLI flags`.
 2. **Agent** (`internal/agent`) runs the multi-turn loop: chat once,
    parse tool calls, execute, feed results back, repeat. Capped at 50
    iterations with 2 retries.

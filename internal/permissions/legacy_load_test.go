@@ -11,7 +11,7 @@ import (
 func TestLoadMergesLegacyPermissionsJSON(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	cfgPath := filepath.Join(tmp, "config.env")
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
 	if err := os.WriteFile(cfgPath, []byte("MODEL=test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

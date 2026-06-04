@@ -82,7 +82,14 @@ func Load(args []string) (*Config, error) {
 
 	configPath := envFirstNonEmpty("VIBE_CODER_CONFIG", "CONFIG")
 	if configPath == "" {
-		configPath = filepath.Join(cfg.ConfigDir, "config.env")
+		configPath = filepath.Join(cfg.ConfigDir, "vibe-coder.env")
+		legacyPath := filepath.Join(cfg.ConfigDir, "config.env")
+		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+			if _, errLegacy := os.Stat(legacyPath); errLegacy == nil {
+				// Migrate legacy config.env to vibe-coder.env
+				_ = os.Rename(legacyPath, configPath)
+			}
+		}
 	}
 	cfg.ConfigFile = configPath
 	exists, err := configFileExists(configPath)
@@ -162,7 +169,7 @@ Flags:
   --hide-think              Hide Ollama thinking blocks in CLI output
 
 Special directive:
-  --save                    Persist model, sidecar, host, hide-think to config.env; with --no-sidecar also SIDECAR_DISABLED=true
+  --save                    Persist model, sidecar, host, hide-think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 

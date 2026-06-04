@@ -31,7 +31,7 @@ func printHelp(c *Ctx) {
 			{"/model", "show the active model"},
 			{"/model <name>", "switch the active model for this run"},
 			{"/sidecar on|off", "toggle the sidecar for this session"},
-			{"/sidecar perm-on|perm-off", "persist sidecar state to config.env"},
+			{"/sidecar perm-on|perm-off", "persist sidecar state to vibe-coder.env"},
 			{"/sidecar status", "show current sidecar state"},
 			{"/hide-think", "hide model thinking blocks in CLI output"},
 			{"/show-think", "show model thinking blocks in CLI output (default)"},

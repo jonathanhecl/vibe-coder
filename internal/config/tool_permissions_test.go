@@ -10,7 +10,7 @@ import (
 func TestParseAndUpsertToolPermissions(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	path := filepath.Join(tmp, "config.env")
+	path := filepath.Join(tmp, "vibe-coder.env")
 	body := "MODEL=qwen\n# comment\nTOOL_PERMISSIONS={\"write\":\"allow\",\"edit\":\"deny\"}\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)

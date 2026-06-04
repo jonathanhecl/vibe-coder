@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 )
 
 // isThinkingUnsupportedBody detects Ollama's 400 when the model cannot run with "think": true.
@@ -29,6 +31,7 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 		if err != nil {
 			return nil, fmt.Errorf("marshal chat request: %w", err)
 		}
+		logger.Infof("Ollama API POST calling /api/chat (attempt with Think=%t)", attempt.Think)
 		resp, err := doPOSTWithRetry(ctx, c.http, func() (*http.Request, error) {
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", bytes.NewReader(payload))
 			if err != nil {
@@ -38,14 +41,18 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 			return httpReq, nil
 		})
 		if err != nil {
+			logger.Errorf("Ollama API POST call failed: %v", err)
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusOK {
+			logger.Infof("Ollama API POST succeeded with status 200")
 			return resp, nil
 		}
 		bodyStr := readLimitedBody(resp.Body, 32*1024)
 		_ = resp.Body.Close()
+		logger.Errorf("Ollama API POST failed: status=%d, body=%q", resp.StatusCode, bodyStr)
 		if resp.StatusCode == http.StatusBadRequest && attempt.Think && isThinkingUnsupportedBody(bodyStr) {
+			logger.Infof("Model doesn't support thinking, retrying with Think=false")
 			c.markThinkUnsupported(attempt.Model)
 			attempt.Think = false
 			continue
@@ -60,6 +67,11 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 	}
 	if len(req.Messages) == 0 {
 		return nil, errors.New("chat requires at least one message")
+	}
+	logger.Infof("Ollama Chat request: model=%s, stream=%t, message_count=%d", req.Model, req.Stream, len(req.Messages))
+	if len(req.Messages) > 0 {
+		lastMsg := req.Messages[len(req.Messages)-1]
+		logger.Infof("Last user/system message role=%s: %q", lastMsg.Role, lastMsg.Content)
 	}
 	streamRequested := req.Stream
 	if !streamRequested {
@@ -103,9 +115,11 @@ func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 		defer close(ch)
 		defer body.Close()
 		scanner := newStreamScanner(body)
+		chunkCount := 0
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
+				logger.Errorf("Ollama chat stream context cancelled: %v", ctx.Err())
 				ch <- Chunk{Err: ctx.Err(), Done: true}
 				return
 			default:
@@ -116,20 +130,27 @@ func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 			}
 			var parsed chatResponseLine
 			if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+				logger.Errorf("Ollama chat stream unmarshal failed: %v, raw line: %q", err, line)
 				ch <- Chunk{Err: fmt.Errorf("decode chat stream line: %w", err), Done: true}
 				return
 			}
 			if parsed.Error != "" {
+				logger.Errorf("Ollama chat stream error: %s", parsed.Error)
 				ch <- Chunk{Err: errors.New(parsed.Error), Done: true}
 				return
 			}
+			chunkCount++
 			ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, Done: parsed.Done}
 			if parsed.Done {
+				logger.Infof("Ollama chat stream done: chunk_count=%d", chunkCount)
 				return
 			}
 		}
 		if err := scanner.Err(); err != nil {
+			logger.Errorf("Ollama chat stream scanner failed: %v", err)
 			ch <- Chunk{Err: fmt.Errorf("read chat stream: %w", err), Done: true}
+		} else {
+			logger.Infof("Ollama chat stream closed cleanly: chunk_count=%d", chunkCount)
 		}
 	}()
 	return ch

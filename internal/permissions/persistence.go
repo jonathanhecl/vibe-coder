@@ -63,7 +63,7 @@ func (m *Manager) mergePersistentMap(raw map[string]string) {
 	}
 }
 
-// tryLoadLegacyPermissionsFile loads permissions.json next to config.env once,
+// tryLoadLegacyPermissionsFile loads permissions.json next to vibe-coder.env once,
 // so existing installs keep their rules until the next save (which writes TOOL_PERMISSIONS).
 func (m *Manager) tryLoadLegacyPermissionsFile() {
 	if strings.TrimSpace(m.file) == "" {
