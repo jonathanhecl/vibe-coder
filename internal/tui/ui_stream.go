@@ -94,8 +94,12 @@ func (u *PlainUI) EndAssistant() {
 		u.markdown.Reset()
 	}
 	u.closeThinkingLocked(true)
-	if u.streamingAssistant && u.assistantHadVisible && !u.assistantReplyStart.IsZero() {
-		elapsed := formatElapsed(time.Since(u.assistantReplyStart))
+	start := u.turnStart
+	if start.IsZero() {
+		start = u.assistantReplyStart
+	}
+	if u.streamingAssistant && u.assistantHadVisible && !start.IsZero() {
+		elapsed := formatElapsed(time.Since(start))
 		if u.style.Enabled() {
 			fmt.Fprintf(u.out, "\n%s %s\n",
 				u.style.Dim(iconRule),

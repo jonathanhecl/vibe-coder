@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // GetInput reads a line from stdin, supporting a ";;...;;" multi-line marker.
@@ -35,6 +36,7 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	u.turnStart = time.Now()
 	line = trimLine(line)
 	if strings.TrimSpace(line) != ";;" {
 		return line, nil

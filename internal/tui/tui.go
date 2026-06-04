@@ -62,6 +62,7 @@ type PlainUI struct {
 	thinkingActive      bool
 	thinkingStart       time.Time
 	assistantReplyStart time.Time
+	turnStart           time.Time
 	assistantHadVisible bool
 	assistantLines      int
 	streamBuffer        strings.Builder
@@ -115,13 +116,14 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 	}
 	st := NewStyle(os.Stdout)
 	return &PlainUI{
-		in:       os.Stdin,
-		out:      os.Stdout,
-		reader:   bufio.NewReader(os.Stdin),
-		style:    st,
-		stopCh:   make(chan struct{}),
-		markdown: NewMarkdownRenderer(st),
-		cfg:      c,
+		in:        os.Stdin,
+		out:       os.Stdout,
+		reader:    bufio.NewReader(os.Stdin),
+		style:     st,
+		stopCh:    make(chan struct{}),
+		markdown:  NewMarkdownRenderer(st),
+		cfg:       c,
+		turnStart: time.Now(),
 	}
 }
 
