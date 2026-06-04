@@ -240,7 +240,7 @@ If Ollama runs on another machine in your network, you can configure `vibe-coder
 those settings in one command, without changing global environment variables:
 
 ```powershell
-.\vibe-coder.exe -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" /save
+.\vibe-coder.exe -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" -save
 ```
 
 What this does:
@@ -259,7 +259,7 @@ Next runs can simply use:
 If you use PowerShell and want to run from source with the same flags:
 
 ```powershell
-.\run.ps1 -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" /save
+.\run.ps1 -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" -save
 ```
 
 ## CLI Flags
@@ -271,7 +271,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `-i, --interactive` — interactive mode (combine with `-p` to send an initial prompt and keep chatting)
 - `-m, --model <name>` — model name
 - `--sidecar <name>` — sidecar model name
-- `--no-sidecar` — disable sidecar for this session only; with `/save`, persists `SIDECAR_DISABLED=true`
+- `--no-sidecar` — disable sidecar for this session only; with `-save`, persists `SIDECAR_DISABLED=true`
 - `-y` — enable yes mode (auto-approve non-dangerous tools)
 - `--debug` — enable debug logs
 - `--resume` — resume the last session for this project
@@ -288,7 +288,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `/save` — persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`
+- `-save` — persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`
 
 ## Slash Commands
 

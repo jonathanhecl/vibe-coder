@@ -15,7 +15,7 @@ func (c *Config) SidecarInUse() bool {
 	return strings.TrimSpace(c.SidecarModel) != ""
 }
 
-// PersistSidecarOffFromSave sets SidecarDisabled when the user runs the /save
+// PersistSidecarOffFromSave sets SidecarDisabled when the user runs the -save
 // directive together with --no-sidecar (CLI: SidecarSkipSession).
 func (c *Config) PersistSidecarOffFromSave(persist bool) {
 	if c == nil || !persist {

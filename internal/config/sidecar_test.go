@@ -30,12 +30,12 @@ func TestPersistSidecarOffFromSave(t *testing.T) {
 	c := &Config{SidecarSkipSession: true}
 	c.PersistSidecarOffFromSave(true)
 	if !c.SidecarDisabled {
-		t.Fatal("expected SidecarDisabled after /save + --no-sidecar")
+		t.Fatal("expected SidecarDisabled after -save + --no-sidecar")
 	}
 	c2 := &Config{SidecarSkipSession: true}
 	c2.PersistSidecarOffFromSave(false)
 	if c2.SidecarDisabled {
-		t.Fatal("without /save must not set SidecarDisabled")
+		t.Fatal("without -save must not set SidecarDisabled")
 	}
 	c3 := &Config{SidecarSkipSession: false}
 	c3.PersistSidecarOffFromSave(true)

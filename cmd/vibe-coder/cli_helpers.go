@@ -12,7 +12,8 @@ func extractPersistDirective(args []string) ([]string, bool) {
 	filtered := make([]string, 0, len(args))
 	persist := false
 	for _, arg := range args {
-		if strings.EqualFold(strings.TrimSpace(arg), "/save") {
+		trimmed := strings.TrimSpace(arg)
+		if strings.EqualFold(trimmed, "-save") || strings.EqualFold(trimmed, "--save") {
 			persist = true
 			continue
 		}

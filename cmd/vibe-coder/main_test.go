@@ -182,7 +182,7 @@ func TestExtractPersistDirective(t *testing.T) {
 		"-model", "qwen3.5:9b",
 		"-sidecar", "qwen3.5:4b",
 		"-ollama-host", "http://192.168.1.50:11434",
-		"/save",
+		"-save",
 	})
 	if !persist {
 		t.Fatal("expected persist directive to be detected")

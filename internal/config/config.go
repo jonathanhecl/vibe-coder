@@ -159,7 +159,7 @@ Flags:
   --no-think                Disable Ollama native thinking (faster replies)
 
 Special directive:
-  /save                     Persist model, sidecar, host to config.env; with --no-sidecar also SIDECAR_DISABLED=true
+  -save                     Persist model, sidecar, host to config.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 
