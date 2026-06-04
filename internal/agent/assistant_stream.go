@@ -47,6 +47,22 @@ func toolEnvelopeByteIndex(s string) int {
 	return best
 }
 
+// HasPotentialToolStart returns the byte index of the last '<' if it starts
+// a sequence that matches a prefix of "<invoke" or "<tool_call" (case-insensitive).
+func HasPotentialToolStart(s string) (int, bool) {
+	idx := strings.LastIndexByte(s, '<')
+	if idx < 0 {
+		return -1, false
+	}
+	suffix := s[idx:]
+	low := strings.ToLower(suffix)
+	if strings.HasPrefix("<invoke", low) || strings.HasPrefix("<tool_call", low) {
+		return idx, true
+	}
+	return -1, false
+}
+
+
 // asciiPrefixFold reports whether p starts with prefixLower (ASCII letters,
 // all lowercase in prefixLower) under ASCII case folding.
 func asciiPrefixFold(p, prefixLower string) bool {

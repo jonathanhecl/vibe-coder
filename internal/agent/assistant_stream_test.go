@@ -95,3 +95,33 @@ func TestAssistantVisibleTextStripsThinking(t *testing.T) {
 		}
 	}
 }
+
+func TestHasPotentialToolStart(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in        string
+		wantIdx   int
+		wantFound bool
+	}{
+		{"", -1, false},
+		{"Hello world", -1, false},
+		{"Hello <", 6, true},
+		{"Hello <i", 6, true},
+		{"Hello <inv", 6, true},
+		{"Hello <invo", 6, true},
+		{"Hello <invok", 6, true},
+		{"Hello <invoke", 6, true},
+		{"Hello <t", 6, true},
+		{"Hello <tool_ca", 6, true},
+		{"Hello <tool_call", 6, true},
+		{"Hello <invalid", -1, false},
+		{"Hello <a", -1, false},
+		{"Hello <tool_call_invalid", -1, false},
+	}
+	for _, tc := range cases {
+		idx, found := HasPotentialToolStart(tc.in)
+		if found != tc.wantFound || idx != tc.wantIdx {
+			t.Errorf("HasPotentialToolStart(%q) = (%d, %t), want (%d, %t)", tc.in, idx, found, tc.wantIdx, tc.wantFound)
+		}
+	}
+}

@@ -26,26 +26,6 @@ func (u *PlainUI) StreamAssistant(text string) {
 
 	u.flushPendingToolLocked()
 
-	if !u.streamingAssistant {
-		if u.style.Enabled() {
-			icon := u.style.BrightGreen(iconAssistant)
-			label := u.style.BoldGreen("assistant")
-			if u.planMode {
-				icon = u.style.Yellow(iconAssistant)
-				label = u.style.BoldYellow("assistant")
-			}
-			fmt.Fprintf(u.out, "%s %s > ",
-				icon,
-				label,
-			)
-		}
-		u.streamingAssistant = true
-		u.assistantReplyStart = time.Now()
-		u.assistantHadVisible = false
-		u.assistantLines = 0
-		u.ensureMarkdownLocked()
-	}
-
 	u.streamBuffer.WriteString(text)
 	for {
 		buf := u.streamBuffer.String()
@@ -53,6 +33,25 @@ func (u *PlainUI) StreamAssistant(text string) {
 		visible = stripToolEnvelopes(visible)
 
 		if visible != "" {
+			if !u.streamingAssistant {
+				if u.style.Enabled() {
+					icon := u.style.BrightGreen(iconAssistant)
+					label := u.style.BoldGreen("assistant")
+					if u.planMode {
+						icon = u.style.Yellow(iconAssistant)
+						label = u.style.BoldYellow("assistant")
+					}
+					fmt.Fprintf(u.out, "%s %s > ",
+						icon,
+						label,
+					)
+				}
+				u.streamingAssistant = true
+				u.assistantReplyStart = time.Now()
+				u.assistantHadVisible = false
+				u.assistantLines = 0
+				u.ensureMarkdownLocked()
+			}
 			u.ensureMarkdownLocked()
 			u.markdown.Write(u.out, visible)
 			u.assistantHadVisible = true
@@ -127,15 +126,20 @@ func (u *PlainUI) CollapseAssistantOutput() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	if !u.style.Enabled() || u.assistantLines == 0 {
-		u.assistantLines = 0
+	if !u.style.Enabled() {
 		return
 	}
 
-	lines := u.assistantLines
+	if u.assistantLines > 0 {
+		// Move cursor up N lines and clear to the end of the screen.
+		fmt.Fprintf(u.out, "\x1b[%dA\x1b[J", u.assistantLines)
+	} else if u.streamingAssistant {
+		// Clear current line if we streamed on a single line
+		fmt.Fprint(u.out, "\r\x1b[2K")
+	}
+
 	u.assistantLines = 0
-	// Move cursor up N lines and clear to the end of the screen.
-	fmt.Fprintf(u.out, "\x1b[%dA\x1b[J", lines)
+	u.streamingAssistant = false
 }
 
 // StreamThinking renders native Ollama "thinking" tokens as a dim, indented

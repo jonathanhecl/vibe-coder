@@ -113,6 +113,26 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			a.ui.StreamAssistant(tail)
 		}
 	}
+	flushUnprinted := func(full string) {
+		rel := toolEnvelopeByteIndex(full)
+		var textToPrint string
+		if rel >= 0 {
+			if rel > lastShown {
+				textToPrint = full[lastShown:rel]
+			}
+		} else {
+			if idx, ok := HasPotentialToolStart(full); ok {
+				if idx > lastShown {
+					textToPrint = full[lastShown:idx]
+				}
+			} else if len(full) > lastShown {
+				textToPrint = full[lastShown:]
+			}
+		}
+		if strings.TrimSpace(textToPrint) != "" {
+			a.ui.StreamAssistant(textToPrint)
+		}
+	}
 
 	for chunk := range stream {
 		if chunk.Err != nil {
@@ -132,22 +152,18 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		if chunk.Delta != "" {
 			endThinking()
 			a.ui.StopWaiting()
-			prevLen := len(buf)
 			buf = append(buf, chunk.Delta...)
 
 			// Tool XML is parsed after the stream completes. Until then, show
 			// only the natural-language prefix so users do not see raw envelopes.
-			from := 0
-			if prevLen > 0 {
-				from = prevLen - toolEnvelopeScanOverlap
-				if from < 0 {
-					from = 0
-				}
-			}
-			rel := toolEnvelopeByteIndex(string(buf[from:]))
+			rel := toolEnvelopeByteIndex(string(buf))
 			end := len(buf)
 			if rel >= 0 {
-				end = from + rel
+				end = rel
+			} else {
+				if idx, ok := HasPotentialToolStart(string(buf)); ok {
+					end = idx
+				}
 			}
 			if end > lastShown {
 				segment := string(buf[lastShown:end])
@@ -159,6 +175,7 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		}
 		if chunk.Done {
 			full := string(buf)
+			flushUnprinted(full)
 			flushTailAfterTool(full)
 			finishAssistant()
 			// Native thinking often arrives only in chunk.Thinking; delta can be empty.
@@ -176,6 +193,7 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		return "", nil
 	}
 	full := string(buf)
+	flushUnprinted(full)
 	flushTailAfterTool(full)
 	cancel()
 	a.ui.EndAssistant()
