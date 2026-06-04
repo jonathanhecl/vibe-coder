@@ -183,6 +183,16 @@ func newSession(id, command string) (*Session, error) {
 		doneCh:       make(chan struct{}),
 	}
 
+	// Start the process before launching the reader goroutines. If Start
+	// fails we must not leak the copyOutput goroutines (and doneCh would
+	// never close); close the pipes and bail out cleanly instead.
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return nil, fmt.Errorf("start command: %w", err)
+	}
+
 	sess.wg.Add(2)
 	go func() {
 		defer sess.wg.Done()
@@ -192,10 +202,6 @@ func newSession(id, command string) (*Session, error) {
 		defer sess.wg.Done()
 		sess.copyOutput(stderr)
 	}()
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start command: %w", err)
-	}
 
 	go sess.waitForExit()
 	return sess, nil
@@ -217,9 +223,10 @@ func (s *Session) copyOutput(r io.Reader) {
 }
 
 func (s *Session) waitForExit() {
-	s.exitErr = s.cmd.Wait()
+	err := s.cmd.Wait()
 	s.wg.Wait()
 	s.mu.Lock()
+	s.exitErr = err
 	s.exited = true
 	s.mu.Unlock()
 	close(s.doneCh)

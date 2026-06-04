@@ -231,7 +231,7 @@ func scanSessionMeta(path string) (int, string) {
 	count := 0
 	preview := ""
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionLineBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -254,6 +254,10 @@ func scanSessionMeta(path string) (int, string) {
 			}
 		}
 	}
+	// Best-effort: a scan error (e.g. a truncated last line on a partially
+	// written file) returns whatever was collected so far rather than failing
+	// the whole listing.
+	_ = scanner.Err()
 	return count, preview
 }
 

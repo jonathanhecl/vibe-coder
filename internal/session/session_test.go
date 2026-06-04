@@ -92,6 +92,40 @@ func TestSaveLoadAndProjectIndex(t *testing.T) {
 	}
 }
 
+func TestSaveLoadHandlesMessagesLargerThan64KB(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: filepath.Join(tmp, "sessions"),
+	}
+	if err := os.MkdirAll(cfg.Cwd, 0o755); err != nil {
+		t.Fatalf("mkdir cwd: %v", err)
+	}
+
+	// A single verbatim tool observation can exceed the 64KB default
+	// bufio.Scanner token size; the JSONL line must still round-trip.
+	big := strings.Repeat("A", 200*1024)
+	s := New(cfg)
+	s.AddUser("hello")
+	s.AddToolObservation("Read", big)
+	if err := s.Save(); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	loaded := New(cfg)
+	if err := loaded.Load(s.ID()); err != nil {
+		t.Fatalf("load large session: %v", err)
+	}
+	if loaded.MessageCount() != 2 {
+		t.Fatalf("expected 2 messages after load, got %d", loaded.MessageCount())
+	}
+	if !strings.Contains(loaded.messages[1].Content, big) {
+		t.Fatalf("large tool observation was not preserved on load")
+	}
+}
+
 func TestListSessionsReturnsMetadataAndProjectFlag(t *testing.T) {
 	t.Parallel()
 

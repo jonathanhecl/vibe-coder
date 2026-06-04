@@ -16,6 +16,11 @@ import (
 
 const maxSessionFileBytes = 50 * 1024 * 1024
 
+// maxSessionLineBytes caps a single JSONL message line on load. One message
+// (e.g. a verbatim tool observation) can be far larger than the 64KB default
+// bufio.Scanner token size, so we expand the buffer to keep sessions loadable.
+const maxSessionLineBytes = 16 * 1024 * 1024
+
 var invalidSessionIDChars = regexp.MustCompile(`[^A-Za-z0-9_\-]`)
 
 func (s *Session) Clear() {
@@ -82,6 +87,10 @@ func (s *Session) Load(id string) error {
 
 	loaded := make([]Message, 0, 64)
 	scanner := bufio.NewScanner(file)
+	// A single message (e.g. a verbatim tool observation) is stored as one
+	// JSON line and can exceed the 64KB default token size. Match the
+	// expanded-buffer pattern used elsewhere so large sessions stay loadable.
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionLineBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
