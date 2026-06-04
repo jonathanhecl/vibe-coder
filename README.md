@@ -66,19 +66,54 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 
 ## Install
 
-From source in this repository:
+### Quick install (one-liner)
+
+**Linux / macOS** (requires `curl`):
 
 ```bash
-go build -o vibe-coder ./cmd/vibe-coder
+curl -sL https://raw.githubusercontent.com/jonathanhecl/vibe-coder/main/install.sh | bash
 ```
 
-Install directly with `go install`:
+**Windows** (requires PowerShell 5.1+):
+
+```powershell
+irm https://raw.githubusercontent.com/jonathanhecl/vibe-coder/main/install.ps1 | iex
+```
+
+The scripts download the latest pre-built release for your OS/architecture
+from GitHub Releases, extract it, and place the binary in a standard
+location (`~/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\Programs\vibe-coder`
+on Windows).
+
+### Install with Go
+
+If you have Go installed:
 
 ```bash
 go install github.com/jonathanhecl/vibe-coder/cmd/vibe-coder@latest
 ```
 
-If your `GOBIN`/`GOPATH/bin` is in `PATH`, run:
+Make sure your `GOBIN` or `GOPATH/bin` is in `PATH`.
+
+### Manual download
+
+Grab the archive for your platform from the
+[GitHub Releases](https://github.com/jonathanhecl/vibe-coder/releases)
+page, extract it, and move the binary to a directory in your `PATH`.
+
+### Build from source
+
+```bash
+go build -o vibe-coder ./cmd/vibe-coder
+```
+
+Windows:
+
+```powershell
+go build -o vibe-coder.exe ./cmd/vibe-coder
+```
+
+Verify the install:
 
 ```bash
 vibe-coder --version
