@@ -3,6 +3,8 @@
 `vibe-coder` is a local-first coding agent for Ollama, built in Go.
 It runs as a single static CLI binary and supports one-shot prompts, interactive REPL sessions, a rich tool system, session persistence with compaction, and optional RAG — all without leaving your machine.
 
+![vibe-coder demo](demo.png)
+
 ## Features
 
 ### Core agent
