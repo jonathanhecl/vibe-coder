@@ -390,3 +390,20 @@ func TestLoadInvalidUIMode(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestLoadLongFlagAliases(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", tmp)
+
+	cfg, err := Load([]string{"--prompt", "hello world", "--yes"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Prompt != "hello world" {
+		t.Fatalf("expected Prompt='hello world', got %q", cfg.Prompt)
+	}
+	if !cfg.YesMode {
+		t.Fatal("expected YesMode=true")
+	}
+}
+

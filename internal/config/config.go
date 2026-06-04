@@ -136,12 +136,12 @@ Flags:
   --version                 Print version and exit
   --help                    Show this help and exit
   --ui string               UI mode (plain|rich)
-  -p string                 One-shot prompt
+  -p, --prompt string       One-shot prompt
   -i, --interactive         Interactive mode (with -p, keep chatting)
   -m, --model string        Model name
   --sidecar string          Sidecar model name
   --no-sidecar              Disable sidecar for this session only
-  -y                        Enable yes mode
+  -y, --yes                 Enable yes mode
   --debug                   Enable debug logs
   --resume                  Resume last session for this project
   --session-id string       Resume specific session id
@@ -159,7 +159,7 @@ Flags:
   --no-think                Disable Ollama native thinking (faster replies)
 
 Special directive:
-  -save                     Persist model, sidecar, host to config.env; with --no-sidecar also SIDECAR_DISABLED=true
+  --save                    Persist model, sidecar, host to config.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 

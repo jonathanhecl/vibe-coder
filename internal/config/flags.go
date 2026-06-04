@@ -43,6 +43,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.SetOutput(os.Stderr)
 
 	fs.Var(&opts.prompt, "p", "one-shot prompt")
+	fs.Var(&opts.prompt, "prompt", "one-shot prompt")
 	fs.Var(&opts.interactive, "i", "interactive mode")
 	fs.Var(&opts.interactive, "interactive", "interactive mode")
 	fs.Var(&opts.model, "m", "model")
@@ -51,6 +52,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
 	fs.BoolVar(&opts.noSidecar, "no-sidecar", false, "disable sidecar for this session only")
 	fs.Var(&opts.yesMode, "y", "yes mode")
+	fs.Var(&opts.yesMode, "yes", "yes mode")
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.resume, "resume", "resume session")
 	fs.Var(&opts.sessionID, "session-id", "session id")

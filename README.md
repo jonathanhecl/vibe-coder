@@ -267,12 +267,12 @@ If you use PowerShell and want to run from source with the same flags:
 - `--version` — print version and exit
 - `--help` — show usage and exit
 - `--ui <mode>` — UI mode (`plain` or `rich`)
-- `-p <text>` — one-shot prompt
+- `-p, --prompt <text>` — one-shot prompt
 - `-i, --interactive` — interactive mode (combine with `-p` to send an initial prompt and keep chatting)
 - `-m, --model <name>` — model name
 - `--sidecar <name>` — sidecar model name
-- `--no-sidecar` — disable sidecar for this session only; with `-save`, persists `SIDECAR_DISABLED=true`
-- `-y` — enable yes mode (auto-approve non-dangerous tools)
+- `--no-sidecar` — disable sidecar for this session only; with `--save`, persists `SIDECAR_DISABLED=true`
+- `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)
 - `--debug` — enable debug logs
 - `--resume` — resume the last session for this project
 - `--session-id <id>` — resume a specific session
@@ -288,7 +288,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `-save` — persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`
+- `--save` — persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`
 
 ## Slash Commands
 
