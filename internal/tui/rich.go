@@ -158,6 +158,10 @@ func (r *RichUI) ShowTodos(items []TodoItem) {
 	r.plain.ShowTodos(items)
 }
 
+func (r *RichUI) CollapseAssistantOutput() {
+	r.plain.CollapseAssistantOutput()
+}
+
 func (r *RichUI) AskPermission(tool string, params map[string]any) Decision {
 	r.updateStatus(richStatusMsg{phase: "permission"})
 	return r.plain.AskPermission(tool, params)

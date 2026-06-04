@@ -86,6 +86,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.compactBestEffort(ctx)
 				return nil
 			}
+			a.ui.CollapseAssistantOutput()
 			result, executed, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
 				showPermissionDeniedResult: true,
 			})

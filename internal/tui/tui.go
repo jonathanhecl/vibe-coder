@@ -28,6 +28,7 @@ type UI interface {
 	AskPermission(tool string, params map[string]any) Decision
 	GetInput(prompt string) (string, error)
 	Stop()
+	CollapseAssistantOutput()
 }
 
 // PlainUI renders an interactive session in a way inspired by Cursor's chat:
@@ -59,6 +60,7 @@ type PlainUI struct {
 	thinkingStart       time.Time
 	assistantReplyStart time.Time
 	assistantHadVisible bool
+	assistantLines      int
 	streamBuffer        strings.Builder
 	markdown            *MarkdownRenderer
 

@@ -41,6 +41,7 @@ func (c *coverageUI) AskPermission(string, map[string]any) tui.Decision {
 }
 func (c *coverageUI) GetInput(string) (string, error) { return "", nil }
 func (c *coverageUI) Stop()                           {}
+func (c *coverageUI) CollapseAssistantOutput()        {}
 
 type coverageRAG struct{}
 

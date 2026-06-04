@@ -66,6 +66,7 @@ func (f *fakeUI) AskPermission(string, map[string]any) tui.Decision {
 }
 func (f *fakeUI) GetInput(string) (string, error) { return "", nil }
 func (f *fakeUI) Stop()                           {}
+func (f *fakeUI) CollapseAssistantOutput()        {}
 
 func TestRunGlobOnce(t *testing.T) {
 	tmp := t.TempDir()

@@ -32,6 +32,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 		u.streamingAssistant = true
 		u.assistantReplyStart = time.Now()
 		u.assistantHadVisible = false
+		u.assistantLines = 0
 		u.ensureMarkdownLocked()
 	}
 
@@ -44,6 +45,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 			u.ensureMarkdownLocked()
 			u.markdown.Write(u.out, visible)
 			u.assistantHadVisible = true
+			u.assistantLines += strings.Count(visible, "\n")
 		}
 		if thinking != "" {
 			u.writeThinkingChunkLocked(thinking)
@@ -70,6 +72,7 @@ func (u *PlainUI) EndAssistant() {
 	if rest := u.streamBuffer.String(); rest != "" {
 		u.ensureMarkdownLocked()
 		u.markdown.Write(u.out, rest)
+		u.assistantLines += strings.Count(rest, "\n")
 		u.streamBuffer.Reset()
 	}
 	if u.markdown != nil {
@@ -87,12 +90,32 @@ func (u *PlainUI) EndAssistant() {
 		} else {
 			fmt.Fprintf(u.out, "\nresponded in %s\n", elapsed)
 		}
+		u.assistantLines += 2
 	}
 	u.assistantReplyStart = time.Time{}
 	u.assistantHadVisible = false
 	if u.streamingAssistant {
 		u.streamingAssistant = false
 	}
+}
+
+// CollapseAssistantOutput erases the assistant turn from the terminal so the
+// user sees only the tool card, matching Cursor's behaviour when a model
+// replies with a tool call and no substantive prose.
+func (u *PlainUI) CollapseAssistantOutput() {
+	u.stopSpinner()
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if !u.style.Enabled() || u.assistantLines == 0 {
+		u.assistantLines = 0
+		return
+	}
+
+	lines := u.assistantLines
+	u.assistantLines = 0
+	// Move cursor up N lines and clear to the end of the screen.
+	fmt.Fprintf(u.out, "\x1b[%dA\x1b[J", lines)
 }
 
 // StreamThinking renders native Ollama "thinking" tokens as a dim, indented

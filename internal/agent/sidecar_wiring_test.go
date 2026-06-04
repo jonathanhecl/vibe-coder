@@ -72,6 +72,7 @@ func (r *recordingUI) AskPermission(string, map[string]any) tui.Decision {
 }
 func (r *recordingUI) GetInput(string) (string, error) { return "", nil }
 func (r *recordingUI) Stop()                           {}
+func (r *recordingUI) CollapseAssistantOutput()        {}
 
 func newTestAgent(t *testing.T, sideModel string, client ollama.Client) (*Agent, *recordingUI) {
 	t.Helper()
