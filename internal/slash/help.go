@@ -33,6 +33,8 @@ func printHelp(c *Ctx) {
 			{"/sidecar on|off", "toggle the sidecar for this session"},
 			{"/sidecar perm-on|perm-off", "persist sidecar state to config.env"},
 			{"/sidecar status", "show current sidecar state"},
+			{"/hide-think", "hide model thinking blocks in CLI output"},
+			{"/show-think", "show model thinking blocks in CLI output (default)"},
 		}},
 		{"Mode", [][2]string{
 			{"/yes", "auto-approve subsequent permission prompts"},

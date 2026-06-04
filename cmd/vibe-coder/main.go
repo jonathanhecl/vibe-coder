@@ -63,7 +63,7 @@ func main() {
 	client := ollama.NewHTTP(cfg.OllamaHost)
 	sess := session.New(cfg)
 	sess.SetClient(client)
-	ui, err := tui.NewFromMode(cfg.UI)
+	ui, err := tui.NewFromMode(cfg)
 	if err != nil {
 		exitWithError(err)
 	}

@@ -58,6 +58,8 @@ type Config struct {
 	ChatTimeout time.Duration
 	// OllamaNoThink disables native thinking in /api/chat when false is sent (faster replies; quality trade-off).
 	OllamaNoThink bool
+	// OllamaHideThink hides native and in-band thinking blocks in TUI (shows response without thinking section).
+	OllamaHideThink bool
 }
 
 func Load(args []string) (*Config, error) {
@@ -157,9 +159,10 @@ Flags:
   --rag-model string        RAG embedding model
   --rag-index string        Build/index RAG path and exit
   --no-think                Disable Ollama native thinking (faster replies)
+  --hide-think              Hide Ollama thinking blocks in CLI output
 
 Special directive:
-  --save                    Persist model, sidecar, host to config.env; with --no-sidecar also SIDECAR_DISABLED=true
+  --save                    Persist model, sidecar, host, hide-think to config.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 

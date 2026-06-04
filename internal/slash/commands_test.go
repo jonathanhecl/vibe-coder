@@ -88,6 +88,16 @@ func TestDispatchMinimumCommands(t *testing.T) {
 		t.Fatalf("unexpected /model set result: handled=%t exit=%t err=%v model=%s", handled, shouldExit, err, cfg.Model)
 	}
 
+	handled, shouldExit, err = Dispatch(ctx, "/hide-think")
+	if err != nil || !handled || shouldExit || !cfg.OllamaHideThink {
+		t.Fatalf("unexpected /hide-think result: handled=%t exit=%t err=%v hide=%t", handled, shouldExit, err, cfg.OllamaHideThink)
+	}
+
+	handled, shouldExit, err = Dispatch(ctx, "/show-think")
+	if err != nil || !handled || shouldExit || cfg.OllamaHideThink {
+		t.Fatalf("unexpected /show-think result: handled=%t exit=%t err=%v hide=%t", handled, shouldExit, err, cfg.OllamaHideThink)
+	}
+
 	handled, shouldExit, err = Dispatch(ctx, "/tokens")
 	if err != nil || !handled || shouldExit {
 		t.Fatalf("unexpected /tokens result: handled=%t exit=%t err=%v", handled, shouldExit, err)

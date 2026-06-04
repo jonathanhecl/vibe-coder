@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
 type richStatusMsg struct {
@@ -87,8 +88,8 @@ type RichUI struct {
 	stopOnce sync.Once
 }
 
-func NewRich() *RichUI {
-	base := NewPlain()
+func NewRich(cfg ...*config.Config) *RichUI {
+	base := NewPlain(cfg...)
 	base.markdown = NewRichMarkdownRenderer(base.style)
 	r := &RichUI{
 		plain:  base,

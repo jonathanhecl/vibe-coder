@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
 // UI is the shared contract between main/agent and concrete terminal
@@ -46,6 +48,7 @@ type PlainUI struct {
 	reader   *bufio.Reader
 	style    Style
 	planMode bool
+	cfg      *config.Config
 
 	mu       sync.Mutex
 	stopCh   chan struct{}
@@ -105,7 +108,11 @@ const (
 
 // NewPlain constructs a PlainUI bound to standard streams. Colors are emitted
 // only when stdout is a TTY and NO_COLOR is unset.
-func NewPlain() *PlainUI {
+func NewPlain(cfg ...*config.Config) *PlainUI {
+	var c *config.Config
+	if len(cfg) > 0 {
+		c = cfg[0]
+	}
 	st := NewStyle(os.Stdout)
 	return &PlainUI{
 		in:       os.Stdin,
@@ -114,6 +121,7 @@ func NewPlain() *PlainUI {
 		style:    st,
 		stopCh:   make(chan struct{}),
 		markdown: NewMarkdownRenderer(st),
+		cfg:      c,
 	}
 }
 
@@ -189,6 +197,9 @@ func (u *PlainUI) closeThinkingLocked(withElapsed bool) {
 // of how the model surfaces its reasoning, and so EndAssistant's "thought
 // for Xs" footer reads as the natural close of either source.
 func (u *PlainUI) writeThinkingChunkLocked(text string) {
+	if u.cfg != nil && u.cfg.OllamaHideThink {
+		return
+	}
 	if !u.thinkingActive {
 		fmt.Fprintf(u.out, "\n%s ", u.style.Dim(iconBar))
 		u.thinkingActive = true

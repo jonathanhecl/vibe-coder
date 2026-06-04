@@ -407,3 +407,67 @@ func TestLoadLongFlagAliases(t *testing.T) {
 	}
 }
 
+func TestLoadHideThinkFromEnvAndCLI(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "localapp"))
+	t.Setenv("VIBE_CODER_HIDE_THINK", "true")
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OllamaHideThink {
+		t.Fatal("expected OllamaHideThink from env HIDE_THINK")
+	}
+
+	t.Setenv("VIBE_CODER_HIDE_THINK", "")
+	t.Setenv("VIBE_CODER_HIDE_THINKING", "true")
+	cfg2, err := Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg2.OllamaHideThink {
+		t.Fatal("expected OllamaHideThink from env HIDE_THINKING")
+	}
+
+	t.Setenv("VIBE_CODER_HIDE_THINKING", "")
+	cfg3, err := Load([]string{"--hide-think"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg3.OllamaHideThink {
+		t.Fatal("expected OllamaHideThink from CLI")
+	}
+}
+
+func TestSaveModelSettingsHideThink(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.env")
+	if err := os.WriteFile(cfgPath, []byte("MODEL=a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{
+		ConfigDir:       tmp,
+		ConfigFile:      cfgPath,
+		Model:           "a",
+		SidecarModel:    "s",
+		OllamaHost:      "http://localhost:11434",
+		OllamaHideThink: true,
+	}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(data), "HIDE_THINK=true") {
+		t.Fatalf("expected HIDE_THINK=true, got:\n%s", string(data))
+	}
+	cfg.OllamaHideThink = false
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(cfgPath)
+	if !strings.Contains(string(data), "HIDE_THINK=false") {
+		t.Fatalf("expected HIDE_THINK=false, got:\n%s", string(data))
+	}
+}
+
+

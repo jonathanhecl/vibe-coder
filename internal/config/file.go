@@ -96,6 +96,10 @@ func applyConfigFile(cfg *Config, path string) error {
 			if b, ok := parseBoolish(value); ok {
 				cfg.OllamaNoThink = b
 			}
+		case "HIDE_THINK", "HIDE_THINKING":
+			if b, ok := parseBoolish(value); ok {
+				cfg.OllamaHideThink = b
+			}
 		}
 	}
 
@@ -128,6 +132,7 @@ func SaveModelSettings(cfg *Config) error {
 		"MODEL":         strings.TrimSpace(cfg.Model),
 		"SIDECAR_MODEL": strings.TrimSpace(cfg.SidecarModel),
 		"OLLAMA_HOST":   strings.TrimSpace(cfg.OllamaHost),
+		"HIDE_THINK":    strconv.FormatBool(cfg.OllamaHideThink),
 	}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(lines)+4)
@@ -157,7 +162,7 @@ func SaveModelSettings(cfg *Config) error {
 		}
 		out = append(out, key+"="+value)
 	}
-	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "OLLAMA_HOST"} {
+	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "OLLAMA_HOST", "HIDE_THINK"} {
 		if seen[key] {
 			continue
 		}

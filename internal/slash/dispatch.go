@@ -76,7 +76,18 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		if err := c.Session.Save(); err != nil {
 			return true, false, err
 		}
-		fmt.Fprintf(c.Out, "Saved session (%s)\n", c.Session.ID())
+		if err := config.SaveModelSettings(c.Cfg); err != nil {
+			return true, false, err
+		}
+		fmt.Fprintf(c.Out, "Saved session (%s) and settings\n", c.Session.ID())
+		return true, false, nil
+	case "/hide-think":
+		c.Cfg.OllamaHideThink = true
+		fmt.Fprintln(c.Out, "Thinking blocks will be hidden from CLI output. Run /save to persist.")
+		return true, false, nil
+	case "/show-think":
+		c.Cfg.OllamaHideThink = false
+		fmt.Fprintln(c.Out, "Thinking blocks will be shown in CLI output. Run /save to persist.")
 		return true, false, nil
 	case "/yes":
 		setYesMode(c, true)

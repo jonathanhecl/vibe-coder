@@ -34,6 +34,7 @@ type cliOptions struct {
 	help          optionalBool
 	version       optionalBool
 	noThink       bool
+	hideThink     bool
 }
 
 func parseCLI(args []string) (cliOptions, error) {
@@ -70,6 +71,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.help, "help", "show help")
 	fs.Var(&opts.version, "version", "show version")
 	fs.BoolVar(&opts.noThink, "no-think", false, "disable Ollama native thinking")
+	fs.BoolVar(&opts.hideThink, "hide-think", false, "hide Ollama thinking blocks in CLI output")
 
 	if err := fs.Parse(args); err != nil {
 		return opts, err
@@ -152,6 +154,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.noThink {
 		cfg.OllamaNoThink = true
+	}
+	if cli.hideThink {
+		cfg.OllamaHideThink = true
 	}
 }
 

@@ -56,6 +56,11 @@ func applyEnv(cfg *Config) {
 			cfg.OllamaNoThink = true
 		}
 	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_HIDE_THINK", "VIBE_CODER_HIDE_THINKING")); v != "" {
+		if b, ok := parseBoolish(v); ok {
+			cfg.OllamaHideThink = b
+		}
+	}
 }
 
 // parseBoolish parses common truthy/falsey strings for env/config keys.

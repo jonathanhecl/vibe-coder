@@ -282,13 +282,14 @@ If you use PowerShell and want to run from source with the same flags:
 - `--temperature <f>` — sampling temperature
 - `--context-window <n>` — model context window
 - `--no-think` — disable Ollama native thinking (faster replies)
+- `--hide-think` — hide Ollama thinking blocks in CLI output
 - `--rag` — enable RAG mode
 - `--rag-mode <type>` — RAG mode type
 - `--rag-path <path>` — RAG database path
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `--save` — persist `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` into `config.env`
+- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `OLLAMA_HOST`, and `HIDE_THINK` into `config.env`
 
 ## Slash Commands
 
@@ -315,6 +316,8 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `config.env`
 - `/sidecar status` — show current sidecar state
+- `/hide-think` — hide model thinking blocks in CLI output
+- `/show-think` — show model thinking blocks in CLI output (default)
 
 ### Mode
 

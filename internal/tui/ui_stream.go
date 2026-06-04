@@ -150,6 +150,9 @@ func (u *PlainUI) StreamThinking(text string) {
 	if text == "" {
 		return
 	}
+	if u.cfg != nil && u.cfg.OllamaHideThink {
+		return
+	}
 	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -173,6 +176,9 @@ func (u *PlainUI) StreamThinking(text string) {
 // "thought for Xs" footer so the user can see how long the model spent
 // reasoning before producing the visible answer.
 func (u *PlainUI) EndThinking() {
+	if u.cfg != nil && u.cfg.OllamaHideThink {
+		return
+	}
 	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
