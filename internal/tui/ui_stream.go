@@ -2,13 +2,23 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
 
+// toolEnvelopeRE matches <invoke...>...</invoke>, <tool_call...>...</tool_call>,
+// and <TOOLNAME>...</TOOLNAME> style envelopes so they never leak into the
+// visible assistant stream.
+var toolEnvelopeRE = regexp.MustCompile(`(?is)<invoke\b[^>]*>.*?</invoke>|<tool_call\b[^>]*>.*?</tool_call>|<[A-Z][A-Z0-9_]*>.*?</[A-Z][A-Z0-9_]*>`)
+
+func stripToolEnvelopes(s string) string { return toolEnvelopeRE.ReplaceAllString(s, "") }
+
 // StreamAssistant prints assistant tokens as they arrive. It strips
 // <thinking>...</thinking> blocks from the visible reply and re-routes them to a
 // dimmed thinking section so they read like Cursor's reasoning panel.
+// It also strips tool-call XML envelopes so the user never sees raw <invoke>
+// tags even if the upstream streaming filter misses an edge case.
 func (u *PlainUI) StreamAssistant(text string) {
 	u.stopSpinner()
 	u.mu.Lock()
@@ -40,6 +50,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 	for {
 		buf := u.streamBuffer.String()
 		visible, thinking, leftover, hasMore := splitThinking(buf)
+		visible = stripToolEnvelopes(visible)
 
 		if visible != "" {
 			u.ensureMarkdownLocked()
@@ -70,9 +81,13 @@ func (u *PlainUI) EndAssistant() {
 	defer u.mu.Unlock()
 
 	if rest := u.streamBuffer.String(); rest != "" {
-		u.ensureMarkdownLocked()
-		u.markdown.Write(u.out, rest)
-		u.assistantLines += strings.Count(rest, "\n")
+		rest = stripToolEnvelopes(rest)
+		if rest != "" {
+			u.ensureMarkdownLocked()
+			u.markdown.Write(u.out, rest)
+			u.assistantHadVisible = true
+			u.assistantLines += strings.Count(rest, "\n")
+		}
 		u.streamBuffer.Reset()
 	}
 	if u.markdown != nil {
@@ -91,6 +106,11 @@ func (u *PlainUI) EndAssistant() {
 			fmt.Fprintf(u.out, "\nresponded in %s\n", elapsed)
 		}
 		u.assistantLines += 2
+	}
+	// If the turn produced no visible prose (only a tool call), erase the
+	// assistant label line so the user sees the tool card directly.
+	if u.streamingAssistant && !u.assistantHadVisible {
+		fmt.Fprint(u.out, "\r\x1b[2K")
 	}
 	u.assistantReplyStart = time.Time{}
 	u.assistantHadVisible = false
