@@ -213,6 +213,7 @@ func (a *Agent) buildSystemPrompt() string {
 	a.mu.RLock()
 	goalRaw := a.currentGoal
 	inPlanMode := a.planMode
+	inReviewMode := a.reviewMode
 	a.mu.RUnlock()
 	goal := strings.TrimSpace(goalRaw)
 
@@ -227,7 +228,7 @@ func (a *Agent) buildSystemPrompt() string {
 		a.sysPrompt.stableBody = a.rebuildStableSystemPromptBody()
 	}
 
-	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.full != "" {
+	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.full != "" {
 		return a.sysPrompt.full
 	}
 
@@ -251,8 +252,18 @@ func (a *Agent) buildSystemPrompt() string {
 			"- Do NOT call WebSearch/WebFetch unless the user explicitly asks to research external sources.\n" +
 			"- Keep the response practical and tied to the user's request.\n"
 	}
+	if inReviewMode {
+		systemPrompt = systemPrompt + "\n\n# Review Mode (enabled)\n" +
+			"- You are in review mode. You can read files and search the web, but you MUST NOT\n" +
+			"  edit, write, or delete any files or run commands.\n" +
+			"- Do NOT call Write, Edit, NotebookEdit, Bash, InteractiveBash, or any tool that\n" +
+			"  modifies the filesystem or runs commands.\n" +
+			"- Use Read, Glob, Grep, WebSearch, and WebFetch to investigate and answer questions.\n" +
+			"- Provide analysis, explanations, and suggestions in plain text only.\n"
+	}
 	a.sysPrompt.cacheGoal = goal
 	a.sysPrompt.cachePlan = inPlanMode
+	a.sysPrompt.cacheReview = inReviewMode
 	a.sysPrompt.full = systemPrompt
 	return systemPrompt
 }

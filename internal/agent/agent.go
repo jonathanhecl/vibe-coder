@@ -31,6 +31,7 @@ type Agent struct {
 
 	mu          sync.RWMutex
 	planMode    bool
+	reviewMode  bool
 	watcher     *watcher.Watcher
 	cp          *gitx.Checkpoint
 	autoTest    *gitx.AutoTest
@@ -45,12 +46,13 @@ type Agent struct {
 
 // promptCache holds memoized system prompt fragments between turns.
 type promptCache struct {
-	mu         sync.Mutex
-	stableKey  string
-	stableBody string
-	cacheGoal  string
-	cachePlan  bool
-	full       string
+	mu          sync.Mutex
+	stableKey   string
+	stableBody  string
+	cacheGoal   string
+	cachePlan   bool
+	cacheReview bool
+	full        string
 }
 
 func IsEmptyAssistantResponseErr(err error) bool {
@@ -123,6 +125,24 @@ func (a *Agent) InPlanMode() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.planMode
+}
+
+func (a *Agent) EnterReviewMode() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reviewMode = true
+}
+
+func (a *Agent) ExitReviewMode() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reviewMode = false
+}
+
+func (a *Agent) InReviewMode() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.reviewMode
 }
 
 func (a *Agent) getWatcher() *watcher.Watcher {

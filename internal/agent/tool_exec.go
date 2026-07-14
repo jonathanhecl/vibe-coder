@@ -21,6 +21,13 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		a.sess.AddSystemNote(blockMsg)
 		return tools.Result{}, false, nil
 	}
+	if a.InReviewMode() && isToolBlockedInReview(toolName) {
+		blockMsg := fmt.Sprintf("%s blocked in review mode. Only read-only tools are allowed.", toolName)
+		logger.Errorf("Tool %s blocked in review mode", toolName)
+		a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
+		a.sess.AddSystemNote(blockMsg)
+		return tools.Result{}, false, nil
+	}
 
 	a.rescuePathParam(ctx, toolName, toolParams)
 	if !a.perm.Check(toolName, toolParams, a.ui) {
@@ -236,4 +243,20 @@ func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
 		return true
 	}
 	return strings.HasPrefix(pathAbs, rootAbs+string(filepath.Separator))
+}
+
+var reviewBlockedTools = map[string]bool{
+	"Write":            true,
+	"Edit":             true,
+	"NotebookEdit":     true,
+	"Bash":             true,
+	"InteractiveBash":  true,
+	"SendInput":        true,
+	"TerminateSession": true,
+	"SubAgent":         true,
+	"ParallelAgents":   true,
+}
+
+func isToolBlockedInReview(toolName string) bool {
+	return reviewBlockedTools[toolName]
 }

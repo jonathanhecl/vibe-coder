@@ -11,13 +11,19 @@ import (
 )
 
 type fakePlanAgent struct {
-	plan bool
+	plan   bool
+	review bool
 }
 
 func (f *fakePlanAgent) EnterPlanMode() { f.plan = true }
 func (f *fakePlanAgent) ExitPlanMode()  { f.plan = false }
 func (f *fakePlanAgent) InPlanMode() bool {
 	return f.plan
+}
+func (f *fakePlanAgent) EnterReviewMode() { f.review = true }
+func (f *fakePlanAgent) ExitReviewMode()  { f.review = false }
+func (f *fakePlanAgent) InReviewMode() bool {
+	return f.review
 }
 
 func TestDispatchMinimumCommands(t *testing.T) {
@@ -292,7 +298,7 @@ func TestHelpListsGroupedCommands(t *testing.T) {
 		t.Fatalf("unexpected /help result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 	got := out.String()
-	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/session <id>", "/resume", "/sessions delete --all", "/code"} {
+	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/session <id>", "/resume", "/sessions delete --all", "/code", "/review"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected /help output to contain %q, got %q", want, got)
 		}
@@ -304,5 +310,49 @@ func TestTrimForDisplayPreservesFormatting(t *testing.T) {
 	got := trimForDisplay(raw, 500)
 	if !strings.Contains(got, "**Titulo**\n\n1) linea uno\n2) linea dos") {
 		t.Fatalf("expected formatting/newlines preserved, got %q", got)
+	}
+}
+
+func TestReviewCommand(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	var out bytes.Buffer
+	agent := &fakePlanAgent{}
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: session.New(cfg),
+		Agent:   agent,
+		Out:     &out,
+	}
+
+	// /review with a prompt should enter review mode
+	handled, shouldExit, err := Dispatch(ctx, "/review explain this code")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /review result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !agent.InReviewMode() {
+		t.Fatal("expected review mode to be enabled after /review <prompt>")
+	}
+	if !strings.Contains(out.String(), "Review mode enabled") {
+		t.Fatalf("expected output to mention review mode, got %q", out.String())
+	}
+
+	// /review without a prompt should print usage and not enter review mode
+	out.Reset()
+	agent.review = false
+	handled, shouldExit, err = Dispatch(ctx, "/review")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /review (no args) result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if agent.InReviewMode() {
+		t.Fatal("expected review mode to stay off when no prompt is given")
+	}
+	if !strings.Contains(out.String(), "Usage:") {
+		t.Fatalf("expected usage message, got %q", out.String())
 	}
 }

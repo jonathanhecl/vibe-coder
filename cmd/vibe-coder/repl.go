@@ -79,6 +79,15 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			}
 			ui.SetPlanMode(ag.InPlanMode())
+			return false
+		}
+		if task, ok := reviewTaskFromSlash(line); ok {
+			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			}
+			ag.ExitReviewMode()
+			ui.SetPlanMode(ag.InPlanMode())
+			return false
 		}
 		return false
 	}
@@ -139,6 +148,19 @@ func planTaskFromSlash(line string) (string, bool) {
 		return "", false
 	}
 	task := strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+	if task == "" {
+		return "", false
+	}
+	return task, true
+}
+
+// reviewTaskFromSlash extracts the prompt from "/review <prompt>".
+func reviewTaskFromSlash(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "/review") {
+		return "", false
+	}
+	task := strings.TrimSpace(strings.TrimPrefix(trimmed, "/review"))
 	if task == "" {
 		return "", false
 	}

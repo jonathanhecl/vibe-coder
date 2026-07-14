@@ -25,6 +25,9 @@ type planModeAgent interface {
 	EnterPlanMode()
 	ExitPlanMode()
 	InPlanMode() bool
+	EnterReviewMode()
+	ExitReviewMode()
+	InReviewMode() bool
 }
 
 type commitClient interface {
@@ -142,6 +145,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		exitPlanMode(c, "[System Note] Plan approved. Returning to act mode.")
 		fmt.Fprintln(c.Out, "Plan approved. Act mode restored; you can continue in the same conversation.")
 		return true, false, nil
+	case "/review":
+		return runReviewCommand(c, fields[1:])
 	default:
 		fmt.Fprintf(c.Out, "Unknown command: %s\n", cmd)
 		return true, false, nil

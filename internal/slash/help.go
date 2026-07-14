@@ -44,6 +44,7 @@ func printHelp(c *Ctx) {
 			{"/plan <goal>", "enter plan mode and immediately start planning that goal"},
 			{"/code", "exit plan mode and return to coding mode"},
 			{"/approve", "exit plan mode and resume act mode in the same chat"},
+			{"/review <prompt>", "ask the model in read-only mode (no edits, no commands)"},
 		}},
 		{"Git", [][2]string{
 			{"/commit", "stage + commit current changes (LLM-suggested message)"},
