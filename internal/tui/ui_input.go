@@ -182,18 +182,31 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 // readSingleChar puts stdin in raw mode for one keypress and returns it.
 // It returns false if stdin is not a TTY or raw mode cannot be entered.
 func (u *PlainUI) readSingleChar() (byte, bool) {
+	if u.in == nil || u.reader == nil {
+		return 0, false
+	}
 	fd := int(u.in.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return 0, false
 	}
 	defer term.Restore(fd, oldState)
-	var buf [1]byte
-	n, err := u.in.Read(buf[:])
-	if err != nil || n != 1 {
+
+	ch, err := u.reader.ReadByte()
+	if err != nil {
 		return 0, false
 	}
-	return buf[0], true
+	if next, err := u.reader.Peek(1); err == nil {
+		if next[0] == '\n' {
+			_, _ = u.reader.ReadByte()
+		} else if next[0] == '\r' {
+			_, _ = u.reader.ReadByte()
+			if next, err = u.reader.Peek(1); err == nil && next[0] == '\n' {
+				_, _ = u.reader.ReadByte()
+			}
+		}
+	}
+	return ch, true
 }
 
 func buildPermissionPrompt(st Style, payload []string) string {

@@ -3,9 +3,32 @@ package tui
 import (
 	"bufio"
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestAskPermissionReadsLineWhenRawModeUnavailable(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+	if _, err := writeEnd.WriteString("2\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	ui := &PlainUI{
+		in:     readEnd,
+		out:    &bytes.Buffer{},
+		reader: bufio.NewReader(readEnd),
+		stopCh: make(chan struct{}),
+	}
+	if got := ui.AskPermission("Edit", nil); got != DecisionAllowSession {
+		t.Fatalf("unexpected permission decision: %v", got)
+	}
+}
 
 func TestGetInputSingleLine(t *testing.T) {
 	ui := &PlainUI{
