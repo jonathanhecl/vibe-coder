@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"golang.org/x/term"
 )
 
 // UI is the shared contract between main/agent and concrete terminal
@@ -45,10 +46,12 @@ type PlainUI struct {
 	in  *os.File
 	out io.Writer
 
-	reader   *bufio.Reader
-	style    Style
-	planMode bool
-	cfg      *config.Config
+	reader              *bufio.Reader
+	style               Style
+	planMode            bool
+	bracketedPaste      bool
+	restoreTerminalMode func()
+	cfg                 *config.Config
 
 	mu       sync.Mutex
 	stopCh   chan struct{}
@@ -115,7 +118,7 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 		c = cfg[0]
 	}
 	st := NewStyle(os.Stdout)
-	return &PlainUI{
+	u := &PlainUI{
 		in:        os.Stdin,
 		out:       os.Stdout,
 		reader:    bufio.NewReader(os.Stdin),
@@ -125,6 +128,14 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 		cfg:       c,
 		turnStart: time.Now(),
 	}
+	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
+		if restore, ok := configureTerminalForBracketedPaste(os.Stdin, os.Stdout); ok {
+			fmt.Fprint(u.out, enableBracketedPaste)
+			u.bracketedPaste = true
+			u.restoreTerminalMode = restore
+		}
+	}
+	return u
 }
 
 // SetPlanMode switches UI accent colors for role labels between plan/build.
@@ -149,6 +160,12 @@ func (u *PlainUI) StopESCMonitor() {}
 func (u *PlainUI) Stop() {
 	u.stopSpinner()
 	u.stopOnce.Do(func() {
+		if u.bracketedPaste {
+			fmt.Fprint(u.out, disableBracketedPaste)
+		}
+		if u.restoreTerminalMode != nil {
+			u.restoreTerminalMode()
+		}
 		close(u.stopCh)
 	})
 }

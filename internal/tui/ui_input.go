@@ -1,12 +1,20 @@
 package tui
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 
 	"golang.org/x/term"
+)
+
+const (
+	enableBracketedPaste  = "\x1b[?2004h"
+	disableBracketedPaste = "\x1b[?2004l"
+	bracketedPasteStart   = "\x1b[200~"
+	bracketedPasteEnd     = "\x1b[201~"
 )
 
 // GetInput reads a line from stdin, supporting a ";;...;;" multi-line marker.
@@ -40,8 +48,11 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	}
 	u.turnStart = time.Now()
 	line = trimLine(line)
+	if strings.HasPrefix(line, bracketedPasteStart) {
+		return readBracketedPaste(u.reader, strings.TrimPrefix(line, bracketedPasteStart))
+	}
 	if strings.TrimSpace(line) != ";;" {
-		return line, nil
+		return readBufferedInput(u.reader, line), nil
 	}
 
 	lines := make([]string, 0, 8)
@@ -58,6 +69,35 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 		lines = append(lines, next)
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func readBracketedPaste(reader interface{ ReadString(byte) (string, error) }, first string) (string, error) {
+	lines := make([]string, 0, 8)
+	line := first
+	for {
+		if end := strings.Index(line, bracketedPasteEnd); end >= 0 {
+			lines = append(lines, line[:end])
+			return strings.Join(lines, "\n"), nil
+		}
+		lines = append(lines, line)
+		next, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		line = trimLine(next)
+	}
+}
+
+func readBufferedInput(reader *bufio.Reader, first string) string {
+	lines := []string{first}
+	for reader.Buffered() > 0 {
+		next, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		lines = append(lines, trimLine(next))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // AskPermission prompts the user with a colored panel for tool consent.
