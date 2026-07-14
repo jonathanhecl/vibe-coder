@@ -47,7 +47,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		return true, true, nil
-	case "/help":
+	case "/help", "/commands", "/cmds":
 		printHelp(c)
 		return true, false, nil
 	case "/sessions":

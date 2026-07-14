@@ -49,7 +49,7 @@ func printHelp(c *Ctx) {
 			{"/commit", "stage + commit current changes (LLM-suggested message)"},
 		}},
 		{"Misc", [][2]string{
-			{"/help", "show this help"},
+			{"/help, /commands", "show this help"},
 			{"/exit, /quit, /q", "save and exit"},
 		}},
 	}
