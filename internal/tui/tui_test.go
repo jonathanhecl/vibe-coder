@@ -90,6 +90,21 @@ func TestGetInputStripsLiteralBracketedPasteMarkers(t *testing.T) {
 	}
 }
 
+func TestGetInputCleansMarkersFromManualMultilineInput(t *testing.T) {
+	ui := &PlainUI{
+		out:    &bytes.Buffer{},
+		reader: bufio.NewReader(strings.NewReader(";;\n^[[200~line 1\nline 2^[[201~\n;;\n")),
+		stopCh: make(chan struct{}),
+	}
+	got, err := ui.GetInput("> ")
+	if err != nil {
+		t.Fatalf("GetInput failed: %v", err)
+	}
+	if got != "line 1\nline 2" {
+		t.Fatalf("unexpected cleaned manual input: %q", got)
+	}
+}
+
 func TestGetInputBracketedPasteHandlesWindowsLineEndings(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},

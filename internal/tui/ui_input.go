@@ -18,7 +18,10 @@ const (
 )
 
 // GetInput reads a line from stdin, supporting a ";;...;;" multi-line marker.
-func (u *PlainUI) GetInput(prompt string) (string, error) {
+func (u *PlainUI) GetInput(prompt string) (input string, err error) {
+	defer func() {
+		input = cleanBracketedPasteMarkers(input)
+	}()
 	u.stopSpinner()
 	u.mu.Lock()
 	u.flushPendingToolLocked()
