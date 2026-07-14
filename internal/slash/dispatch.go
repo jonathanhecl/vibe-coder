@@ -89,8 +89,20 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		c.Cfg.OllamaHideThink = false
 		fmt.Fprintln(c.Out, "Thinking blocks will be shown in CLI output. Run /save to persist.")
 		return true, false, nil
-	case "/yes":
-		setYesMode(c, true)
+	case "/yes", "/allow_all":
+		enabled := true
+		if len(fields) > 1 {
+			switch strings.ToLower(strings.TrimSpace(fields[1])) {
+			case "true", "on", "yes", "1", "enable":
+				enabled = true
+			case "false", "off", "no", "0", "disable":
+				enabled = false
+			default:
+				fmt.Fprintln(c.Out, "Usage: /allow_all true|false")
+				return true, false, nil
+			}
+		}
+		setYesMode(c, enabled)
 		return true, false, nil
 	case "/no":
 		setYesMode(c, false)

@@ -38,6 +38,7 @@ func printHelp(c *Ctx) {
 		}},
 		{"Mode", [][2]string{
 			{"/yes", "auto-approve subsequent permission prompts"},
+			{"/allow_all true|false", "toggle auto-approve (same as /yes and /no)"},
 			{"/no", "require manual approval (default)"},
 			{"/plan", "enter plan mode (yellow prompt, writes restricted to .vibe-coder/plans)"},
 			{"/plan <goal>", "enter plan mode and immediately start planning that goal"},

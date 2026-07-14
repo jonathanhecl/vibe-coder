@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // GetInput reads a line from stdin, supporting a ";;...;;" multi-line marker.
@@ -58,7 +60,9 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// AskPermission prompts the user with a colored panel for tool consent (English labels).
+// AskPermission prompts the user with a colored panel for tool consent.
+// The user can press a single digit (1-7) without Enter; on non-TTY input we
+// fall back to line-based reading.
 func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	u.stopSpinner()
 	u.mu.Lock()
@@ -67,35 +71,56 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	_, _ = io.WriteString(u.out, buildPermissionPrompt(u.style, permissionPayloadLines(tool, params)))
 	u.mu.Unlock()
 
-	line, err := u.reader.ReadString('\n')
-	if err != nil {
-		return DecisionDenyOnce
+	var s string
+	if ch, ok := u.readSingleChar(); ok {
+		fmt.Fprintf(u.out, "%c\n", ch)
+		s = strings.ToLower(string(ch))
+	} else {
+		line, err := u.reader.ReadString('\n')
+		if err != nil {
+			return DecisionDenyOnce
+		}
+		s = strings.TrimSpace(strings.ToLower(trimLine(line)))
 	}
-	s := strings.TrimSpace(strings.ToLower(trimLine(line)))
 	if s == "" {
 		return DecisionDenyOnce
 	}
 
 	switch s {
-	case "1", "y", "yes":
+	case "1":
 		return DecisionAllowOnce
 	case "2":
 		return DecisionAllowSession
-	case "3", "a", "all":
+	case "3":
 		return DecisionAllowPersistent
-	case "4", "n":
+	case "4":
 		return DecisionDenyOnce
 	case "5":
 		return DecisionDenySession
-	case "6", "d", "deny-all", "denyall":
+	case "6":
 		return DecisionDenyPersistent
-	case "7", "q", "quit", "c", "cancel":
+	case "7", "q", "c":
 		return DecisionCancel
-	case "s", "skip", "skip-all-confirm":
-		return DecisionYesMode
 	default:
 		return DecisionDenyOnce
 	}
+}
+
+// readSingleChar puts stdin in raw mode for one keypress and returns it.
+// It returns false if stdin is not a TTY or raw mode cannot be entered.
+func (u *PlainUI) readSingleChar() (byte, bool) {
+	fd := int(u.in.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return 0, false
+	}
+	defer term.Restore(fd, oldState)
+	var buf [1]byte
+	n, err := u.in.Read(buf[:])
+	if err != nil || n != 1 {
+		return 0, false
+	}
+	return buf[0], true
 }
 
 func buildPermissionPrompt(st Style, payload []string) string {
@@ -132,20 +157,10 @@ func buildPermissionPrompt(st Style, payload []string) string {
 	writePermissionOption("6", "Never allow (saved)", "written to permissions file", st.BoldRed)
 	writePermissionOption("7", "Cancel", "abort this run", st.Magenta)
 	b.WriteString("\n")
-	b.WriteString(st.Dim("      "))
-	b.WriteString(st.DimGreen("[s]"))
-	b.WriteString(st.Dim("  yes_mode  "))
-	b.WriteString(st.Dim("(auto-approve non-dangerous tools)"))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 	b.WriteString(st.Dim("  ;; "))
 	b.WriteString(st.DimGreen("stdin"))
-	b.WriteString(st.Dim(" › 1–7 | "))
-	b.WriteString(st.DimGreen("y"))
-	b.WriteString(st.Dim("/"))
-	b.WriteString(st.DimGreen("a"))
-	b.WriteString(st.Dim("/"))
-	b.WriteString(st.DimGreen("d"))
-	b.WriteString(st.Dim(" … "))
+	b.WriteString(st.Dim(" › 1–7 "))
 	b.WriteString(st.BoldBrightGreen("▸ "))
 	return b.String()
 }
