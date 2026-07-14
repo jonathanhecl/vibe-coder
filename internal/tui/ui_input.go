@@ -241,52 +241,50 @@ func buildPermissionPrompt(st Style, payload []string) string {
 
 	b.WriteString("\n")
 	b.WriteString(st.Dim("  "))
-	b.WriteString(st.DimGreen("Choose"))
-	b.WriteString(st.Dim(":\n"))
+	b.WriteString(st.BoldBrightGreen("PERMISSION REQUIRED"))
+	b.WriteString(st.Dim(" — choose an option:\n"))
 
 	writePermissionOption := func(n string, label, desc string, color func(string) string) {
-		b.WriteString(st.Dim("      "))
+		b.WriteString(st.Dim("    "))
 		b.WriteString(st.BoldBrightGreen("[" + n + "] "))
 		b.WriteString(color(label))
 		if desc != "" {
-			b.WriteString(st.Dim("  // " + desc))
+			b.WriteString(st.Dim(" — " + desc))
 		}
 		b.WriteString("\n")
 	}
-	writePermissionOption("1", "Allow once", "this invocation only", st.BrightGreen)
-	writePermissionOption("2", "Always allow (this session)", "until you exit vibe-coder", st.Green)
-	writePermissionOption("3", "Always allow (saved)", "written to permissions file", st.BrightBlue)
-	b.WriteString("\n")
-	writePermissionOption("4", "Not now", "deny once; you may be asked again", st.Yellow)
-	writePermissionOption("5", "No — block for this session", "this tool stays off until exit", st.Red)
-	writePermissionOption("6", "Never allow (saved)", "written to permissions file", st.BoldRed)
+	writePermissionOption("1", "Allow once", "this action only", st.BrightGreen)
+	writePermissionOption("2", "Allow this session", "until exit", st.Green)
+	writePermissionOption("3", "Always allow", "save permission", st.BrightBlue)
+	b.WriteString(st.Dim("    ─────────────────────────────\n"))
+	writePermissionOption("4", "Deny once", "ask again next time", st.Yellow)
+	writePermissionOption("5", "Block this session", "until exit", st.Red)
+	writePermissionOption("6", "Always deny", "save block", st.BoldRed)
 	writePermissionOption("7", "Cancel", "abort this run", st.Magenta)
 	b.WriteString("\n")
-	b.WriteString("\n")
-	b.WriteString(st.Dim("  ;; "))
-	b.WriteString(st.DimGreen("stdin"))
-	b.WriteString(st.Dim(" › 1–7 "))
-	b.WriteString(st.BoldBrightGreen("▸ "))
+	b.WriteString(st.Dim("  Press a number 1–7; Enter is not required.\n"))
+	b.WriteString(st.BoldBrightGreen("  ▸ "))
 	return b.String()
 }
 
 func writePermissionPayloadLine(b *strings.Builder, st Style, line string) {
 	switch {
-	case strings.HasPrefix(line, "TARGET"):
+	case strings.HasPrefix(line, "ACTION") || strings.HasPrefix(line, "TARGET"):
 		b.WriteString(st.BoldCyan(line))
-	case line == "PAYLOAD":
-		b.WriteString(st.DimGreen("— "))
-		b.WriteString(st.BrightGreen(line))
+	case strings.HasPrefix(line, "FILE:"):
+		b.WriteString(st.BrightBlue(line))
+	case strings.HasPrefix(line, "LINES:"):
+		b.WriteString(st.Yellow(line))
+	case strings.HasPrefix(line, "CHANGE:") || strings.HasPrefix(line, "SIZE:"):
+		b.WriteString(st.Yellow(line))
+	case line == "PREVIEW:":
+		b.WriteString(st.BoldYellow(line))
 	case strings.HasPrefix(line, "+ "):
 		b.WriteString(st.Green(line))
 	case strings.HasPrefix(line, "- "):
 		b.WriteString(st.Red(line))
 	case strings.HasPrefix(line, "…"):
 		b.WriteString(st.Dim(line))
-	case line == "patch:" || line == "preview:":
-		b.WriteString(st.Yellow(line))
-	case strings.HasPrefix(line, "file:") || strings.HasPrefix(line, "change:") || strings.HasPrefix(line, "size:"):
-		b.WriteString(st.Yellow(line))
 	case strings.HasSuffix(line, ":") && !strings.HasPrefix(line, " "):
 		b.WriteString(st.Yellow(line))
 	default:

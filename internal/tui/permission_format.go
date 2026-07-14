@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -13,7 +14,7 @@ const permissionValueWrap = 52
 const permissionDisplayMaxRunes = 96
 
 const (
-	permMaxPatchLines  = 16 // total − / + lines budget for Edit preview
+	permMaxPatchLines   = 16 // total − / + lines budget for Edit preview
 	permMaxWritePreview = 5  // first lines of Write contents
 	permMaxGenericRunes = 400
 )
@@ -47,37 +48,85 @@ func permissionPayloadLines(tool string, params map[string]any) []string {
 }
 
 func permissionPayloadEdit(params map[string]any) []string {
-	out := []string{"TARGET Edit", "PAYLOAD"}
+	out := []string{"ACTION Edit"}
 	fp, _ := params["file_path"].(string)
 	if fp != "" {
-		out = append(out, "file: "+compactPath(fp))
+		out = append(out, "FILE: "+compactPath(fp))
 	}
+	out = append(out, editLineSummary(fp, params))
 	oldS, _ := params["old_string"].(string)
 	newS, _ := params["new_string"].(string)
 	lo, ln := lineCount(oldS), lineCount(newS)
-	out = append(out, fmt.Sprintf("change: +%d −%d lines", ln, lo))
-	out = append(out, "patch:")
+	out = append(out, fmt.Sprintf("CHANGE: +%d / -%d lines", ln, lo))
+	out = append(out, "PREVIEW:")
 	out = append(out, buildMiniPatch(oldS, newS, permMaxPatchLines)...)
 	return out
 }
 
+func editLineSummary(filePath string, params map[string]any) string {
+	startLine := asPermissionInt(params["start_line"])
+	endLine := asPermissionInt(params["end_line"])
+	if startLine > 0 {
+		if endLine < startLine {
+			endLine = startLine
+		}
+		if endLine == startLine {
+			return fmt.Sprintf("LINES: %d", startLine)
+		}
+		return fmt.Sprintf("LINES: %d-%d", startLine, endLine)
+	}
+	oldS, _ := params["old_string"].(string)
+	if filePath == "" || oldS == "" {
+		return "LINES: automatic match"
+	}
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "LINES: automatic match"
+	}
+	fileText := strings.ReplaceAll(string(content), "\r\n", "\n")
+	oldText := strings.ReplaceAll(oldS, "\r\n", "\n")
+	idx := strings.Index(fileText, oldText)
+	if idx < 0 {
+		return "LINES: automatic match"
+	}
+	start := strings.Count(fileText[:idx], "\n") + 1
+	count := lineCount(oldText)
+	if count <= 1 {
+		return fmt.Sprintf("LINES: %d", start)
+	}
+	return fmt.Sprintf("LINES: %d-%d", start, start+count-1)
+}
+
+func asPermissionInt(value any) int {
+	switch n := value.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	case float32:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
 func permissionPayloadWrite(params map[string]any) []string {
-	out := []string{"TARGET Write", "PAYLOAD"}
+	out := []string{"ACTION Write"}
 	fp, _ := params["file_path"].(string)
 	if fp != "" {
-		out = append(out, "file: "+compactPath(fp))
+		out = append(out, "FILE: "+compactPath(fp))
 	}
 	c, _ := params["contents"].(string)
 	if len(c) == 0 {
-		out = append(out, "size: empty file")
+		out = append(out, "SIZE: empty file")
 		return out
 	}
 	nl := lineCount(c)
 	if nl == 0 {
 		nl = 1
 	}
-	out = append(out, fmt.Sprintf("size: %d lines · %s", nl, FormatBytes(len(c))))
-	out = append(out, "preview:")
+	out = append(out, fmt.Sprintf("SIZE: %d lines · %s", nl, FormatBytes(len(c))))
+	out = append(out, "PREVIEW:")
 	lines := splitLinesNormalized(c)
 	show := lines
 	if len(show) > permMaxWritePreview {
