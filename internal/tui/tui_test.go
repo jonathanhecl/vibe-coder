@@ -37,10 +37,10 @@ func TestGetInputMultilineWithMarker(t *testing.T) {
 	}
 }
 
-func TestGetInputBracketedPaste(t *testing.T) {
+func TestGetInputBracketedPasteWaitsForEnter(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},
-		reader: bufio.NewReader(strings.NewReader("\x1b[200~line 1\nline 2\x1b[201~\n")),
+		reader: bufio.NewReader(strings.NewReader("\x1b[200~line 1\nline 2\x1b[201~\n\n")),
 		stopCh: make(chan struct{}),
 	}
 	got, err := ui.GetInput("> ")
@@ -52,10 +52,25 @@ func TestGetInputBracketedPaste(t *testing.T) {
 	}
 }
 
+func TestGetInputBracketedPasteAllowsContinuation(t *testing.T) {
+	ui := &PlainUI{
+		out:    &bytes.Buffer{},
+		reader: bufio.NewReader(strings.NewReader("\x1b[200~line 1\nline 2\x1b[201~ add this\n")),
+		stopCh: make(chan struct{}),
+	}
+	got, err := ui.GetInput("> ")
+	if err != nil {
+		t.Fatalf("GetInput failed: %v", err)
+	}
+	if got != "line 1\nline 2 add this" {
+		t.Fatalf("unexpected continued bracketed paste input: %q", got)
+	}
+}
+
 func TestGetInputBufferedMultilinePaste(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},
-		reader: bufio.NewReader(strings.NewReader("line 1\nline 2\nline 3\n")),
+		reader: bufio.NewReader(strings.NewReader("line 1\nline 2\nline 3\n\n")),
 		stopCh: make(chan struct{}),
 	}
 	got, err := ui.GetInput("> ")

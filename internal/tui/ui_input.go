@@ -49,10 +49,18 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	u.turnStart = time.Now()
 	line = trimLine(line)
 	if strings.HasPrefix(line, bracketedPasteStart) {
-		return readBracketedPaste(u.reader, strings.TrimPrefix(line, bracketedPasteStart))
+		pasted, pending, err := readBracketedPaste(u.reader, strings.TrimPrefix(line, bracketedPasteStart))
+		if err != nil {
+			return "", err
+		}
+		return readPastedInput(u.reader, pasted, pending)
 	}
 	if strings.TrimSpace(line) != ";;" {
-		return readBufferedInput(u.reader, line), nil
+		input, multiline, pending := readBufferedInput(u.reader, line)
+		if multiline {
+			return readPastedInput(u.reader, input, pending)
+		}
+		return input, nil
 	}
 
 	lines := make([]string, 0, 8)
@@ -71,24 +79,40 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-func readBracketedPaste(reader interface{ ReadString(byte) (string, error) }, first string) (string, error) {
+func readBracketedPaste(reader interface{ ReadString(byte) (string, error) }, first string) (string, string, error) {
 	lines := make([]string, 0, 8)
 	line := first
 	for {
 		if end := strings.Index(line, bracketedPasteEnd); end >= 0 {
 			lines = append(lines, line[:end])
-			return strings.Join(lines, "\n"), nil
+			pending := line[end+len(bracketedPasteEnd):]
+			return strings.Join(lines, "\n"), pending, nil
 		}
 		lines = append(lines, line)
 		next, err := reader.ReadString('\n')
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		line = trimLine(next)
 	}
 }
 
-func readBufferedInput(reader *bufio.Reader, first string) string {
+func readPastedInput(reader interface{ ReadString(byte) (string, error) }, pasted, pending string) (string, error) {
+	if pending == "" {
+		var err error
+		pending, err = reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+	}
+	continuation := trimLine(pending)
+	if continuation == "" {
+		return strings.TrimRight(pasted, "\n"), nil
+	}
+	return pasted + continuation, nil
+}
+
+func readBufferedInput(reader *bufio.Reader, first string) (string, bool, string) {
 	lines := []string{first}
 	for reader.Buffered() > 0 {
 		next, err := reader.ReadString('\n')
@@ -97,7 +121,16 @@ func readBufferedInput(reader *bufio.Reader, first string) string {
 		}
 		lines = append(lines, trimLine(next))
 	}
-	return strings.Join(lines, "\n")
+	if len(lines) <= 1 {
+		return lines[0], false, ""
+	}
+
+	pending := ""
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+		pending = "\n"
+	}
+	return strings.Join(lines, "\n"), true, pending
 }
 
 // AskPermission prompts the user with a colored panel for tool consent.
