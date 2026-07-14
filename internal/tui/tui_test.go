@@ -75,6 +75,36 @@ func TestGetInputBracketedPasteWaitsForEnter(t *testing.T) {
 	}
 }
 
+func TestGetInputStripsLiteralBracketedPasteMarkers(t *testing.T) {
+	ui := &PlainUI{
+		out:    &bytes.Buffer{},
+		reader: bufio.NewReader(strings.NewReader("^[[200~python .\\auto.py^[[201~\n")),
+		stopCh: make(chan struct{}),
+	}
+	got, err := ui.GetInput("> ")
+	if err != nil {
+		t.Fatalf("GetInput failed: %v", err)
+	}
+	if got != "python .\\auto.py" {
+		t.Fatalf("unexpected literal-marker input: %q", got)
+	}
+}
+
+func TestGetInputBracketedPasteHandlesWindowsLineEndings(t *testing.T) {
+	ui := &PlainUI{
+		out:    &bytes.Buffer{},
+		reader: bufio.NewReader(strings.NewReader("\x1b[200~line 1\r\nline 2\x1b[201~\r\n")),
+		stopCh: make(chan struct{}),
+	}
+	got, err := ui.GetInput("> ")
+	if err != nil {
+		t.Fatalf("GetInput failed: %v", err)
+	}
+	if got != "line 1\nline 2" {
+		t.Fatalf("unexpected Windows bracketed paste input: %q", got)
+	}
+}
+
 func TestGetInputBracketedPasteAllowsContinuation(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},

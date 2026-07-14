@@ -60,7 +60,7 @@ func (u *PlainUI) GetInput(prompt string) (string, error) {
 		if multiline {
 			return readPastedInput(u.reader, input, pending)
 		}
-		return input, nil
+		return cleanBracketedPasteMarkers(input), nil
 	}
 
 	lines := make([]string, 0, 8)
@@ -84,16 +84,16 @@ func readBracketedPaste(reader interface{ ReadString(byte) (string, error) }, fi
 	line := first
 	for {
 		if end := strings.Index(line, bracketedPasteEnd); end >= 0 {
-			lines = append(lines, line[:end])
+			lines = append(lines, trimLine(line[:end]))
 			pending := line[end+len(bracketedPasteEnd):]
 			return strings.Join(lines, "\n"), pending, nil
 		}
-		lines = append(lines, line)
+		lines = append(lines, trimLine(line))
 		next, err := reader.ReadString('\n')
 		if err != nil {
 			return "", "", err
 		}
-		line = trimLine(next)
+		line = next
 	}
 }
 
@@ -107,9 +107,23 @@ func readPastedInput(reader interface{ ReadString(byte) (string, error) }, paste
 	}
 	continuation := trimLine(pending)
 	if continuation == "" {
-		return strings.TrimRight(pasted, "\n"), nil
+		return cleanBracketedPasteMarkers(strings.TrimRight(pasted, "\n")), nil
 	}
-	return pasted + continuation, nil
+	return cleanBracketedPasteMarkers(pasted + continuation), nil
+}
+
+func cleanBracketedPasteMarkers(input string) string {
+	for _, marker := range []string{
+		bracketedPasteStart,
+		bracketedPasteEnd,
+		"^[[200~",
+		"^[[201~",
+		"^[200~",
+		"^[201~",
+	} {
+		input = strings.ReplaceAll(input, marker, "")
+	}
+	return input
 }
 
 func readBufferedInput(reader *bufio.Reader, first string) (string, bool, string) {
@@ -196,13 +210,18 @@ func (u *PlainUI) readSingleChar() (byte, bool) {
 	if err != nil {
 		return 0, false
 	}
-	if next, err := u.reader.Peek(1); err == nil {
-		if next[0] == '\n' {
-			_, _ = u.reader.ReadByte()
-		} else if next[0] == '\r' {
-			_, _ = u.reader.ReadByte()
-			if next, err = u.reader.Peek(1); err == nil && next[0] == '\n' {
+	if u.reader.Buffered() > 0 {
+		next, err := u.reader.Peek(1)
+		if err == nil {
+			if next[0] == '\n' {
 				_, _ = u.reader.ReadByte()
+			} else if next[0] == '\r' {
+				_, _ = u.reader.ReadByte()
+				if u.reader.Buffered() > 0 {
+					if next, err = u.reader.Peek(1); err == nil && next[0] == '\n' {
+						_, _ = u.reader.ReadByte()
+					}
+				}
 			}
 		}
 	}
