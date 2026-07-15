@@ -2,34 +2,45 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
+const compactionTimeout = 90 * time.Second
+
 func (s *Session) Compact(ctx context.Context, force bool) error {
-	if !force && !s.ShouldCompact() {
+	if s == nil {
 		return nil
 	}
-	if len(s.messages) <= 30 {
+
+	s.mu.RLock()
+	cfg := s.cfg
+	client := s.client
+	if cfg == nil || (!force && (len(s.messages) <= 30 || (len(s.messages) <= 300 && s.tokenEstimate <= int(0.7*float64(cfg.ContextWindow))))) || len(s.messages) <= 30 {
+		s.mu.RUnlock()
 		return nil
 	}
 	cut := len(s.messages) - 30
 	old := append([]Message(nil), s.messages[:cut]...)
 	recent := append([]Message(nil), s.messages[cut:]...)
+	revision := s.revision
+	s.mu.RUnlock()
 
 	var summary string
-	if s.client != nil && s.cfg.SidecarInUse() {
-		text := renderMessagesForSummary(old)
-		resp, err := s.client.ChatSync(ctx, ollama.ChatRequest{
-			Model: s.cfg.SidecarModel,
+	if client != nil && cfg.SidecarInUse() {
+		compactCtx, cancel := context.WithTimeout(ctx, compactionTimeout)
+		resp, err := client.ChatSync(compactCtx, ollama.ChatRequest{
+			Model: cfg.SidecarModel,
 			Messages: []ollama.Message{
 				{Role: "system", Content: "Summarize the conversation concisely."},
-				{Role: "user", Content: text},
+				{Role: "user", Content: renderMessagesForSummary(old)},
 			},
 			Stream: false,
 		})
+		cancel()
 		if err == nil && strings.TrimSpace(resp.Content) != "" {
 			summary = resp.Content
 		}
@@ -37,23 +48,20 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 	if summary == "" {
 		summary = "Earlier conversation truncated to stay within context limits."
 	}
-	s.sessAddSummary(summary)
-	s.messages = append(s.messages, recent...)
-	// Avoid starting with tool-like or empty roles in future extensions.
-	for len(s.messages) > 0 && strings.TrimSpace(s.messages[0].Role) == "" {
-		s.messages = s.messages[1:]
-	}
-	s.recomputeTokenEstimate()
-	return nil
-}
 
-func (s *Session) sessAddSummary(summary string) {
-	s.messages = []Message{{
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.revision != revision {
+		return fmt.Errorf("session changed during compaction")
+	}
+	s.messages = append([]Message{{
 		Role:      "user",
 		Content:   "[Earlier conversation summary]\n" + summary,
 		Timestamp: time.Now().UTC(),
-	}}
+	}}, recent...)
 	s.recomputeTokenEstimate()
+	s.revision++
+	return nil
 }
 
 func (s *Session) recomputeTokenEstimate() {

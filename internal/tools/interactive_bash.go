@@ -100,14 +100,24 @@ func (t *InteractiveBashTool) Execute(ctx context.Context, params map[string]any
 		timeoutMS = 600000
 	}
 
-	_ = time.Duration(timeoutMS) * time.Millisecond // reserved for future per-session timeout
-
 	sess, err := t.mgr.Start(command)
 	if err != nil {
 		return errResult(fmt.Sprintf("failed to start session: %v", err))
 	}
 
-	output, running := sess.ReadOutput(2 * time.Second)
+	readDone := make(chan struct{})
+	var output string
+	var running bool
+	go func() {
+		output, running = sess.ReadOutput(time.Duration(timeoutMS) * time.Millisecond)
+		close(readDone)
+	}()
+	select {
+	case <-ctx.Done():
+		_ = t.mgr.Terminate(sess.ID)
+		return errResult(fmt.Sprintf("interactive session cancelled: %v", ctx.Err()))
+	case <-readDone:
+	}
 	output = stripANSI(output)
 
 	if !running {
@@ -213,7 +223,19 @@ func (t *SendInputTool) Execute(ctx context.Context, params map[string]any) Resu
 		timeoutMS = 60000
 	}
 
-	output, running := sess.ReadOutput(time.Duration(timeoutMS) * time.Millisecond)
+	readDone := make(chan struct{})
+	var output string
+	var running bool
+	go func() {
+		output, running = sess.ReadOutput(time.Duration(timeoutMS) * time.Millisecond)
+		close(readDone)
+	}()
+	select {
+	case <-ctx.Done():
+		_ = t.mgr.Terminate(sessionID)
+		return errResult(fmt.Sprintf("interactive session cancelled: %v", ctx.Err()))
+	case <-readDone:
+	}
 	output = stripANSI(output)
 
 	if !running {

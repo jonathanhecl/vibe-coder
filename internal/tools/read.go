@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const defaultReadMaxBytes = 512 * 1024
+
 type ReadTool struct{}
 
 func NewReadTool() *ReadTool { return &ReadTool{} }
@@ -72,6 +74,9 @@ func (t *ReadTool) Execute(ctx context.Context, params map[string]any) Result {
 		}
 	}
 	maxBytes := asInt(params["max_bytes"], 0)
+	if maxBytes <= 0 || maxBytes > defaultReadMaxBytes {
+		maxBytes = defaultReadMaxBytes
+	}
 
 	// Default bufio.Scanner caps each line at 64KB. Godot .tscn, minified JSON,
 	// and similar formats often use much longer single lines (tilemaps, embedded data).

@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -16,11 +17,13 @@ type Message struct {
 }
 
 type Session struct {
+	mu            sync.RWMutex
 	cfg           *config.Config
 	id            string
 	messages      []Message
 	client        ollama.Client
 	tokenEstimate int
+	revision      uint64
 }
 
 func New(cfg *config.Config) *Session {
@@ -32,6 +35,8 @@ func New(cfg *config.Config) *Session {
 }
 
 func (s *Session) ID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.id
 }
 
@@ -40,22 +45,26 @@ func (s *Session) ID() string {
 // heuristics) and by tests that need to assert the exact wrapping of tool
 // observations.
 func (s *Session) Messages() []Message {
-	out := make([]Message, len(s.messages))
-	copy(out, s.messages)
-	return out
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneMessages(s.messages)
 }
 
-// MessagesReadOnly returns the live transcript slice. Callers must treat it
-// as read-only: do not mutate elements or reorder the backing slice in place.
+// MessagesReadOnly returns a snapshot of the transcript. The returned slice is
+// independent from the session and safe to inspect after this method returns.
 func (s *Session) MessagesReadOnly() []Message {
-	return s.messages
+	return s.Messages()
 }
 
 func (s *Session) MessageCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return len(s.messages)
 }
 
 func (s *Session) SetClient(client ollama.Client) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.client = client
 }
 
@@ -124,20 +133,33 @@ func (s *Session) AddToolObservation(toolName, output string) {
 }
 
 func (s *Session) addMessage(msg Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.messages = append(s.messages, msg)
 	s.tokenEstimate += estimateTextTokens(msg.Content)
+	s.revision++
 }
 
 func (s *Session) TokenEstimate() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.tokenEstimate
 }
 
 func (s *Session) ShouldCompact() bool {
-	if s == nil || s.cfg == nil {
+	if s == nil {
 		return false
 	}
-	if len(s.messages) <= 30 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg == nil || len(s.messages) <= 30 {
 		return false
 	}
 	return len(s.messages) > 300 || s.tokenEstimate > int(0.7*float64(s.cfg.ContextWindow))
+}
+
+func cloneMessages(messages []Message) []Message {
+	out := make([]Message, len(messages))
+	copy(out, messages)
+	return out
 }

@@ -194,7 +194,7 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 	// tests that lower it via WithSummariseThreshold still exercise the
 	// summary path and so users that raise it via env don't pay for a
 	// useless spinner on outputs the sidecar would skip anyway.
-	if side != nil && side.Enabled() && len(obs) >= side.Threshold() {
+	if side != nil && side.Enabled() && toolName != "Read" && len(obs) >= side.Threshold() {
 		label := fmt.Sprintf("condensing %s output via %s…",
 			toolName, shortModelName(a.cfg.SidecarModel))
 		a.ui.StartWaiting(label)

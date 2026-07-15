@@ -27,9 +27,11 @@ func configureRAG(ctx context.Context, cfg *config.Config, client ollama.Client,
 			root = cfg.Cwd
 		}
 		if err := engine.IndexPath(ctx, root); err != nil {
+			_ = engine.Close()
 			return true, "", err
 		}
 		stats := engine.Stats()
+		_ = engine.Close()
 		msg := fmt.Sprintf("RAG index complete: files=%d chunks=%d db=%.1f KiB", stats.Files, stats.Chunks, stats.DBSizeKiB)
 		return true, msg, nil
 	}

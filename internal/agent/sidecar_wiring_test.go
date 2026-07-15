@@ -91,20 +91,20 @@ func newTestAgent(t *testing.T, sideModel string, client ollama.Client) (*Agent,
 	return a, ui
 }
 
-func TestRecordToolObservationSummarisesWhenSidecarEnabled(t *testing.T) {
+func TestRecordToolObservationSummarisesNonReadOutputWhenSidecarEnabled(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{reply: "- big file\n- many lines"}
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
-	a.recordToolObservation(context.Background(), "Read", strings.Repeat("payload\n", 500), "")
+	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("payload\n", 500), "")
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message in session, got %d", len(msgs))
 	}
 	body := msgs[0].Content
-	if !strings.Contains(body, "[sidecar-summary tool=Read") {
+	if !strings.Contains(body, "[sidecar-summary tool=Bash") {
 		t.Fatalf("expected summarised observation, got: %q", body)
 	}
 	if !strings.Contains(body, "big file") {
@@ -112,6 +112,24 @@ func TestRecordToolObservationSummarisesWhenSidecarEnabled(t *testing.T) {
 	}
 	if atomic.LoadInt32(&sc.calls) != 1 {
 		t.Fatalf("expected 1 sidecar call, got %d", sc.calls)
+	}
+}
+
+func TestRecordToolObservationKeepsLargeReadOutputVerbatim(t *testing.T) {
+	t.Parallel()
+	sc := &stubClient{reply: "should not be used"}
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
+	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
+
+	body := strings.Repeat("source-line\n", 500)
+	a.recordToolObservation(context.Background(), "Read", body, "")
+
+	msgs := a.sess.Messages()
+	if len(msgs) != 1 || !strings.Contains(msgs[0].Content, body) {
+		t.Fatalf("expected large Read output to remain verbatim")
+	}
+	if atomic.LoadInt32(&sc.calls) != 0 {
+		t.Fatalf("Read output should not be sent to sidecar")
 	}
 }
 
@@ -141,13 +159,13 @@ func TestRecordToolObservationFallsBackOnSidecarError(t *testing.T) {
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
-	a.recordToolObservation(context.Background(), "Read", strings.Repeat("z", 4096), "")
+	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("z", 4096), "")
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
-	if !strings.Contains(msgs[0].Content, "[tool_result name=Read]") {
+	if !strings.Contains(msgs[0].Content, "[tool_result name=Bash]") {
 		t.Fatalf("failed sidecar should keep raw observation, got: %q", msgs[0].Content)
 	}
 }

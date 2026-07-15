@@ -21,8 +21,11 @@ type Client struct {
 	stdin  *bufio.Writer
 	stdout *bufio.Reader
 
-	mu     sync.Mutex
-	nextID int64
+	mu      sync.Mutex
+	nextID  int64
+	pending map[int64]chan rpcResult
+	done    chan struct{}
+	stopped bool
 }
 
 type ToolDef struct {
@@ -44,6 +47,8 @@ func New(name, command string, args, envv []string) *Client {
 		args:    append([]string(nil), args...),
 		envv:    append([]string(nil), envv...),
 		nextID:  1,
+		pending: make(map[int64]chan rpcResult),
+		done:    make(chan struct{}),
 	}
 }
 
@@ -72,16 +77,29 @@ func (c *Client) Start() error {
 	c.cmd = cmd
 	c.stdin = bufio.NewWriter(stdin)
 	c.stdout = bufio.NewReader(stdout)
+	c.stopped = false
+	go c.readLoop()
 	return nil
 }
 
 func (c *Client) Stop() {
 	c.mu.Lock()
+	if c.stopped {
+		c.mu.Unlock()
+		return
+	}
+	c.stopped = true
 	cmd := c.cmd
 	c.cmd = nil
 	c.stdin = nil
 	c.stdout = nil
+	close(c.done)
+	pending := c.pending
+	c.pending = make(map[int64]chan rpcResult)
 	c.mu.Unlock()
+	for _, ch := range pending {
+		ch <- rpcResult{err: fmt.Errorf("mcp client stopped")}
+	}
 	if cmd == nil {
 		return
 	}

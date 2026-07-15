@@ -83,7 +83,11 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 		}
 		cancel()
 		if attempt < MaxRetries {
-			time.Sleep(time.Duration(1+attempt) * time.Second)
+			select {
+			case <-rootCtx.Done():
+				return "", rootCtx.Err()
+			case <-time.After(time.Duration(1+attempt) * time.Second):
+			}
 		}
 	}
 	if lastErr == nil {
@@ -190,6 +194,8 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 	a.ui.StopWaiting()
 	endThinking()
 	if len(buf) == 0 {
+		cancel()
+		a.ui.EndAssistant()
 		return "", nil
 	}
 	full := string(buf)

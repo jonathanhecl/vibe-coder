@@ -86,13 +86,12 @@ func (e *Engine) IndexPath(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	_, err = e.db.ExecContext(ctx, "DELETE FROM chunks")
+	tx, err := e.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-
-	tx, err := e.db.BeginTx(ctx, nil)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM chunks"); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 	stmt, err := tx.PrepareContext(ctx, "INSERT INTO chunks(file,start,end,text,tokens) VALUES(?,?,?,?,?)")
@@ -173,12 +172,16 @@ func (e *Engine) Query(ctx context.Context, q string, k int) ([]Chunk, error) {
 		score := cosineOverlap(queryTokens, toks)
 		if score > 0 {
 			scoredChunks = append(scoredChunks, scored{chunk: c, score: score})
+			if len(scoredChunks) > k {
+				sort.Slice(scoredChunks, func(i, j int) bool { return scoredChunks[i].score > scoredChunks[j].score })
+				scoredChunks = scoredChunks[:k]
+			}
 		}
 	}
-	sort.Slice(scoredChunks, func(i, j int) bool { return scoredChunks[i].score > scoredChunks[j].score })
-	if len(scoredChunks) > k {
-		scoredChunks = scoredChunks[:k]
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
+	sort.Slice(scoredChunks, func(i, j int) bool { return scoredChunks[i].score > scoredChunks[j].score })
 	out := make([]Chunk, 0, len(scoredChunks))
 	for _, s := range scoredChunks {
 		out = append(out, s.chunk)

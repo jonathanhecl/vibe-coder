@@ -24,25 +24,36 @@ const maxSessionLineBytes = 16 * 1024 * 1024
 var invalidSessionIDChars = regexp.MustCompile(`[^A-Za-z0-9_\-]`)
 
 func (s *Session) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.id = newSessionID()
 	s.messages = s.messages[:0]
 	s.tokenEstimate = 0
+	s.revision++
 }
 
 func (s *Session) Save() error {
-	if err := os.MkdirAll(s.cfg.SessionsDir, 0o755); err != nil {
+	s.mu.RLock()
+	cfg := s.cfg
+	id := s.id
+	messages := cloneMessages(s.messages)
+	s.mu.RUnlock()
+	if cfg == nil {
+		return fmt.Errorf("session config is nil")
+	}
+	if err := os.MkdirAll(cfg.SessionsDir, 0o755); err != nil {
 		return fmt.Errorf("create sessions dir: %w", err)
 	}
 
-	target, err := s.sessionFilePath(s.id)
+	target, err := s.sessionFilePath(id)
 	if err != nil {
 		return err
 	}
 
-	if err := writeAtomicFile(s.cfg.SessionsDir, "*.jsonl.tmp", target, 0o600, func(w io.Writer) error {
+	if err := writeAtomicFile(cfg.SessionsDir, "*.jsonl.tmp", target, 0o600, func(w io.Writer) error {
 		writer := bufio.NewWriter(w)
 		enc := json.NewEncoder(writer)
-		for _, msg := range s.messages {
+		for _, msg := range messages {
 			if err := enc.Encode(msg); err != nil {
 				return fmt.Errorf("encode message: %w", err)
 			}
@@ -55,7 +66,7 @@ func (s *Session) Save() error {
 		return fmt.Errorf("atomic session replace: %w", err)
 	}
 
-	if err := s.writeProjectIndex(); err != nil {
+	if err := s.writeProjectIndexFor(id); err != nil {
 		return err
 	}
 	return nil
@@ -106,9 +117,12 @@ func (s *Session) Load(id string) error {
 		return fmt.Errorf("scan session file: %w", err)
 	}
 
+	s.mu.Lock()
 	s.id = sanitized
 	s.messages = loaded
 	s.recomputeTokenEstimate()
+	s.revision++
+	s.mu.Unlock()
 	return nil
 }
 
@@ -163,6 +177,13 @@ func (s *Session) sessionFilePath(id string) (string, error) {
 }
 
 func (s *Session) writeProjectIndex() error {
+	s.mu.RLock()
+	id := s.id
+	s.mu.RUnlock()
+	return s.writeProjectIndexFor(id)
+}
+
+func (s *Session) writeProjectIndexFor(id string) error {
 	hash, err := cwdHash(s.cfg.Cwd)
 	if err != nil {
 		return err
