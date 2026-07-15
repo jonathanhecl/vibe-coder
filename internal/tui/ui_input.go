@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
@@ -45,6 +46,10 @@ func (u *PlainUI) GetInput(prompt string) (input string, err error) {
 	}
 	u.mu.Unlock()
 
+	if u.in != nil && term.IsTerminal(int(u.in.Fd())) {
+		return u.readInteractiveInput()
+	}
+
 	line, err := u.reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -80,6 +85,135 @@ func (u *PlainUI) GetInput(prompt string) (input string, err error) {
 		lines = append(lines, next)
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func (u *PlainUI) readInteractiveInput() (string, error) {
+	fd := int(u.in.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return "", err
+	}
+	defer term.Restore(fd, oldState)
+	return readInteractiveInputStream(u.in, u.out)
+}
+
+func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error) {
+	var input strings.Builder
+	pending := make([]byte, 0, len(bracketedPasteStart))
+	paste := make([]byte, 0, 256)
+	inPaste := false
+	endMarkers := pasteMarkerVariants(bracketedPasteEnd)
+	startMarkers := pasteMarkerVariants(bracketedPasteStart)
+
+	flushTyped := func() (bool, error) {
+		if len(pending) == 0 {
+			return false, nil
+		}
+		b := pending[0]
+		pending = pending[1:]
+		switch b {
+		case '\r', '\n':
+			_, _ = io.WriteString(out, "\r\n")
+			return true, nil
+		case 3:
+			return true, io.EOF
+		case 8, 127:
+			if input.Len() > 0 {
+				value := input.String()
+				_, size := utf8.DecodeLastRuneInString(value)
+				input.Reset()
+				input.WriteString(value[:len(value)-size])
+				_, _ = io.WriteString(out, "\b \b")
+			}
+		default:
+			input.WriteByte(b)
+			_, _ = out.Write([]byte{b})
+		}
+		return false, nil
+	}
+
+	for {
+		var buf [1]byte
+		if _, err := reader.Read(buf[:]); err != nil {
+			return "", err
+		}
+		pending = append(pending, buf[0])
+		if inPaste {
+			if hasCompleteMarker(pending, endMarkers) {
+				input.Write(paste)
+				_, _ = io.WriteString(out, formatPastedBlock(string(paste)))
+				paste = paste[:0]
+				pending = pending[len(matchingMarker(pending, endMarkers)):]
+				inPaste = false
+				continue
+			}
+			if !hasMarkerPrefix(pending, endMarkers) {
+				paste = append(paste, pending[0])
+				pending = pending[1:]
+			}
+			continue
+		}
+
+		if hasCompleteMarker(pending, startMarkers) {
+			pending = pending[len(matchingMarker(pending, startMarkers)):]
+			inPaste = true
+			paste = paste[:0]
+			continue
+		}
+		if !hasMarkerPrefix(pending, startMarkers) {
+			done, err := flushTyped()
+			if err != nil {
+				return "", err
+			}
+			if done {
+				return cleanBracketedPasteMarkers(input.String()), nil
+			}
+		}
+	}
+}
+
+func pasteMarkerVariants(marker string) [][]byte {
+	return [][]byte{
+		[]byte(marker),
+		[]byte(strings.Replace(marker, "\x1b", "^[[", 1)),
+		[]byte(strings.Replace(marker, "\x1b", "^[", 1)),
+	}
+}
+
+func matchingMarker(value []byte, markers [][]byte) []byte {
+	for _, marker := range markers {
+		if len(value) >= len(marker) && string(value[len(value)-len(marker):]) == string(marker) {
+			return marker
+		}
+	}
+	return nil
+}
+
+func hasCompleteMarker(value []byte, markers [][]byte) bool {
+	return matchingMarker(value, markers) != nil
+}
+
+func hasMarkerPrefix(value []byte, markers [][]byte) bool {
+	for _, marker := range markers {
+		if len(value) <= len(marker) && string(marker[:len(value)]) == string(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatPastedBlock(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\n", " ")
+	content = strings.TrimSpace(content)
+	const maxPreview = 64
+	count := utf8.RuneCountInString(content)
+	if count <= maxPreview {
+		return "[block]" + content + "[/block]"
+	}
+	runes := []rune(content)
+	preview := string(runes[:maxPreview])
+	return fmt.Sprintf("[block]%s... (%d chars more)...[/block]", preview, count-maxPreview)
 }
 
 func readBracketedPaste(reader interface{ ReadString(byte) (string, error) }, first string) (string, string, error) {

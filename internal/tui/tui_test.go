@@ -30,6 +30,27 @@ func TestAskPermissionReadsLineWhenRawModeUnavailable(t *testing.T) {
 	}
 }
 
+func TestInteractiveInputHidesPasteAndReturnsFullContent(t *testing.T) {
+	var out bytes.Buffer
+	input, err := readInteractiveInputStream(strings.NewReader("\x1b[200~first line\nsecond line\x1b[201~ + note\n"), &out)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if input != "first line\nsecond line + note" {
+		t.Fatalf("unexpected interactive input: %q", input)
+	}
+	if got := out.String(); got != "[block]first line second line[/block] + note\r\n" {
+		t.Fatalf("unexpected interactive display: %q", got)
+	}
+}
+
+func TestFormatPastedBlockSummarizesLongContent(t *testing.T) {
+	got := formatPastedBlock(strings.Repeat("x", 100))
+	if !strings.HasPrefix(got, "[block]") || !strings.Contains(got, "(36 chars more)") || !strings.HasSuffix(got, "[/block]") {
+		t.Fatalf("unexpected block summary: %q", got)
+	}
+}
+
 func TestGetInputSingleLine(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},

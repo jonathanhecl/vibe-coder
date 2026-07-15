@@ -38,10 +38,10 @@ type UI interface {
 // streamed assistant text, a single-line tool "card" that gets rewritten in
 // place when the result arrives, and dim "thinking" sections.
 //
-// Important: PlainUI never puts the terminal in raw mode. We rely on the OS
-// signal handler in main to translate Ctrl+C into a clean shutdown. Raw mode
-// would silently swallow Ctrl+C (it becomes byte 0x03) and would also race
-// with bufio readers on stdin, leaving the user unable to type or exit.
+// PlainUI uses raw mode only while reading interactive input so bracketed paste
+// can be rendered as a compact block instead of being echoed in full. The
+// reader restores the terminal immediately after Enter, paste completion, or
+// Ctrl+C; the rest of the UI continues to use buffered stdin reads.
 type PlainUI struct {
 	in  *os.File
 	out io.Writer
