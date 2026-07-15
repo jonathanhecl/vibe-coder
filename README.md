@@ -204,6 +204,12 @@ Model keys and overrides:
 
 If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
 
+> **Recommended model**: `ornith:9b` works very well with Ollama for coding and multi-turn tool conversations in `vibe-coder`.
+>
+> ```bash
+> ./vibe-coder --model ornith:9b --ollama-host http://127.0.0.1:11434
+> ```
+
 ### What is the sidecar model for?
 
 `MODEL` is the conversational/coding model that answers every prompt. The
