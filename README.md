@@ -68,24 +68,42 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 
 ## Install
 
-### Quick install (one-liner)
+### Pre-built binaries (recommended)
 
-**Linux / macOS** (requires `curl`):
+Download the archive for your OS and architecture from the
+[GitHub Releases](https://github.com/jonathanhecl/vibe-coder/releases)
+page, extract it, and move the binary to a directory in your `PATH`.
 
-```bash
-curl -sL https://raw.githubusercontent.com/jonathanhecl/vibe-coder/main/install.sh | bash
-```
+| OS | Architecture | Asset |
+|----|--------------|-------|
+| Windows | amd64 | `vibe-coder_<version>_windows_amd64.zip` |
+| Linux | amd64 | `vibe-coder_<version>_linux_amd64.zip` |
+| Linux | arm64 | `vibe-coder_<version>_linux_arm64.zip` |
+| macOS | amd64 | `vibe-coder_<version>_darwin_amd64.zip` |
+| macOS | arm64 | `vibe-coder_<version>_darwin_arm64.zip` |
 
-**Windows** (requires PowerShell 5.1+):
+Windows PowerShell example:
 
 ```powershell
-irm https://raw.githubusercontent.com/jonathanhecl/vibe-coder/main/install.ps1 | iex
+# Download the latest release (replace <version> with the release tag, e.g. v0.1.0)
+$version = "<version>"
+$url = "https://github.com/jonathanhecl/vibe-coder/releases/download/${version}/vibe-coder_${version}_windows_amd64.zip"
+Invoke-WebRequest -Uri $url -OutFile vibe-coder.zip
+Expand-Archive -Path vibe-coder.zip -DestinationPath "$env:LOCALAPPDATA\Programs\vibe-coder" -Force
+# Add to PATH, e.g. via Environment Variables settings or:
+$env:Path += ";$env:LOCALAPPDATA\Programs\vibe-coder"
 ```
 
-The scripts download the latest pre-built release for your OS/architecture
-from GitHub Releases, extract it, and place the binary in a standard
-location (`~/.local/bin` on Linux/macOS, `%LOCALAPPDATA%\Programs\vibe-coder`
-on Windows).
+Linux / macOS example:
+
+```bash
+# Replace <version> and <os>_<arch> with the desired release and platform
+version="<version>"
+asset="vibe-coder_${version}_linux_amd64.zip"
+curl -LO "https://github.com/jonathanhecl/vibe-coder/releases/download/${version}/${asset}"
+unzip "${asset}"
+sudo mv vibe-coder /usr/local/bin/
+```
 
 ### Install with Go
 
@@ -97,11 +115,21 @@ go install github.com/jonathanhecl/vibe-coder/cmd/vibe-coder@latest
 
 Make sure your `GOBIN` or `GOPATH/bin` is in `PATH`.
 
-### Manual download
+### Install a development build
 
-Grab the archive for your platform from the
-[GitHub Releases](https://github.com/jonathanhecl/vibe-coder/releases)
-page, extract it, and move the binary to a directory in your `PATH`.
+From a local clone, use the dev install scripts to build and install with the current Git metadata:
+
+**Linux / macOS:**
+
+```bash
+./install-dev.sh
+```
+
+**Windows:**
+
+```powershell
+.\install-dev.ps1
+```
 
 ### Build from source
 
@@ -133,19 +161,18 @@ Windows:
 go build -o vibe-coder.exe ./cmd/vibe-coder
 ```
 
-Helper scripts (PowerShell and Bash):
+Helper scripts:
 
 ```powershell
-.\build.ps1      # dev build with timestamp + short hash
 .\run.ps1        # build + run with forwarded flags
-.\release.ps1    # cross-compile archives + checksums.txt
+.\release.ps1    # cross-compile archives, create a Git tag, and publish a GitHub Release
 ```
 
 ```bash
-./build.sh
 ./run.sh
-./release.sh
 ```
+
+The release workflow produces platform archives in `dist/`, then uploads them as assets to the GitHub Release for the requested tag.
 
 ## Quick Start
 
