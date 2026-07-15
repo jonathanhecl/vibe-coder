@@ -51,6 +51,13 @@ func TestFormatPastedBlockSummarizesLongContent(t *testing.T) {
 	}
 }
 
+func TestFormatPastedBlockDoesNotWriteCarriageReturns(t *testing.T) {
+	got := formatPastedBlock("first\rsecond\nthird")
+	if got != "[block]first second third[/block]" {
+		t.Fatalf("unexpected safe block summary: %q", got)
+	}
+}
+
 func TestGetInputSingleLine(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},

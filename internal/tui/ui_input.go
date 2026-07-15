@@ -204,7 +204,14 @@ func hasMarkerPrefix(value []byte, markers [][]byte) bool {
 
 func formatPastedBlock(content string) string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
 	content = strings.ReplaceAll(content, "\n", " ")
+	content = strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\t' {
+			return ' '
+		}
+		return r
+	}, content)
 	content = strings.TrimSpace(content)
 	const maxPreview = 64
 	count := utf8.RuneCountInString(content)
