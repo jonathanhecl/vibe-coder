@@ -3,9 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/terminal"
 )
 
@@ -89,7 +87,8 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if assistantVisibleText(reply) == "" {
 				a.ui.CollapseAssistantOutput()
 			}
-			result, executed, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
+			a.sess.AddAssistant(reply)
+			_, executed, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
 				showPermissionDeniedResult: true,
 			})
 			if err != nil {
@@ -98,7 +97,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if !executed {
 				return nil
 			}
-			userInput = session.ToolObservationUserContent(toolName, strings.TrimSpace(result.Output))
 			a.compactBestEffort(ctx)
 			continue
 		}

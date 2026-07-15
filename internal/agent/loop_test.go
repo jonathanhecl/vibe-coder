@@ -17,6 +17,24 @@ import (
 
 type fakeClient struct{}
 
+type sequenceClient struct {
+	fakeClient
+	replies []string
+	calls   int
+}
+
+func (c *sequenceClient) Chat(context.Context, ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	if c.calls >= len(c.replies) {
+		return nil, context.Canceled
+	}
+	reply := c.replies[c.calls]
+	c.calls++
+	ch := make(chan ollama.Chunk, 1)
+	ch <- ollama.Chunk{Delta: reply, Done: true}
+	close(ch)
+	return ch, nil
+}
+
 func TestFileEditCompletionNote(t *testing.T) {
 	note := fileEditCompletionNote("Write", map[string]any{"file_path": "scripts/run_comfyui.bat"})
 	if !strings.Contains(note, "Treat this step as completed") {
@@ -103,6 +121,50 @@ func TestRunGlobOnce(t *testing.T) {
 	}
 	if sess.MessageCount() < 2 {
 		t.Fatalf("expected session messages to be appended")
+	}
+}
+
+func TestRunStoresAssistantToolRequestBeforeObservation(t *testing.T) {
+	tmp := t.TempDir()
+	filePath := filepath.ToSlash(filepath.Join(tmp, "auto.py"))
+	if err := os.WriteFile(filePath, []byte("print('hello')\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	cfg := &config.Config{
+		Model:         "test-model",
+		ContextWindow: 32768,
+		MaxTokens:     128,
+		Temperature:   0.2,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ui := &fakeUI{}
+	client := &sequenceClient{replies: []string{
+		`<invoke name="Read">{"file_path":"` + filePath + `"}</invoke>`,
+		"The file prints hello.",
+	}}
+	ag := New(cfg, client, reg, perm, sess, ui)
+
+	if err := ag.Run(context.Background(), "analyze auto.py"); err != nil {
+		t.Fatalf("run agent: %v", err)
+	}
+	msgs := sess.Messages()
+	if len(msgs) != 4 {
+		t.Fatalf("expected user, assistant tool request, tool result, assistant final; got %d messages: %#v", len(msgs), msgs)
+	}
+	if msgs[1].Role != "assistant" || !strings.Contains(msgs[1].Content, `<invoke name="Read">`) {
+		t.Fatalf("expected assistant tool request at message 2, got %#v", msgs[1])
+	}
+	if msgs[2].Role != "user" || !strings.Contains(msgs[2].Content, "[tool_result name=Read]") {
+		t.Fatalf("expected Read observation at message 3, got %#v", msgs[2])
+	}
+	if msgs[3].Role != "assistant" || msgs[3].Content != "The file prints hello." {
+		t.Fatalf("expected final assistant response at message 4, got %#v", msgs[3])
 	}
 }
 
