@@ -58,6 +58,23 @@ func TestFormatPastedBlockDoesNotWriteCarriageReturns(t *testing.T) {
 	}
 }
 
+func TestInteractiveInputBackspaceRemovesPastedBlock(t *testing.T) {
+	var out bytes.Buffer
+	input, err := readInteractiveInputStream(strings.NewReader("\x1b[200~  first\tline  \x1b[201~\b\n"), &out)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if input != "" {
+		t.Fatalf("expected pasted block to be removed, got %q", input)
+	}
+	if !strings.Contains(out.String(), "[block]first line[/block]") {
+		t.Fatalf("expected compact block preview, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "\b") {
+		t.Fatalf("expected block erase sequence, got %q", out.String())
+	}
+}
+
 func TestGetInputSingleLine(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},

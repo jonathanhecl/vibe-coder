@@ -94,11 +94,22 @@ func (u *PlainUI) readInteractiveInput() (string, error) {
 		return "", err
 	}
 	defer term.Restore(fd, oldState)
-	return readInteractiveInputStream(u.in, u.out)
+	return readInteractiveInputStreamWithStyle(u.in, u.out, u.style)
 }
 
 func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error) {
+	return readInteractiveInputStreamWithStyle(reader, out, Style{})
+}
+
+type displayedPasteBlock struct {
+	start   int
+	end     int
+	display string
+}
+
+func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style Style) (string, error) {
 	var input strings.Builder
+	blocks := make([]displayedPasteBlock, 0, 2)
 	pending := make([]byte, 0, len(bracketedPasteStart))
 	paste := make([]byte, 0, 256)
 	inPaste := false
@@ -118,7 +129,14 @@ func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error)
 		case 3:
 			return true, io.EOF
 		case 8, 127:
-			if input.Len() > 0 {
+			if len(blocks) > 0 && input.Len() == blocks[len(blocks)-1].end {
+				block := blocks[len(blocks)-1]
+				blocks = blocks[:len(blocks)-1]
+				value := input.String()
+				input.Reset()
+				input.WriteString(value[:block.start])
+				_, _ = io.WriteString(out, eraseVisibleText(block.display))
+			} else if input.Len() > 0 {
 				value := input.String()
 				_, size := utf8.DecodeLastRuneInString(value)
 				input.Reset()
@@ -140,8 +158,11 @@ func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error)
 		pending = append(pending, buf[0])
 		if inPaste {
 			if hasCompleteMarker(pending, endMarkers) {
+				block := formatPastedBlock(string(paste))
+				start := input.Len()
 				input.Write(paste)
-				_, _ = io.WriteString(out, formatPastedBlock(string(paste)))
+				blocks = append(blocks, displayedPasteBlock{start: start, end: input.Len(), display: block})
+				_, _ = io.WriteString(out, style.DimBlue(block))
 				paste = paste[:0]
 				pending = pending[len(matchingMarker(pending, endMarkers)):]
 				inPaste = false
@@ -205,14 +226,13 @@ func hasMarkerPrefix(value []byte, markers [][]byte) bool {
 func formatPastedBlock(content string) string {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
-	content = strings.ReplaceAll(content, "\n", " ")
 	content = strings.Map(func(r rune) rune {
-		if r < 0x20 && r != '\t' {
+		if r < 0x20 {
 			return ' '
 		}
 		return r
 	}, content)
-	content = strings.TrimSpace(content)
+	content = strings.Join(strings.Fields(content), " ")
 	const maxPreview = 64
 	count := utf8.RuneCountInString(content)
 	if count <= maxPreview {
@@ -221,6 +241,14 @@ func formatPastedBlock(content string) string {
 	runes := []rune(content)
 	preview := string(runes[:maxPreview])
 	return fmt.Sprintf("[block]%s... (%d chars more)...[/block]", preview, count-maxPreview)
+}
+
+func eraseVisibleText(text string) string {
+	count := utf8.RuneCountInString(text)
+	if count == 0 {
+		return ""
+	}
+	return strings.Repeat("\b", count) + strings.Repeat(" ", count) + strings.Repeat("\b", count)
 }
 
 func readBracketedPaste(reader interface{ ReadString(byte) (string, error) }, first string) (string, string, error) {
