@@ -326,6 +326,49 @@ If you use PowerShell and want to run from source with the same flags:
 - `--rag-index <path>` — build/index RAG path and exit
 - `--save` — persist `MODEL`, `SIDECAR_MODEL`, `OLLAMA_HOST`, and `HIDE_THINK` into `vibe-coder.env`
 
+## MCP & Skills Management CLI
+
+`vibe-coder` provides dedicated CLI subcommands to list, add, and remove MCP servers and custom skills.
+
+### MCP (Model Context Protocol)
+
+Manage stdio-based JSON-RPC MCP servers in global or project-local configurations.
+
+* **List configured servers**:
+  ```bash
+  vibe-coder mcp list
+  ```
+* **Add or update an MCP server**:
+  ```bash
+  # Adds a local server under .vibe-coder/mcp.json (default)
+  vibe-coder mcp add --env API_KEY=secret weather-server node path/to/server.js
+  
+  # Adds a global server under configDir/mcp.json
+  vibe-coder mcp add --global --env DEBUG=true logger-server python path/to/logger.py
+  ```
+* **Remove a server**:
+  ```bash
+  vibe-coder mcp remove weather-server
+  vibe-coder mcp remove --global logger-server
+  ```
+
+### Skills
+
+Manage instruction-based custom agent skills.
+
+* **List loaded skills**:
+  ```bash
+  vibe-coder skill list
+  ```
+* **Add a new skill**:
+  ```bash
+  # Adds a local skill under .vibe-coder/skills/my-skill.md (default)
+  vibe-coder skill add my-skill path/to/source.md
+
+  # Adds a global skill under configDir/skills/my-skill.md
+  vibe-coder skill add --global my-global-skill path/to/source.md
+  ```
+
 ## Slash Commands
 
 Slash commands are entered at the `>` prompt during an interactive session.
