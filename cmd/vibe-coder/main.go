@@ -17,6 +17,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/onboarding"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/skills"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/version"
@@ -32,6 +33,16 @@ func main() {
 			exitWithError(err)
 		}
 		if err := mcp.RunCLI(cfg.ConfigDir, cfg.Cwd, os.Args[2:]); err != nil {
+			exitWithError(err)
+		}
+		return
+	}
+	if len(os.Args) > 1 && (os.Args[1] == "skill" || os.Args[1] == "skills") {
+		cfg, err := config.Load(nil)
+		if err != nil {
+			exitWithError(err)
+		}
+		if err := skills.RunCLI(cfg.ConfigDir, cfg.Cwd, os.Args[2:]); err != nil {
 			exitWithError(err)
 		}
 		return

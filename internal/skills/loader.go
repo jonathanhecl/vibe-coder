@@ -13,6 +13,7 @@ import (
 type Skill struct {
 	Name    string
 	Content string
+	Path    string
 }
 
 func Load(cfg *config.Config) []Skill {
@@ -51,7 +52,7 @@ func Load(cfg *config.Config) []Skill {
 			}
 			content = prompt.SanitizeInstructions(content)
 			base := strings.TrimSuffix(name, filepath.Ext(name))
-			byName[base] = Skill{Name: base, Content: strings.TrimSpace(content)}
+			byName[base] = Skill{Name: base, Content: strings.TrimSpace(content), Path: path}
 		}
 	}
 
