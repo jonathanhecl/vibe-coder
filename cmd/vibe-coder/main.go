@@ -26,6 +26,17 @@ import (
 const maxExternalEmptyRetries = 3
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		cfg, err := config.Load(nil)
+		if err != nil {
+			exitWithError(err)
+		}
+		if err := mcp.RunCLI(cfg.ConfigDir, cfg.Cwd, os.Args[2:]); err != nil {
+			exitWithError(err)
+		}
+		return
+	}
+
 	args, persistModelSettings := extractPersistDirective(os.Args[1:])
 	cfg, err := config.Load(args)
 	if err != nil {
