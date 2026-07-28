@@ -52,6 +52,7 @@ type PlainUI struct {
 	bracketedPaste      bool
 	restoreTerminalMode func()
 	cfg                 *config.Config
+	history             *inputHistory
 
 	mu       sync.Mutex
 	stopCh   chan struct{}
@@ -130,10 +131,12 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 	}
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
 		if restore, ok := configureTerminalForBracketedPaste(os.Stdin, os.Stdout); ok {
-			fmt.Fprint(u.out, enableBracketedPaste)
 			u.bracketedPaste = true
 			u.restoreTerminalMode = restore
 		}
+	}
+	if c != nil {
+		u.history = loadHistory(c.HistoryFile)
 	}
 	return u
 }

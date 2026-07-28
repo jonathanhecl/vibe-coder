@@ -94,11 +94,20 @@ func (u *PlainUI) readInteractiveInput() (string, error) {
 		return "", err
 	}
 	defer term.Restore(fd, oldState)
-	return readInteractiveInputStreamWithStyle(u.in, u.out, u.style)
+	// Re-enable bracketed paste for this read so the terminal wraps pasted
+	// content with markers even if a previous read disabled it. The matching
+	// disable is deferred so paste mode only covers input, not assistant output.
+	if u.bracketedPaste {
+		_, _ = io.WriteString(u.out, enableBracketedPaste)
+		defer func() { _, _ = io.WriteString(u.out, disableBracketedPaste) }()
+	}
+	// Read through the buffered reader so bytes that AskPermission left in the
+	// bufio buffer are not lost when we re-enter raw mode.
+	return readInteractiveInputStreamWithStyle(u.reader, u.out, u.style, u.history)
 }
 
 func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error) {
-	return readInteractiveInputStreamWithStyle(reader, out, Style{})
+	return readInteractiveInputStreamWithStyle(reader, out, Style{}, nil)
 }
 
 type displayedPasteBlock struct {
