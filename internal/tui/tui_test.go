@@ -240,7 +240,7 @@ func TestInteractiveInputHistoryRecall(t *testing.T) {
 	var out bytes.Buffer
 	hist := &inputHistory{entries: []string{"previous input"}}
 	// Press Up to recall the stored entry, then Enter to submit it.
-	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("\x1b[A\n"), &out, Style{}, hist)
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("\x1b[A\n"), &out, Style{}, hist, "")
 	if err != nil {
 		t.Fatalf("interactive input failed: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestInteractiveInputHistoryDownRestoresDraft(t *testing.T) {
 	var out bytes.Buffer
 	hist := &inputHistory{entries: []string{"old"}}
 	// Type "draft", Up (recall "old"), Down (restore "draft"), Enter.
-	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("draft\x1b[A\x1b[B\n"), &out, Style{}, hist)
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("draft\x1b[A\x1b[B\n"), &out, Style{}, hist, "")
 	if err != nil {
 		t.Fatalf("interactive input failed: %v", err)
 	}
@@ -292,5 +292,39 @@ func TestInputHistoryIgnoresEmptyLines(t *testing.T) {
 	hist.add("   ")
 	if got := hist.snapshot(); len(got) != 0 {
 		t.Fatalf("expected no history entries, got %v", got)
+	}
+}
+
+// TestInteractiveInputAltEnterInsertsNewline verifies that Alt+Enter (ESC+CR)
+// inserts a newline into the buffer instead of submitting, and the submitted
+// result contains the newline.
+func TestInteractiveInputAltEnterInsertsNewline(t *testing.T) {
+	var out bytes.Buffer
+	// Type "line1", Alt+Enter (\x1b\r), type "line2", Enter to submit.
+	got, err := readInteractiveInputStream(strings.NewReader("line1\x1b\rline2\n"), &out)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "line1\nline2" {
+		t.Fatalf("expected multi-line input 'line1\\nline2', got %q", got)
+	}
+}
+
+// TestInteractiveInputUpDownNavigatesLines verifies that when the buffer is
+// multi-line, Up/Down move the cursor between lines instead of recalling
+// history.
+func TestInteractiveInputUpDownNavigatesLines(t *testing.T) {
+	var out bytes.Buffer
+	hist := &inputHistory{entries: []string{"old entry"}}
+	// Type "aaa", Alt+Enter, "bbb", Up (should move to line 1, not recall
+	// history), Ctrl-K (kill to end of line on line 1), Enter.
+	// After Up+Ctrl-K, line 1 should be "aaa" (bbb killed), so result is "aaa\n".
+	got, err := readInteractiveInputStreamWithStyle(
+		strings.NewReader("aaa\x1b\rbbb\x1b[A\x0b\n"), &out, Style{}, hist, "")
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "aaa\n" {
+		t.Fatalf("expected Up to navigate lines not history, got %q", got)
 	}
 }

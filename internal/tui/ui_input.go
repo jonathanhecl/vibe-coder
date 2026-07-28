@@ -27,27 +27,12 @@ func (u *PlainUI) GetInput(prompt string) (input string, err error) {
 	u.mu.Lock()
 	u.flushPendingToolLocked()
 	u.endAssistantLineLocked()
-	if u.style.Enabled() {
-		userIcon := u.style.BrightGreen(iconUser)
-		userLabel := u.style.BoldGreen("user")
-		promptLabel := u.style.BoldGreen(prompt)
-		if u.planMode {
-			userIcon = u.style.Yellow(iconUser)
-			userLabel = u.style.BoldYellow("user")
-			promptLabel = u.style.BoldYellow(prompt)
-		}
-		_, _ = io.WriteString(u.out, fmt.Sprintf("%s %s %s",
-			userIcon,
-			userLabel,
-			promptLabel,
-		))
-	} else {
-		_, _ = io.WriteString(u.out, prompt)
-	}
+	renderedPrompt := u.renderPromptString(prompt)
+	_, _ = io.WriteString(u.out, renderedPrompt)
 	u.mu.Unlock()
 
 	if u.in != nil && term.IsTerminal(int(u.in.Fd())) {
-		return u.readInteractiveInput()
+		return u.readInteractiveInput(renderedPrompt)
 	}
 
 	line, err := u.reader.ReadString('\n')
@@ -87,7 +72,7 @@ func (u *PlainUI) GetInput(prompt string) (input string, err error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-func (u *PlainUI) readInteractiveInput() (string, error) {
+func (u *PlainUI) readInteractiveInput(renderedPrompt string) (string, error) {
 	fd := int(u.in.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -103,11 +88,29 @@ func (u *PlainUI) readInteractiveInput() (string, error) {
 	}
 	// Read through the buffered reader so bytes that AskPermission left in the
 	// bufio buffer are not lost when we re-enter raw mode.
-	return readInteractiveInputStreamWithStyle(u.reader, u.out, u.style, u.history)
+	return readInteractiveInputStreamWithStyle(u.reader, u.out, u.style, u.history, renderedPrompt)
 }
 
 func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error) {
-	return readInteractiveInputStreamWithStyle(reader, out, Style{}, nil)
+	return readInteractiveInputStreamWithStyle(reader, out, Style{}, nil, "")
+}
+
+// renderPromptString formats the prompt label with the current style and plan
+// mode. The returned string is both written to out (for the initial display)
+// and passed to the line editor (for multi-line redraws).
+func (u *PlainUI) renderPromptString(prompt string) string {
+	if u.style.Enabled() {
+		userIcon := u.style.BrightGreen(iconUser)
+		userLabel := u.style.BoldGreen("user")
+		promptLabel := u.style.BoldGreen(prompt)
+		if u.planMode {
+			userIcon = u.style.Yellow(iconUser)
+			userLabel = u.style.BoldYellow("user")
+			promptLabel = u.style.BoldYellow(prompt)
+		}
+		return fmt.Sprintf("%s %s %s", userIcon, userLabel, promptLabel)
+	}
+	return prompt
 }
 
 func pasteMarkerVariants(marker string) [][]byte {

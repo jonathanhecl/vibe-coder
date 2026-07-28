@@ -26,6 +26,7 @@ const (
 	keyPageUp
 	keyPageDown
 	keyPasteStart
+	keyAltEnter
 )
 
 // blockSpan marks an atomic bracketed-paste region inside the rune buffer. The
@@ -38,18 +39,22 @@ type blockSpan struct {
 	display string
 }
 
-// lineEditor is a minimal readline-style editor for a single input line. It
-// tracks a rune buffer, a logical cursor (rune index), and a screen cursor
-// (display columns from the start of the editable region). Paste blocks are
-// atomic: the cursor may sit before or after a block but never inside it.
+// lineEditor is a minimal readline-style editor that supports multi-line input
+// via Alt+Enter. It tracks a rune buffer (which may contain '\n'), a logical
+// cursor (rune index), and a screen position (row + column from the start of
+// the editable region). Paste blocks are atomic: the cursor may sit before or
+// after a block but never inside it.
 type lineEditor struct {
 	out   io.Writer
 	style Style
 
-	buf          []rune
-	cursor       int
-	screenCursor int
-	blocks       []blockSpan
+	buf         []rune
+	cursor      int
+	screenRow   int
+	screenCol   int
+	blocks      []blockSpan
+	prompt      string
+	promptWidth int
 
 	history     *inputHistory
 	histEntries []string
@@ -57,13 +62,35 @@ type lineEditor struct {
 	draft       string
 }
 
-func newLineEditor(out io.Writer, style Style, history *inputHistory) *lineEditor {
-	e := &lineEditor{out: out, style: style, history: history}
+func newLineEditor(out io.Writer, style Style, history *inputHistory, prompt string) *lineEditor {
+	e := &lineEditor{out: out, style: style, history: history, prompt: prompt, promptWidth: visibleWidth(prompt)}
 	if history != nil {
 		e.histEntries = history.snapshot()
 	}
 	e.histIdx = len(e.histEntries)
 	return e
+}
+
+// visibleWidth returns the display width of s with ANSI escape sequences
+// stripped. Wide characters (CJK/emoji) are counted as 1 column each; this is
+// a known limitation consistent with the English-only convention in AGENTS.md.
+func visibleWidth(s string) int {
+	width := 0
+	inEscape := false
+	for _, r := range s {
+		if inEscape {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEscape = false
+			}
+			continue
+		}
+		if r == 0x1b {
+			inEscape = true
+			continue
+		}
+		width++
+	}
+	return width
 }
 
 // readByte pulls a single byte from reader.
@@ -105,6 +132,8 @@ func readEscapeSeq(reader io.Reader) (keyKind, error) {
 		return keyEsc, nil
 	}
 	switch next {
+	case '\r', '\n':
+		return keyAltEnter, nil
 	case '[':
 		var params []byte
 		for {
@@ -211,8 +240,8 @@ func normalizePaste(s string) string {
 // from reader byte-by-byte, decodes UTF-8 and escape sequences, and drives the
 // line editor. Enter submits the line (recording it to history); Ctrl-C and
 // Ctrl-D on an empty line return io.EOF.
-func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style Style, history *inputHistory) (string, error) {
-	e := newLineEditor(out, style, history)
+func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style Style, history *inputHistory, prompt string) (string, error) {
+	e := newLineEditor(out, style, history, prompt)
 	for {
 		b, err := readByte(reader)
 		if err != nil {
@@ -253,6 +282,8 @@ func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style 
 				return "", err
 			}
 			switch key {
+			case keyAltEnter:
+				e.insertNewline()
 			case keyPasteStart:
 				content, err := readPasteContent(reader)
 				if err != nil {
@@ -290,50 +321,94 @@ func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style 
 	}
 }
 
-// displayWidth returns the screen columns from the start of the editable region
-// up to buf index idx. Block regions contribute their preview width instead of
-// their rune count. idx must not fall strictly inside a block (the cursor never
-// does).
-func (e *lineEditor) displayWidth(idx int) int {
-	w := 0
-	pos := 0
+// computeRowCol returns the (row, col) screen position for a given buffer
+// index. Row 0 starts after the prompt; subsequent rows start at column 0.
+// Block regions contribute their preview width instead of their rune count.
+// idx must not fall strictly inside a block (the cursor never does).
+func (e *lineEditor) computeRowCol(idx int) (row, col int) {
+	row = 0
+	col = 0
+	pos := 0 // last position consumed in buf
 	for _, b := range e.blocks {
 		if b.end <= idx {
-			w += b.start - pos
-			w += utf8.RuneCountInString(b.display)
+			e.advanceRowCol(&row, &col, e.buf[pos:b.start])
+			col += utf8.RuneCountInString(b.display)
 			pos = b.end
 		} else if b.start < idx {
-			w += b.start - pos
+			e.advanceRowCol(&row, &col, e.buf[pos:b.start])
 			pos = b.start
 			break
 		} else {
 			break
 		}
 	}
-	return w + (idx - pos)
+	e.advanceRowCol(&row, &col, e.buf[pos:idx])
+	return row, col
+}
+
+// advanceRowCol updates row/col for the runes in segment, handling '\n' by
+// incrementing row and resetting col to 0.
+func (e *lineEditor) advanceRowCol(row, col *int, segment []rune) {
+	for _, r := range segment {
+		if r == '\n' {
+			*row++
+			*col = 0
+		} else {
+			*col++
+		}
+	}
 }
 
 // moveToCursor emits the relative cursor motion needed to move the screen
-// cursor from its current position to the one for newCursor.
+// cursor from its current (screenRow, screenCol) to the position for newCursor.
 func (e *lineEditor) moveToCursor(newCursor int) {
-	target := e.displayWidth(newCursor)
+	targetRow, targetCol := e.computeRowCol(newCursor)
+	// Convert to terminal columns: row 0 is offset by the prompt width.
+	targetTermCol := targetCol
+	if targetRow == 0 {
+		targetTermCol += e.promptWidth
+	}
+	currentTermCol := e.screenCol
+	if e.screenRow == 0 {
+		currentTermCol += e.promptWidth
+	}
+	// Vertical movement.
 	switch {
-	case target > e.screenCursor:
-		fmt.Fprintf(e.out, "\x1b[%dC", target-e.screenCursor)
-	case target < e.screenCursor:
-		fmt.Fprintf(e.out, "\x1b[%dD", e.screenCursor-target)
+	case targetRow > e.screenRow:
+		fmt.Fprintf(e.out, "\x1b[%dB", targetRow-e.screenRow)
+	case targetRow < e.screenRow:
+		fmt.Fprintf(e.out, "\x1b[%dA", e.screenRow-targetRow)
+	}
+	// Horizontal movement.
+	switch {
+	case targetTermCol > currentTermCol:
+		fmt.Fprintf(e.out, "\x1b[%dC", targetTermCol-currentTermCol)
+	case targetTermCol < currentTermCol:
+		fmt.Fprintf(e.out, "\x1b[%dD", currentTermCol-targetTermCol)
 	}
 	e.cursor = newCursor
-	e.screenCursor = target
+	e.screenRow = targetRow
+	e.screenCol = targetCol
 }
 
 // redraw repaints the whole editable region: jump to its start, erase to end of
-// line, render text and block previews, then reposition the cursor.
+// screen, render text and block previews (with newlines for multi-line), then
+// reposition the cursor.
 func (e *lineEditor) redraw() {
-	if e.screenCursor > 0 {
-		fmt.Fprintf(e.out, "\x1b[%dD", e.screenCursor)
+	// Move to start of editable region.
+	if e.screenRow > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dA", e.screenRow)
 	}
-	_, _ = io.WriteString(e.out, "\x1b[K")
+	currentTermCol := e.screenCol
+	if e.screenRow == 0 {
+		currentTermCol += e.promptWidth
+	}
+	if currentTermCol > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dD", currentTermCol)
+	}
+	// Erase from cursor to end of screen.
+	_, _ = io.WriteString(e.out, "\x1b[J")
+	// Write buffer content with block previews.
 	pos := 0
 	for _, b := range e.blocks {
 		if b.start > pos {
@@ -345,12 +420,27 @@ func (e *lineEditor) redraw() {
 	if pos < len(e.buf) {
 		_, _ = io.WriteString(e.out, string(e.buf[pos:]))
 	}
-	end := e.displayWidth(len(e.buf))
-	target := e.displayWidth(e.cursor)
-	if back := end - target; back > 0 {
-		fmt.Fprintf(e.out, "\x1b[%dD", back)
+	// Reposition cursor: compute end position, then move back to cursor.
+	endRow, _ := e.computeRowCol(len(e.buf))
+	cursorRow, cursorCol := e.computeRowCol(e.cursor)
+	// Move up from end to cursor row.
+	if up := endRow - cursorRow; up > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dA", up)
+	} else if down := cursorRow - endRow; down > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dB", down)
 	}
-	e.screenCursor = target
+	// Horizontal: go to column 0, then move right to the target column.
+	// For row 0, the target terminal column includes the prompt width.
+	_, _ = io.WriteString(e.out, "\r")
+	targetTermCol := cursorCol
+	if cursorRow == 0 {
+		targetTermCol += e.promptWidth
+	}
+	if targetTermCol > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dC", targetTermCol)
+	}
+	e.screenRow = cursorRow
+	e.screenCol = cursorCol
 }
 
 // insertRune inserts r at the cursor. Appending at the end is optimized to a
@@ -361,12 +451,23 @@ func (e *lineEditor) insertRune(r rune) {
 		e.buf = append(e.buf, r)
 		_, _ = io.WriteString(e.out, string(r))
 		e.cursor++
-		e.screenCursor++
+		if r == '\n' {
+			e.screenRow++
+			e.screenCol = 0
+		} else {
+			e.screenCol++
+		}
 		return
 	}
 	e.buf = spliceRunes(e.buf, at, []rune{r})
 	e.shiftBlocks(at, 1)
 	e.cursor++
+	if r == '\n' {
+		e.screenRow++
+		e.screenCol = 0
+	} else {
+		e.screenCol++
+	}
 	e.redraw()
 }
 
@@ -383,7 +484,7 @@ func (e *lineEditor) insertBlock(content string) {
 	e.cursor = at + len(runes)
 	if appendedAtEnd {
 		_, _ = io.WriteString(e.out, e.style.DimBlue(preview))
-		e.screenCursor = e.displayWidth(e.cursor)
+		e.screenRow, e.screenCol = e.computeRowCol(e.cursor)
 	} else {
 		e.redraw()
 	}
@@ -433,7 +534,7 @@ func (e *lineEditor) backspace() {
 			e.buf = append(e.buf[:b.start], e.buf[b.end:]...)
 			e.blocks = append(e.blocks[:i], e.blocks[i+1:]...)
 			e.cursor = b.start
-			e.screenCursor = e.displayWidth(e.cursor)
+			e.screenRow, e.screenCol = e.computeRowCol(e.cursor)
 			if len(e.buf) > 0 {
 				e.redraw()
 			}
@@ -441,15 +542,14 @@ func (e *lineEditor) backspace() {
 		}
 	}
 	at := e.cursor - 1
+	deleted := e.buf[at]
 	e.buf = append(e.buf[:at], e.buf[at+1:]...)
 	e.shiftBlocks(at+1, -1)
-	// A block whose interior was crossed (should not happen since the cursor
-	// never enters a block) would need its end adjusted; shiftBlocks covers the
-	// common at-or-after case.
 	e.cursor = at
-	if e.cursor == len(e.buf) {
+	// Optimized path: deleting a non-newline rune at the end of the buffer.
+	if e.cursor == len(e.buf) && deleted != '\n' && e.screenCol > 0 {
 		_, _ = io.WriteString(e.out, "\b \b")
-		e.screenCursor--
+		e.screenCol--
 	} else {
 		e.redraw()
 	}
@@ -509,6 +609,7 @@ func (e *lineEditor) moveLeft() {
 		return
 	}
 	next := e.cursor - 1
+	// Skip over paste blocks.
 	for _, b := range e.blocks {
 		if b.end == e.cursor && b.start < e.cursor {
 			next = b.start
@@ -523,6 +624,7 @@ func (e *lineEditor) moveRight() {
 		return
 	}
 	next := e.cursor + 1
+	// Skip over paste blocks.
 	for _, b := range e.blocks {
 		if b.start == e.cursor {
 			next = b.end
@@ -532,15 +634,115 @@ func (e *lineEditor) moveRight() {
 	e.moveToCursor(next)
 }
 
+// moveUp moves the cursor to the previous line if the buffer contains newlines.
+// Returns true if it handled the movement (i.e., the buffer was multi-line).
+func (e *lineEditor) moveUp() bool {
+	if e.screenRow == 0 {
+		return false
+	}
+	// Find the start of the current line.
+	lineStart := e.lineStartIndex(e.cursor)
+	// Find the start of the previous line.
+	prevLineStart := e.lineStartIndex(lineStart - 1)
+	col := e.cursor - lineStart
+	target := prevLineStart + col
+	if target >= lineStart-1 {
+		target = lineStart - 1 // clamp to end of previous line (before the \n)
+	}
+	// Don't go past the end of the previous line.
+	prevLineEnd := lineStart - 1
+	if target > prevLineEnd {
+		target = prevLineEnd
+	}
+	e.moveToCursor(target)
+	return true
+}
+
+// moveDown moves the cursor to the next line if the buffer contains newlines.
+// Returns true if it handled the movement.
+func (e *lineEditor) moveDown() bool {
+	if e.screenRow >= e.lineCount()-1 {
+		return false
+	}
+	lineStart := e.lineStartIndex(e.cursor)
+	col := e.cursor - lineStart
+	nextLineStart := e.lineEndIndex(e.cursor) + 1
+	nextLineEnd := e.lineEndIndex(nextLineStart)
+	target := nextLineStart + col
+	if target > nextLineEnd {
+		target = nextLineEnd
+	}
+	e.moveToCursor(target)
+	return true
+}
+
+// lineStartIndex returns the buffer index of the first rune on the line
+// containing idx.
+func (e *lineEditor) lineStartIndex(idx int) int {
+	for i := idx - 1; i >= 0; i-- {
+		if e.buf[i] == '\n' {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// lineEndIndex returns the buffer index just past the last rune on the line
+// containing idx (i.e., the index of the '\n' or len(buf)).
+func (e *lineEditor) lineEndIndex(idx int) int {
+	for i := idx; i < len(e.buf); i++ {
+		if e.buf[i] == '\n' {
+			return i
+		}
+	}
+	return len(e.buf)
+}
+
+// lineCount returns the number of lines in the buffer (1 + number of newlines).
+func (e *lineEditor) lineCount() int {
+	count := 1
+	for _, r := range e.buf {
+		if r == '\n' {
+			count++
+		}
+	}
+	return count
+}
+
+// isMultiLine returns true if the buffer contains any newlines.
+func (e *lineEditor) isMultiLine() bool {
+	for _, r := range e.buf {
+		if r == '\n' {
+			return true
+		}
+	}
+	return false
+}
+
+// insertNewline inserts a '\n' at the cursor position for multi-line input.
+func (e *lineEditor) insertNewline() {
+	e.insertRune('\n')
+}
+
 func (e *lineEditor) moveHome() {
-	e.moveToCursor(0)
+	// Move to start of current line.
+	start := e.lineStartIndex(e.cursor)
+	e.moveToCursor(start)
 }
 
 func (e *lineEditor) moveEnd() {
-	e.moveToCursor(len(e.buf))
+	// Move to end of current line.
+	end := e.lineEndIndex(e.cursor)
+	e.moveToCursor(end)
 }
 
+// historyUp recalls the previous history entry. Only active when the buffer is
+// single-line; in multi-line mode, Up navigates between lines instead.
 func (e *lineEditor) historyUp() {
+	if e.isMultiLine() {
+		e.moveUp()
+		return
+	}
 	if e.history == nil || len(e.histEntries) == 0 {
 		return
 	}
@@ -553,7 +755,13 @@ func (e *lineEditor) historyUp() {
 	}
 }
 
+// historyDown recalls the next history entry. Only active when the buffer is
+// single-line; in multi-line mode, Down navigates between lines instead.
 func (e *lineEditor) historyDown() {
+	if e.isMultiLine() {
+		e.moveDown()
+		return
+	}
 	if e.history == nil {
 		return
 	}
