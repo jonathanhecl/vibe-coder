@@ -41,6 +41,9 @@ func loadHistory(path string) *inputHistory {
 			h.entries = append(h.entries, line)
 		}
 	}
+	// A non-EOF error (e.g. a line exceeding the buffer) means the file is
+	// truncated; keep whatever we managed to read rather than failing input.
+	_ = scanner.Err()
 	return h
 }
 

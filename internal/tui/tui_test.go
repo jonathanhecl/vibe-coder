@@ -317,14 +317,16 @@ func TestInteractiveInputUpDownNavigatesLines(t *testing.T) {
 	var out bytes.Buffer
 	hist := &inputHistory{entries: []string{"old entry"}}
 	// Type "aaa", Alt+Enter, "bbb", Up (should move to line 1, not recall
-	// history), Ctrl-K (kill to end of line on line 1), Enter.
-	// After Up+Ctrl-K, line 1 should be "aaa" (bbb killed), so result is "aaa\n".
+	// history), Ctrl-K (kill from cursor to end of buffer).
+	// After Up, cursor lands on the '\n' at index 3; Ctrl-K kills "\nbbb",
+	// leaving "aaa". If Up had recalled history, the buffer would be "old entry"
+	// and Ctrl-K would yield "".
 	got, err := readInteractiveInputStreamWithStyle(
 		strings.NewReader("aaa\x1b\rbbb\x1b[A\x0b\n"), &out, Style{}, hist, "")
 	if err != nil {
 		t.Fatalf("interactive input failed: %v", err)
 	}
-	if got != "aaa\n" {
+	if got != "aaa" {
 		t.Fatalf("expected Up to navigate lines not history, got %q", got)
 	}
 }
