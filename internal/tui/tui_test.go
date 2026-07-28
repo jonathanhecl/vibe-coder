@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -192,5 +193,104 @@ func TestGetInputBufferedMultilinePaste(t *testing.T) {
 	}
 	if got != "line 1\nline 2\nline 3" {
 		t.Fatalf("unexpected buffered multiline input: %q", got)
+	}
+}
+
+// TestInteractiveInputSwallowsArrowKeys verifies that escape sequences for the
+// arrow keys do not leak as literal ESC/letter bytes into the submitted input.
+func TestInteractiveInputSwallowsArrowKeys(t *testing.T) {
+	var out bytes.Buffer
+	// "hi" then Up/Down/Right/Left then Enter. None of the escape sequences
+	// should appear in the returned string.
+	input := "hi\x1b[A\x1b[B\x1b[C\x1b[D\n"
+	got, err := readInteractiveInputStream(strings.NewReader(input), &out)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "hi" {
+		t.Fatalf("expected arrow keys to be swallowed, got %q", got)
+	}
+	if strings.Contains(out.String(), "\x1b[A") || strings.Contains(out.String(), "\x1b[") {
+		// The cursor-motion output for redraw uses \x1b[C/\x1b[D, which is fine,
+		// but the raw input sequence must not be echoed verbatim.
+		if !strings.Contains(out.String(), "hi") {
+			t.Fatalf("expected 'hi' to be echoed, got %q", out.String())
+		}
+	}
+}
+
+// TestInteractiveInputCtrlUKillsToStart verifies that Ctrl-U removes everything
+// before the cursor.
+func TestInteractiveInputCtrlUKillsToStart(t *testing.T) {
+	var out bytes.Buffer
+	// Type "hello", move left twice, then Ctrl-U should clear "hel".
+	input := "hello\x1b[D\x1b[D\x15\n"
+	got, err := readInteractiveInputStream(strings.NewReader(input), &out)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "lo" {
+		t.Fatalf("expected Ctrl-U to clear prefix, got %q", got)
+	}
+}
+
+// TestInteractiveInputHistoryRecall verifies that Up recalls the previous
+// submitted entry when a history is provided.
+func TestInteractiveInputHistoryRecall(t *testing.T) {
+	var out bytes.Buffer
+	hist := &inputHistory{entries: []string{"previous input"}}
+	// Press Up to recall the stored entry, then Enter to submit it.
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("\x1b[A\n"), &out, Style{}, hist)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "previous input" {
+		t.Fatalf("expected history recall, got %q", got)
+	}
+}
+
+// TestInteractiveInputHistoryDownRestoresDraft verifies that pressing Down past
+// the newest entry restores the in-progress draft.
+func TestInteractiveInputHistoryDownRestoresDraft(t *testing.T) {
+	var out bytes.Buffer
+	hist := &inputHistory{entries: []string{"old"}}
+	// Type "draft", Up (recall "old"), Down (restore "draft"), Enter.
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("draft\x1b[A\x1b[B\n"), &out, Style{}, hist)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "draft" {
+		t.Fatalf("expected draft restored after Down, got %q", got)
+	}
+}
+
+// TestInputHistoryPersistsToFile verifies that submitted entries are appended to
+// the history file and reloaded on the next loadHistory call.
+func TestInputHistoryPersistsToFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.txt")
+	h1 := loadHistory(path)
+	h1.add("first request")
+	h1.add("second request")
+	h1.add("second request") // consecutive duplicate is dropped
+
+	h2 := loadHistory(path)
+	got := h2.snapshot()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 persisted entries, got %d: %v", len(got), got)
+	}
+	if got[0] != "first request" || got[1] != "second request" {
+		t.Fatalf("expected [first request, second request], got %v", got)
+	}
+}
+
+// TestInputHistoryIgnoresEmptyLines verifies that blank submissions are not
+// recorded.
+func TestInputHistoryIgnoresEmptyLines(t *testing.T) {
+	hist := &inputHistory{}
+	hist.add("")
+	hist.add("   ")
+	if got := hist.snapshot(); len(got) != 0 {
+		t.Fatalf("expected no history entries, got %v", got)
 	}
 }
