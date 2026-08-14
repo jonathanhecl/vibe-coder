@@ -339,3 +339,36 @@ func TestTokenEstimateIsMaintainedIncrementally(t *testing.T) {
 		t.Fatalf("clear should reset token estimate, got %d", loaded.TokenEstimate())
 	}
 }
+
+func TestWriteProjectIndexForExplicitID(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	sessionsDir := filepath.Join(tmp, "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "myproject"),
+		SessionsDir: sessionsDir,
+	}
+	if err := os.MkdirAll(cfg.Cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := New(cfg)
+	customID := "custom-session-id-123"
+	if err := os.WriteFile(filepath.Join(sessionsDir, customID+".jsonl"), []byte(`{"role":"user","content":"hi"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeProjectIndexFor(customID); err != nil {
+		t.Fatalf("writeProjectIndexFor failed: %v", err)
+	}
+	loaded := New(cfg)
+	ok, err := loaded.LoadByProject()
+	if err != nil {
+		t.Fatalf("LoadByProject failed: %v", err)
+	}
+	if !ok || loaded.ID() != customID {
+		t.Fatalf("expected LoadByProject to find customID %q, got %q", customID, loaded.ID())
+	}
+}
+

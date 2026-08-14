@@ -197,6 +197,49 @@ func TestGrepSkipsIgnoredDirsAndLimitsOutput(t *testing.T) {
 	}
 }
 
+func TestGrepMultiline(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	file := filepath.Join(tmp, "code.go")
+	content := "func main() {\n\tfmt.Println(\"start\")\n\trun()\n}\n"
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := NewGrepTool().Execute(context.Background(), map[string]any{
+		"pattern":   `func main\(\) \{\n\s+fmt\.Println`,
+		"path":      tmp,
+		"multiline": true,
+	})
+	if res.IsError {
+		t.Fatalf("grep multiline failed: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "code.go:1:func main()") {
+		t.Fatalf("expected line 1 in multiline output, got: %s", res.Output)
+	}
+}
+
+func TestGrepLongLine(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	file := filepath.Join(tmp, "huge.txt")
+	longLine := "prefix_" + strings.Repeat("a", 80*1024) + "_suffix"
+	if err := os.WriteFile(file, []byte(longLine+"\nsecond line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := NewGrepTool().Execute(context.Background(), map[string]any{
+		"pattern": "second line",
+		"path":    tmp,
+	})
+	if res.IsError {
+		t.Fatalf("grep long line failed: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "huge.txt:2:second line") {
+		t.Fatalf("expected second line after huge line, got: %s", res.Output)
+	}
+}
+
 func TestWebToolsBlockLocalhost(t *testing.T) {
 	t.Parallel()
 	fetch := NewWebFetchTool().Execute(context.Background(), map[string]any{"url": "http://localhost:8080"})
@@ -214,8 +257,17 @@ func TestNotebookEditAndTaskTools(t *testing.T) {
 	tmp := t.TempDir()
 	nbPath := filepath.Join(tmp, "n.ipynb")
 	nb := map[string]any{
+		"metadata": map[string]any{
+			"language_info": map[string]any{"name": "python"},
+		},
+		"nbformat": 4,
 		"cells": []map[string]any{
-			{"cell_type": "code", "source": []string{"print('a')"}},
+			{
+				"cell_type":       "code",
+				"execution_count": 1,
+				"outputs":         []any{"output_text"},
+				"source":          []string{"print('a')"},
+			},
 		},
 	}
 	raw, _ := json.Marshal(nb)
@@ -232,6 +284,26 @@ func TestNotebookEditAndTaskTools(t *testing.T) {
 	})
 	if edit.IsError {
 		t.Fatalf("notebook edit failed: %s", edit.Output)
+	}
+
+	updatedData, err := os.ReadFile(nbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updatedNB map[string]any
+	if err := json.Unmarshal(updatedData, &updatedNB); err != nil {
+		t.Fatal(err)
+	}
+	if updatedNB["nbformat"] != float64(4) {
+		t.Fatalf("nbformat was lost: %+v", updatedNB)
+	}
+	if updatedNB["metadata"] == nil {
+		t.Fatalf("notebook metadata was lost: %+v", updatedNB)
+	}
+	cells := updatedNB["cells"].([]any)
+	firstCell := cells[0].(map[string]any)
+	if len(firstCell["outputs"].([]any)) != 1 {
+		t.Fatalf("cell outputs were lost: %+v", firstCell)
 	}
 
 	create := NewTaskCreateTool().Execute(context.Background(), map[string]any{"content": "ship mvp"})

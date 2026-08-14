@@ -29,9 +29,26 @@ func TestCleanEnvDropsSecrets(t *testing.T) {
 	}
 }
 
+func TestCleanEnvRetainsWindowsSystemEnv(t *testing.T) {
+	t.Setenv("SYSTEMROOT", `C:\Windows`)
+	t.Setenv("USERPROFILE", `C:\Users\testuser`)
+	env := CleanEnv()
+	joined := ""
+	for _, item := range env {
+		joined += item + "\n"
+	}
+	if !containsLinePrefix(joined, "SYSTEMROOT=") {
+		t.Fatalf("expected SYSTEMROOT to be kept")
+	}
+	if !containsLinePrefix(joined, "USERPROFILE=") {
+		t.Fatalf("expected USERPROFILE to be kept")
+	}
+}
+
 func containsLinePrefix(multiline, prefix string) bool {
+	upperPrefix := strings.ToUpper(prefix)
 	for _, line := range strings.Split(multiline, "\n") {
-		if len(line) >= len(prefix) && line[:len(prefix)] == prefix {
+		if len(line) >= len(prefix) && strings.ToUpper(line[:len(prefix)]) == upperPrefix {
 			return true
 		}
 	}

@@ -38,15 +38,6 @@ func (t *NotebookEditTool) Schema() Schema {
 	}
 }
 
-type notebook struct {
-	Cells []notebookCell `json:"cells"`
-}
-
-type notebookCell struct {
-	CellType string   `json:"cell_type"`
-	Source   []string `json:"source"`
-}
-
 func (t *NotebookEditTool) Execute(_ context.Context, params map[string]any) Result {
 	path, ok := params["notebook_path"].(string)
 	if !ok || strings.TrimSpace(path) == "" {
@@ -77,33 +68,62 @@ func (t *NotebookEditTool) Execute(_ context.Context, params map[string]any) Res
 	if err != nil {
 		return errResult(agentPathPreamble(fmt.Sprintf("read notebook: %v", err)) + assistantPathHints(path, "read notebook", err))
 	}
-	var nb notebook
+	var nb map[string]any
 	if err := json.Unmarshal(data, &nb); err != nil {
 		return errResult(fmt.Sprintf("decode notebook: %v", err))
 	}
 
+	cellsRaw, ok := nb["cells"].([]any)
+	if !ok {
+		cellsRaw = []any{}
+	}
+
 	if isNewCell {
-		if cellIndex > len(nb.Cells) {
-			cellIndex = len(nb.Cells)
+		if cellIndex > len(cellsRaw) {
+			cellIndex = len(cellsRaw)
 		}
-		cell := notebookCell{
-			CellType: normalizeCellLanguage(cellLang),
-			Source:   []string{newString},
+		newCell := map[string]any{
+			"cell_type": normalizeCellLanguage(cellLang),
+			"source":    []string{newString},
+			"metadata":  map[string]any{},
 		}
-		nb.Cells = append(nb.Cells[:cellIndex], append([]notebookCell{cell}, nb.Cells[cellIndex:]...)...)
+		if normalizeCellLanguage(cellLang) == "code" {
+			newCell["outputs"] = []any{}
+			newCell["execution_count"] = nil
+		}
+		cellsRaw = append(cellsRaw[:cellIndex], append([]any{newCell}, cellsRaw[cellIndex:]...)...)
+		nb["cells"] = cellsRaw
 	} else {
-		if cellIndex >= len(nb.Cells) {
+		if cellIndex >= len(cellsRaw) {
 			return errResult("cell_index out of range")
 		}
-		current := strings.Join(nb.Cells[cellIndex].Source, "")
-		if oldString != "" && !strings.Contains(current, oldString) {
+		cellMap, ok := cellsRaw[cellIndex].(map[string]any)
+		if !ok {
+			return errResult("invalid cell format in notebook")
+		}
+		var currentSource string
+		switch s := cellMap["source"].(type) {
+		case string:
+			currentSource = s
+		case []any:
+			var sb strings.Builder
+			for _, item := range s {
+				if str, ok := item.(string); ok {
+					sb.WriteString(str)
+				}
+			}
+			currentSource = sb.String()
+		case []string:
+			currentSource = strings.Join(s, "")
+		}
+		if oldString != "" && !strings.Contains(currentSource, oldString) {
 			return errResult("old_string not found in target cell")
 		}
 		updated := newString
 		if oldString != "" {
-			updated = strings.Replace(current, oldString, newString, 1)
+			updated = strings.Replace(currentSource, oldString, newString, 1)
 		}
-		nb.Cells[cellIndex].Source = []string{updated}
+		cellMap["source"] = []string{updated}
 	}
 
 	raw, err := json.MarshalIndent(nb, "", "  ")

@@ -17,7 +17,7 @@ func runReviewCommand(c *Ctx, args []string) (bool, bool, error) {
 	st := tui.NewStyle(c.Out)
 	if c.Agent != nil {
 		c.Agent.EnterReviewMode()
-		c.Session.AddUser("[System Note] Review mode enabled for this prompt.")
+		c.Session.AddSystemNote("Review mode enabled for this prompt.")
 	}
 	fmt.Fprintln(c.Out, st.Yellow("Review mode enabled. The model will be restricted to read-only tools for this prompt."))
 	return true, false, nil

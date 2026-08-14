@@ -52,6 +52,10 @@ func CleanEnv() []string {
 		"CFLAGS": {}, "LDFLAGS": {}, "PKG_CONFIG_PATH": {}, "GOPATH": {}, "GOROOT": {}, "CARGO_HOME": {},
 		"RUSTUP_HOME": {}, "JAVA_HOME": {}, "NVM_DIR": {}, "PYENV_ROOT": {}, "VIRTUAL_ENV": {}, "CONDA_DEFAULT_ENV": {},
 		"OLLAMA_HOST": {}, "PYTHONPATH": {}, "NODE_PATH": {}, "GEM_HOME": {}, "RBENV_ROOT": {},
+		"SYSTEMROOT": {}, "SYSTEMDRIVE": {}, "WINDIR": {}, "COMSPEC": {}, "PATHEXT": {},
+		"USERPROFILE": {}, "LOCALAPPDATA": {}, "APPDATA": {}, "PROGRAMDATA": {},
+		"PROGRAMFILES": {}, "PROGRAMFILES(X86)": {}, "PUBLIC": {}, "ALLUSERSPROFILE": {},
+		"COMMONPROGRAMFILES": {}, "COMMONPROGRAMFILES(X86)": {}, "HOMEDRIVE": {}, "HOMEPATH": {},
 	}
 	sensitivePrefixes := []string{
 		"CLAUDECODE", "CLAUDE_CODE", "ANTHROPIC", "OPENAI", "AWS_SECRET", "AWS_SESSION", "GITHUB_TOKEN",

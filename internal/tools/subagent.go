@@ -58,27 +58,11 @@ func (t *SubAgentTool) Execute(ctx context.Context, params map[string]any) Resul
 	if strings.TrimSpace(p) == "" {
 		return errResult("prompt is required")
 	}
-	maxTurns := asInt(params["max_turns"], 10)
-	if maxTurns < 1 {
-		maxTurns = 1
+	out, err := t.runOneTurn(ctx, p)
+	if err != nil {
+		return errResult(err.Error())
 	}
-	if maxTurns > 20 {
-		maxTurns = 20
-	}
-	reply := ""
-	nextPrompt := p
-	for i := 0; i < maxTurns; i++ {
-		out, err := t.runOneTurn(ctx, nextPrompt)
-		if err != nil {
-			return errResult(err.Error())
-		}
-		reply = out
-		if strings.TrimSpace(out) == "" {
-			break
-		}
-		nextPrompt = out
-	}
-	return Result{Output: reply}
+	return Result{Output: out}
 }
 
 func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (string, error) {

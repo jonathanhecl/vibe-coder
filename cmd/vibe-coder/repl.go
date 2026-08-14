@@ -78,6 +78,7 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			}
+			_ = slashCtx.Session.Save()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
 		}
@@ -85,6 +86,7 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			}
+			_ = slashCtx.Session.Save()
 			ag.ExitReviewMode()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
@@ -96,6 +98,7 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 	if err := runAgentWithEmptyRetry(rootCtx, ag, ui, line); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}
+	_ = slashCtx.Session.Save()
 	return false
 }
 

@@ -194,7 +194,7 @@ func (s *Session) writeProjectIndexFor(id string) error {
 	if existing, err := os.ReadFile(indexPath); err == nil {
 		_ = json.Unmarshal(existing, &index)
 	}
-	index[hash] = s.id
+	index[hash] = id
 
 	raw, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {

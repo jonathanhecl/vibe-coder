@@ -229,3 +229,42 @@ func TestEditLineRangeOutOfRange(t *testing.T) {
 		t.Fatalf("expected out of range error, got: %s", res.Output)
 	}
 }
+
+func TestEditCRLFMultipleMatchesRequiresReplaceAll(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "crlf_multi.txt")
+	if err := os.WriteFile(p, []byte("echo 1\r\necho 1\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := NewEditTool().Execute(context.Background(), map[string]any{
+		"file_path":  p,
+		"old_string": "echo 1",
+		"new_string": "echo 2",
+	})
+	if !res.IsError {
+		t.Fatal("expected error for multiple CRLF matches without replace_all")
+	}
+	if !strings.Contains(res.Output, "replace_all=true") {
+		t.Fatalf("expected replace_all hint, got: %s", res.Output)
+	}
+
+	res = NewEditTool().Execute(context.Background(), map[string]any{
+		"file_path":   p,
+		"old_string":  "echo 1",
+		"new_string":  "echo 2",
+		"replace_all": true,
+	})
+	if res.IsError {
+		t.Fatalf("replace_all CRLF edit failed: %s", res.Output)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "echo 2\r\necho 2\r\n" {
+		t.Fatalf("unexpected content: %q", string(data))
+	}
+}
+

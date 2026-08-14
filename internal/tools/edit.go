@@ -281,6 +281,9 @@ func (t *EditTool) Execute(ctx context.Context, params map[string]any) Result {
 		normOld := strings.ReplaceAll(oldString, "\r\n", "\n")
 		matches = findMatches(normContent, normOld)
 		if len(matches) > 0 {
+			if len(matches) > 1 && !replaceAll {
+				return errResult("old_string matched multiple times, set replace_all=true")
+			}
 			updated := replaceCRLFMatch(content, normOld, newString, matches, lengths)
 			return applyEdit(ctx, path, content, updated)
 		}

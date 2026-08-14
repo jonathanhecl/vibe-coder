@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io/fs"
@@ -157,24 +156,72 @@ func (t *GrepTool) Execute(ctx context.Context, params map[string]any) Result {
 			}
 		default:
 			lines := splitLines(content)
-			for i, line := range lines {
-				if !re.MatchString(line) {
-					continue
+			if multiline {
+				norm := strings.ReplaceAll(content, "\r\n", "\n")
+				matchIndices := re.FindAllStringIndex(norm, -1)
+				if len(matchIndices) > 0 {
+					lineStarts := make([]int, len(lines))
+					pos := 0
+					for idx, l := range lines {
+						lineStarts[idx] = pos
+						pos += len(l) + 1 // +1 for '\n'
+					}
+					for _, mIdx := range matchIndices {
+						fileHits[file]++
+						startPos := mIdx[0]
+						endPos := mIdx[1]
+						startLineIdx := 0
+						for li := 0; li < len(lineStarts); li++ {
+							if li+1 < len(lineStarts) && lineStarts[li+1] <= startPos {
+								continue
+							}
+							startLineIdx = li
+							break
+						}
+						endLineIdx := startLineIdx
+						for li := startLineIdx; li < len(lineStarts); li++ {
+							if li+1 < len(lineStarts) && lineStarts[li+1] < endPos {
+								continue
+							}
+							endLineIdx = li
+							break
+						}
+						ctxStart := startLineIdx - before
+						if ctxStart < 0 {
+							ctxStart = 0
+						}
+						ctxEnd := endLineIdx + after
+						if ctxEnd >= len(lines) {
+							ctxEnd = len(lines) - 1
+						}
+						for j := ctxStart; j <= ctxEnd; j++ {
+							matches = append(matches, fmt.Sprintf("%s:%d:%s", file, j+1, lines[j]))
+						}
+						if outputGoal > 0 && len(matches) >= outputGoal {
+							goto doneScanning
+						}
+					}
 				}
-				fileHits[file]++
-				start := i - before
-				if start < 0 {
-					start = 0
-				}
-				end := i + after
-				if end >= len(lines) {
-					end = len(lines) - 1
-				}
-				for j := start; j <= end; j++ {
-					matches = append(matches, fmt.Sprintf("%s:%d:%s", file, j+1, lines[j]))
-				}
-				if outputGoal > 0 && len(matches) >= outputGoal {
-					goto doneScanning
+			} else {
+				for i, line := range lines {
+					if !re.MatchString(line) {
+						continue
+					}
+					fileHits[file]++
+					start := i - before
+					if start < 0 {
+						start = 0
+					}
+					end := i + after
+					if end >= len(lines) {
+						end = len(lines) - 1
+					}
+					for j := start; j <= end; j++ {
+						matches = append(matches, fmt.Sprintf("%s:%d:%s", file, j+1, lines[j]))
+					}
+					if outputGoal > 0 && len(matches) >= outputGoal {
+						goto doneScanning
+					}
 				}
 			}
 		}
@@ -220,12 +267,7 @@ func paginate(content string, offset, limit int) string {
 }
 
 func splitLines(s string) []string {
-	scanner := bufio.NewScanner(strings.NewReader(s))
-	out := make([]string, 0, 64)
-	for scanner.Scan() {
-		out = append(out, scanner.Text())
-	}
-	return out
+	return strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
 }
 
 func isBinary(data []byte) bool {
