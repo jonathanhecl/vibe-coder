@@ -14,6 +14,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
+	"github.com/jonathanhecl/vibe-coder/internal/vision"
 	"github.com/jonathanhecl/vibe-coder/internal/watcher"
 )
 
@@ -41,6 +42,7 @@ type Agent struct {
 	side        *sidecar.Pool
 	currentGoal string // verbatim text of the user's request for this Run()
 	ctxStore    *contextfiles.Store
+	imgCache    *vision.Cache
 
 	// sysPrompt caches the stable system prompt until disk/registry inputs change.
 	sysPrompt promptCache

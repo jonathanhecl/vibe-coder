@@ -92,6 +92,86 @@ func (m Model) SupportsTools() bool {
 	return false
 }
 
+// SupportsVision reports whether the model advertises vision capability.
+func (m Model) SupportsVision() bool {
+	for _, cap := range m.Capabilities {
+		if strings.TrimSpace(strings.ToLower(cap)) == "vision" {
+			return true
+		}
+	}
+	return false
+}
+
+// LookupVision resolves vision support for name against a lowercase
+// model-name to vision-support map (as built from Tags). It tolerates a
+// missing or extra ":latest" tag, and a tagless name that matches exactly
+// one model base. Known is false when the model is absent or ambiguous.
+func LookupVision(byModel map[string]bool, name string) (available, known bool) {
+	want := strings.ToLower(strings.TrimSpace(name))
+	if want == "" {
+		return false, false
+	}
+	if v, ok := byModel[want]; ok {
+		return v, true
+	}
+	if v, ok := byModel[want+":latest"]; ok {
+		return v, true
+	}
+	base := want
+	if idx := strings.LastIndex(want, ":"); idx > 0 {
+		base = want[:idx]
+		if v, ok := byModel[base]; ok {
+			return v, true
+		}
+	}
+	var match *bool
+	for key, v := range byModel {
+		keyBase := key
+		if idx := strings.LastIndex(keyBase, ":"); idx > 0 {
+			keyBase = keyBase[:idx]
+		}
+		if keyBase != base {
+			continue
+		}
+		if match != nil {
+			return false, false // ambiguous across tags
+		}
+		value := v
+		match = &value
+	}
+	if match != nil {
+		return *match, true
+	}
+	return false, false
+}
+
+// MatchModel finds name in models, tolerating a missing or extra ":latest"
+// tag and case differences. It returns nil when there is no match.
+func MatchModel(models []Model, name string) *Model {
+	want := strings.ToLower(strings.TrimSpace(name))
+	if want == "" {
+		return nil
+	}
+	base := want
+	if idx := strings.LastIndex(base, ":"); idx >= 0 {
+		base = base[:idx]
+	}
+	for i := range models {
+		got := strings.ToLower(strings.TrimSpace(models[i].Name))
+		if got == "" {
+			continue
+		}
+		gotBase := got
+		if idx := strings.LastIndex(gotBase, ":"); idx >= 0 {
+			gotBase = gotBase[:idx]
+		}
+		if got == want || gotBase == base {
+			return &models[i]
+		}
+	}
+	return nil
+}
+
 func FilterToolCapableModels(models []Model) []Model {
 	out := make([]Model, 0, len(models))
 	for _, model := range models {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
 const defaultReadMaxBytes = 512 * 1024
@@ -16,7 +18,7 @@ func NewReadTool() *ReadTool { return &ReadTool{} }
 
 func (t *ReadTool) Name() string { return "Read" }
 func (t *ReadTool) Description() string {
-	return "Read a text file with line numbers."
+	return "Read a text file with line numbers, or attach an image file (JPEG/PNG/GIF/BMP) for vision-capable models."
 }
 func (t *ReadTool) Schema() Schema {
 	return Schema{
@@ -49,6 +51,12 @@ func (t *ReadTool) Execute(ctx context.Context, params map[string]any) Result {
 	vr := validateExistingFileForRead(path)
 	if vr.IsError() {
 		return Result{Output: vr.UserError, HintsForModel: vr.AssistantHints, IsError: true}
+	}
+
+	// Image files are not read as text. Return a marker that the agent loop
+	// resolves to real image bytes at send time (vision-capable models only).
+	if vision.IsImagePath(path) {
+		return readImageMarker(path)
 	}
 
 	file, err := os.Open(path)
@@ -123,4 +131,23 @@ func (t *ReadTool) Execute(ctx context.Context, params map[string]any) Result {
 		output += "\n[read truncated; adjust start_line/end_line/limit/max_bytes to continue]"
 	}
 	return Result{Output: output}
+}
+
+// readImageMarker validates an image file fail-fast and returns its attach
+// marker. Heavy work (downscale, base64) happens at send time, not here.
+func readImageMarker(path string) Result {
+	if !vision.IsSupportedImage(path) {
+		return errResult(fmt.Sprintf("unsupported image format: %s (supported formats: %s; convert the file first)", path, vision.SupportedFormats()))
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return errResult(fmt.Sprintf("read image: %v", err))
+	}
+	if info.Size() > vision.MaxInputBytes {
+		return errResult(fmt.Sprintf("image too large: %s (%d bytes, max %d)", path, info.Size(), vision.MaxInputBytes))
+	}
+	return Result{
+		Output:        vision.MarkerFor(path),
+		HintsForModel: "The image is now attached and will reach the model with your next reply. Describe or use what you see; do not re-read the file.",
+	}
 }

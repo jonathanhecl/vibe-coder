@@ -93,6 +93,9 @@ func TestDispatchMinimumCommands(t *testing.T) {
 	if err != nil || !handled || shouldExit || cfg.Model != "qwen3.5:9b" {
 		t.Fatalf("unexpected /model set result: handled=%t exit=%t err=%v model=%s", handled, shouldExit, err, cfg.Model)
 	}
+	if !strings.Contains(out.String(), "vision: unknown") {
+		t.Fatalf("expected /model output to report unknown vision without a Tags cache, got %q", out.String())
+	}
 
 	handled, shouldExit, err = Dispatch(ctx, "/hide-think")
 	if err != nil || !handled || shouldExit || !cfg.OllamaHideThink {

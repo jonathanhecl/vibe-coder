@@ -102,6 +102,7 @@ func main() {
 	client := ollama.NewHTTP(cfg.OllamaHost)
 	sess := session.New(cfg)
 	sess.SetClient(client)
+	resolveVisionSupport(cfg, client)
 	ctxStore := contextfiles.NewStore()
 	preloadSessionContexts(cfg, ctxStore)
 	ui, err := tui.NewFromMode(cfg)
@@ -242,6 +243,36 @@ func resumeConfiguredSession(cfg *config.Config, sess *session.Session) error {
 		fmt.Fprintf(os.Stdout, "Resumed project session %s\n", sess.ID())
 	}
 	return nil
+}
+
+// resolveVisionSupport detects once, at startup, whether the active model
+// advertises vision capability. It is best-effort: on any failure the agent
+// runs with VisionKnown=false and stays honest about trying.
+func resolveVisionSupport(cfg *config.Config, client ollama.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	models, err := client.Tags(ctx)
+	if err != nil {
+		logger.Infof("Vision detection skipped (tags failed): %v", err)
+		return
+	}
+	cfg.VisionByModel = make(map[string]bool, len(models))
+	for _, m := range models {
+		name := strings.ToLower(strings.TrimSpace(m.Name))
+		if name != "" {
+			cfg.VisionByModel[name] = m.SupportsVision()
+		}
+	}
+	applyVisionForModel(cfg)
+}
+
+// applyVisionForModel refreshes the vision flags for the active model from
+// the cached Tags map. Unknown models leave VisionKnown=false.
+func applyVisionForModel(cfg *config.Config) {
+	available, known := ollama.LookupVision(cfg.VisionByModel, cfg.Model)
+	cfg.VisionAvailable = available
+	cfg.VisionKnown = known
+	logger.Infof("Vision support for model %q: available=%t known=%t", cfg.Model, available, known)
 }
 
 // preloadSessionContexts pins every --context file (accumulated) into the

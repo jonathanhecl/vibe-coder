@@ -33,6 +33,9 @@ type Message struct {
 	Role     string `json:"role"`
 	Content  string `json:"content"`
 	Thinking string `json:"thinking,omitempty"`
+	// Images carries base64-encoded pictures for vision-capable models
+	// (Ollama /api/chat images field). Empty for text-only turns.
+	Images []string `json:"images,omitempty"`
 }
 
 type ChatOptions struct {

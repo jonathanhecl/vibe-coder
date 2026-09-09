@@ -178,6 +178,8 @@ func TestContextPinsPersistAcrossSaveResume(t *testing.T) {
 
 func TestStatusShowsPinnedContexts(t *testing.T) {
 	ctx, _, out := newContextTestCtx(t)
+	ctx.Cfg.VisionKnown = true
+	ctx.Cfg.VisionAvailable = true
 	guide := writeGuide(t, t.TempDir(), "guide.md", "Guide.")
 	if _, _, err := Dispatch(ctx, "/context add "+guide); err != nil {
 		t.Fatal(err)
@@ -188,6 +190,9 @@ func TestStatusShowsPinnedContexts(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Pinned contexts") || !strings.Contains(out.String(), "guide.md") {
 		t.Fatalf("expected status to list pinned file, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Vision: yes") {
+		t.Fatalf("expected status to report vision, got %q", out.String())
 	}
 }
 

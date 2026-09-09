@@ -389,8 +389,8 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/resume` — resume the last session for this project path
 - `/resume <id>` — resume a specific session by id (or unique prefix)
 - `/compact` — force a sidecar-summarized compaction
-- `/tokens` — show token usage vs the context window
-- `/status` — show model, cwd, session and sidecar status
+- `/tokens` — show token usage vs the context window (attached images count too)
+- `/status` — show model, cwd, session, sidecar and vision status
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
 - `/context replace <file...>` — drop all pinned files and pin these instead
@@ -403,7 +403,7 @@ Pinned context files are injected into the system prompt on every turn, so they 
 ### Model
 
 - `/model` — show the active model
-- `/model <name>` — switch the active model for this run
+- `/model <name>` — switch the active model for this run (vision support is re-checked and reported)
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/sidecar status` — show current sidecar state
@@ -435,7 +435,8 @@ do not call these directly, but their behavior affects speed and context usage:
 
 - `Read` accepts `start_line`, `end_line`, `offset`, `limit`, and `max_bytes`
   for partial file reads. Without those parameters it reads the full file
-  with line numbers.
+  with line numbers. On image files (`.jpg`, `.png`, `.gif`, `.bmp`) it
+  attaches the picture to the conversation instead (vision-capable models only).
 - `Write` creates or overwrites a file; dangerous paths and protected
   directories are blocked.
 - `Edit` applies a replacement; the TUI renders a colored unified-diff preview.
@@ -454,6 +455,35 @@ do not call these directly, but their behavior affects speed and context usage:
   `vendor`, `dist`, `build`, `target`, and `.vibe-coder`.
 - `Read`, `Glob`, and `Grep` respect cancellation, so ESC/Ctrl-C can stop
   long file operations cleanly.
+
+## Vision
+
+`vibe-coder` detects at startup whether the active model advertises vision
+capability (`/api/tags`) and tells the agent about it in the system prompt,
+so it knows whether attached images actually reach it. `/status` reports
+`Vision: yes|no|unknown`, and `/model` re-checks on every switch.
+
+With a vision-capable model (e.g. `llava`, `qwen2-vl`, `moondream`), ask
+about pictures directly — `Read` on an image file attaches it:
+
+```bash
+./vibe-coder --model llava
+> review ./photos and organize them into subfolders by clothing color
+```
+
+Rules and limits:
+
+- Formats: `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp` (`.webp` and others are
+  rejected with a clear error — convert first).
+- Each file: max 15 MB on disk, downscaled to 1024 px (longest side) before
+  sending, max 5 images per message.
+- Images count toward compaction triggers and `/tokens` (1500 tokens each,
+  proxy value) and reserve transcript budget, so big photo tasks compact
+  like long text ones.
+- The transcript stores a tiny `[image path=...]` marker; bytes resolve at
+  send time and are cached per session, so `--resume` re-reads them from disk.
+- The sidecar never receives images (summarization, condensation, and path
+  disambiguation stay text-only).
 
 ## RAG Usage
 

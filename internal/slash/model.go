@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
 var modelNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.:\-/]+$`)
@@ -69,8 +70,23 @@ func runModelCommand(c *Ctx, args []string) error {
 		return nil
 	}
 	c.Cfg.Model = next
-	fmt.Fprintf(c.Out, "Model set to: %s\n", c.Cfg.Model)
+	// Refresh vision support from the cached Tags map so the system prompt
+	// and /status stay honest after a switch. Unknown models report unknown.
+	available, known := ollama.LookupVision(c.Cfg.VisionByModel, c.Cfg.Model)
+	c.Cfg.VisionAvailable, c.Cfg.VisionKnown = available, known
+	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s)\n", c.Cfg.Model, visionWord(known, available))
 	return nil
+}
+
+func visionWord(known, available bool) string {
+	switch {
+	case known && available:
+		return "yes"
+	case known && !available:
+		return "no"
+	default:
+		return "unknown"
+	}
 }
 
 func setYesMode(c *Ctx, enabled bool) {

@@ -43,6 +43,14 @@ type Config struct {
 	// session instructions (repeatable --context flag). Contents are
 	// injected into the system prompt and never compacted.
 	ContextFiles []string
+	// VisionAvailable reports whether the active model advertises vision
+	// capability. VisionKnown is false when detection failed (e.g. Ollama
+	// unreachable at startup); the agent then stays honest about trying.
+	VisionAvailable bool
+	VisionKnown     bool
+	// VisionByModel caches vision support per model name so /model switches
+	// resolve without extra network calls.
+	VisionByModel map[string]bool
 
 	RAG         bool
 	RAGModel    string

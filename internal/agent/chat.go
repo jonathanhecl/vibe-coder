@@ -10,6 +10,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/skills"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
+	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
 func (a *Agent) buildOllamaMessages(systemPrompt string) []ollama.Message {
@@ -27,7 +28,9 @@ func (a *Agent) buildOllamaMessages(systemPrompt string) []ollama.Message {
 	sum := 0
 	start := 0
 	for i := len(hist) - 1; i >= 0; i-- {
-		sum += len(hist[i].Content)
+		// Attached images are not text tokens; reserve budget for them with
+		// the same proxy constant used by the session token estimate.
+		sum += len(hist[i].Content) + vision.CountMarkers(hist[i].Content)*vision.EstimatedCharsPerImage
 		if sum > budgetChars {
 			start = i + 1
 			break
@@ -44,7 +47,9 @@ func (a *Agent) buildOllamaMessages(systemPrompt string) []ollama.Message {
 		}
 		out = append(out, ollama.Message{Role: role, Content: m.Content})
 	}
-	return out
+	// Markers become image bytes only here, at send time. The transcript
+	// keeps the cheap text form.
+	return a.resolveImageAttachments(out)
 }
 func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 	var lastErr error

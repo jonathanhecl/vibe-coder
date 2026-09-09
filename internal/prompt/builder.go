@@ -83,7 +83,34 @@ func Build(cfg *config.Config) string {
 		parts = append(parts, "", "# Project Instructions")
 		parts = append(parts, projectInstr...)
 	}
+
+	if visionLine := visionPromptLine(cfg); visionLine != "" {
+		parts = append(parts, "", "# Vision", visionLine)
+	}
 	return strings.Join(parts, "\n")
+}
+
+// visionPromptLine advertises the active model's vision capability so the
+// agent knows whether attached images actually reach it.
+func visionPromptLine(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		model = "the active model"
+	}
+	switch {
+	case cfg.VisionKnown && cfg.VisionAvailable:
+		return fmt.Sprintf("- Vision: AVAILABLE (%s advertises vision capability). When the user references images, use Read on the image file to attach it to the conversation, then answer based on what you see. Supported formats: %s.",
+			model, "JPEG, PNG, GIF, BMP")
+	case cfg.VisionKnown && !cfg.VisionAvailable:
+		return fmt.Sprintf("- Vision: NOT available (%s has no vision capability). You cannot see images: do not claim otherwise. If the user asks about image content, explain the limitation briefly and suggest switching to a vision-capable model (e.g. llava, qwen2-vl, moondream) with /model.",
+			model)
+	default:
+		return fmt.Sprintf("- Vision: UNKNOWN for %s (capability detection failed). You may try Read on an image file; if the attach fails or you receive no visual content, say so honestly instead of guessing.",
+			model)
+	}
 }
 
 func detectShell() string {

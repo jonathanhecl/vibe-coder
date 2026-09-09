@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
 const compactionTimeout = 90 * time.Second
@@ -67,7 +68,7 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 func (s *Session) recomputeTokenEstimate() {
 	total := 0
 	for _, msg := range s.messages {
-		total += estimateTextTokens(msg.Content)
+		total += estimateMessageTokens(msg.Content)
 	}
 	s.tokenEstimate = total
 }
@@ -95,4 +96,10 @@ func estimateTextTokens(text string) int {
 	}
 	asciiApprox := len(text) / 4
 	return cjk + asciiApprox
+}
+
+// estimateMessageTokens adds the vision proxy cost for attached images so
+// compaction triggers and /tokens account for pictures, not just text.
+func estimateMessageTokens(content string) int {
+	return estimateTextTokens(content) + vision.CountMarkers(content)*vision.EstimatedTokensPerImage
 }

@@ -140,7 +140,7 @@ func (s *Session) addMessage(msg Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, msg)
-	s.tokenEstimate += estimateTextTokens(msg.Content)
+	s.tokenEstimate += estimateMessageTokens(msg.Content)
 	s.revision++
 }
 
