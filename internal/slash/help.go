@@ -16,7 +16,11 @@ func printHelp(c *Ctx) {
 	}{
 		{"Session", [][2]string{
 			{"/save", "persist the current session to disk"},
-			{"/clear", "save and start a brand new session"},
+			{"/new", "save the current session and start a brand new one"},
+			{"/clear", "show clear options (session, sessions, context)"},
+			{"/clear session", "discard the current session without saving and start fresh"},
+			{"/clear sessions", "delete ALL saved sessions (asks Y/n)"},
+			{"/clear context", "unpin all persistent context files"},
 			{"/sessions", "list saved sessions (* = current project)"},
 			{"/session <id>", "resume a specific session quickly"},
 			{"/sessions delete <id>", "delete a specific session"},

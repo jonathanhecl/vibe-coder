@@ -75,13 +75,15 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 			id = strings.TrimSpace(fields[1])
 		}
 		return true, false, runResume(c, id)
-	case "/clear":
+	case "/new":
 		if err := c.Session.Save(); err != nil {
 			return true, false, err
 		}
 		c.Session.Clear()
-		fmt.Fprintf(c.Out, "Started a new session (%s)\n", c.Session.ID())
+		fmt.Fprintf(c.Out, "Session saved. Started a new session (%s)\n", c.Session.ID())
 		return true, false, nil
+	case "/clear":
+		return true, false, runClearCommand(c, fields[1:])
 	case "/status":
 		printStatus(c)
 		return true, false, nil
