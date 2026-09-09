@@ -11,6 +11,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -101,6 +102,8 @@ func main() {
 	client := ollama.NewHTTP(cfg.OllamaHost)
 	sess := session.New(cfg)
 	sess.SetClient(client)
+	ctxStore := contextfiles.NewStore()
+	preloadSessionContexts(cfg, ctxStore)
 	ui, err := tui.NewFromMode(cfg)
 	if err != nil {
 		exitWithError(err)
@@ -129,6 +132,7 @@ func main() {
 	}()
 
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
+	ag.SetContextStore(ctxStore)
 	fileWatcher := watcher.New(cfg.Cwd)
 	ag.SetWatcher(fileWatcher)
 	defer fileWatcher.Close()
@@ -164,7 +168,9 @@ func main() {
 		if err := resumeConfiguredSession(cfg, sess); err != nil {
 			exitWithError(err)
 		}
+		restoreSessionContexts(sess, ctxStore)
 	}
+	sess.SetPinnedContexts(ctxStore.Paths())
 
 	bannerPrinted := false
 	if cfg.Prompt != "" {
@@ -185,7 +191,7 @@ func main() {
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
 	}
 	logger.Infof("Entering interactive REPL loop.")
-	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui)
+	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore)
 	logger.Infof("Exiting interactive REPL loop, finishing execution.")
 }
 
@@ -236,4 +242,28 @@ func resumeConfiguredSession(cfg *config.Config, sess *session.Session) error {
 		fmt.Fprintf(os.Stdout, "Resumed project session %s\n", sess.ID())
 	}
 	return nil
+}
+
+// preloadSessionContexts pins every --context file (accumulated) into the
+// shared store before the session starts. Failures warn but keep the CLI
+// usable so one bad path does not kill the whole run.
+func preloadSessionContexts(cfg *config.Config, store *contextfiles.Store) {
+	for _, p := range cfg.ContextFiles {
+		entry, _, err := store.Add(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping context file %q: %v\n", p, err)
+			continue
+		}
+		fmt.Fprintf(os.Stdout, "Pinned context: %s\n", entry.Name)
+	}
+}
+
+// restoreSessionContexts reloads files pinned by a resumed session into the
+// shared store, unioned with any --context files already preloaded.
+func restoreSessionContexts(sess *session.Session, store *contextfiles.Store) {
+	for _, p := range sess.PinnedContexts() {
+		if _, _, err := store.Add(p); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: pinned context %q could not be reloaded: %v\n", p, err)
+		}
+	}
 }

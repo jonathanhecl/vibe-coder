@@ -15,6 +15,9 @@ func printStatus(c *Ctx) {
 	fmt.Fprintf(c.Out, "CWD: %s\n", c.Cfg.Cwd)
 	fmt.Fprintf(c.Out, "Messages: %d\n", c.Session.MessageCount())
 	fmt.Fprintf(c.Out, "Session: %s\n", c.Session.ID())
+	if c.Contexts != nil && c.Contexts.Has() {
+		fmt.Fprintf(c.Out, "Pinned contexts (%d): %s\n", c.Contexts.Count(), strings.Join(c.Contexts.SortedNames(), ", "))
+	}
 	fmt.Fprintf(c.Out, "Yes mode: %t\n", c.Cfg.YesMode)
 	fmt.Fprintf(c.Out, "Sidecar model: %s\n", strings.TrimSpace(c.Cfg.SidecarModel))
 	if c.Cfg.SidecarDisabled {

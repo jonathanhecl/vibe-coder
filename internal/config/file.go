@@ -100,6 +100,8 @@ func applyConfigFile(cfg *Config, path string) error {
 			if b, ok := parseBoolish(value); ok {
 				cfg.OllamaHideThink = b
 			}
+		case "CONTEXT":
+			cfg.ContextFiles = append(cfg.ContextFiles, splitPathList(value)...)
 		}
 	}
 

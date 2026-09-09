@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
@@ -39,6 +40,7 @@ type Agent struct {
 	paths       *pathMemory
 	side        *sidecar.Pool
 	currentGoal string // verbatim text of the user's request for this Run()
+	ctxStore    *contextfiles.Store
 
 	// sysPrompt caches the stable system prompt until disk/registry inputs change.
 	sysPrompt promptCache
@@ -107,6 +109,38 @@ func (a *Agent) SetWatcher(w *watcher.Watcher) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.watcher = w
+}
+
+// SetContextStore pins a context-file store whose contents are injected
+// into the system prompt on every turn. The same store instance should be
+// shared with the slash dispatcher so /context updates take effect
+// immediately. A nil store disables pinned context.
+func (a *Agent) SetContextStore(s *contextfiles.Store) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.ctxStore = s
+}
+
+func (a *Agent) getContextStore() *contextfiles.Store {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.ctxStore
+}
+
+func (a *Agent) getContextBlock() string {
+	store := a.getContextStore()
+	if store == nil {
+		return ""
+	}
+	return store.RenderBlock()
+}
+
+func (a *Agent) contextFingerprint() string {
+	store := a.getContextStore()
+	if store == nil {
+		return ""
+	}
+	return store.Fingerprint()
 }
 
 func (a *Agent) EnterPlanMode() {

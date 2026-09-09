@@ -56,6 +56,11 @@ func DeleteSession(cfg *config.Config, id string) error {
 	if err := os.Remove(target); err != nil {
 		return fmt.Errorf("remove session file: %w", err)
 	}
+	if sidecar, err := pinnedContextsPath(dir, sanitized); err == nil {
+		if err := os.Remove(sidecar); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove pinned contexts sidecar: %w", err)
+		}
+	}
 	if err := pruneProjectIndex(dir, sanitized); err != nil {
 		return err
 	}
@@ -87,6 +92,12 @@ func DeleteAllSessions(cfg *config.Config) (int, error) {
 			continue
 		}
 		name := entry.Name()
+		if strings.HasSuffix(name, ".ctx.json") {
+			if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+				return removed, fmt.Errorf("remove %s: %w", name, err)
+			}
+			continue
+		}
 		if !strings.HasSuffix(name, ".jsonl") {
 			continue
 		}

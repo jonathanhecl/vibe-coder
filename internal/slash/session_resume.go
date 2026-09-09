@@ -24,6 +24,7 @@ func runResume(c *Ctx, id string) error {
 			return nil
 		}
 		printResumeContext(c, true)
+		restorePinnedContexts(c)
 		return nil
 	}
 	resolvedID, err := resolveSessionID(c, id)
@@ -34,6 +35,7 @@ func runResume(c *Ctx, id string) error {
 		return fmt.Errorf("load session %q: %w", resolvedID, err)
 	}
 	printResumeContext(c, false)
+	restorePinnedContexts(c)
 	return nil
 }
 

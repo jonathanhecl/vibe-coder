@@ -8,6 +8,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -32,14 +33,16 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	), nil
 }
 
-func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI) {
+func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI, ctxStore *contextfiles.Store) {
 	slashCtx := &slash.Ctx{
-		Cfg:     cfg,
-		Session: sess,
-		Perm:    perm,
-		Agent:   ag,
-		Client:  client,
-		Out:     os.Stdout,
+		Cfg:      cfg,
+		Session:  sess,
+		Perm:     perm,
+		Agent:    ag,
+		Client:   client,
+		Out:      os.Stdout,
+		Contexts: ctxStore,
+		Prompter: ui,
 	}
 
 	for {

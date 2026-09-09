@@ -39,6 +39,10 @@ type Config struct {
 	SessionID          string
 	ListSessions       bool
 	Cwd                string
+	// ContextFiles holds user-provided guide files pinned as persistent
+	// session instructions (repeatable --context flag). Contents are
+	// injected into the system prompt and never compacted.
+	ContextFiles []string
 
 	RAG         bool
 	RAGModel    string
@@ -152,6 +156,7 @@ Flags:
   --max-tokens int          Max generated tokens
   --temperature float       Sampling temperature
   --context-window int      Model context window
+  --context string          Pin a .md/.txt guide file as persistent session instruction (repeatable)
   --rag                     Enable RAG mode
   --rag-mode string         RAG mode
   --rag-path string         RAG path

@@ -61,6 +61,22 @@ func applyEnv(cfg *Config) {
 			cfg.OllamaHideThink = b
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_CONTEXT")); v != "" {
+		cfg.ContextFiles = append(cfg.ContextFiles, splitPathList(v)...)
+	}
+}
+
+// splitPathList splits an env/config path list on the OS path-list
+// separator, dropping empty entries.
+func splitPathList(v string) []string {
+	parts := strings.Split(v, string(os.PathListSeparator))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // parseBoolish parses common truthy/falsey strings for env/config keys.

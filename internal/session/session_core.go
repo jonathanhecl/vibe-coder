@@ -24,6 +24,10 @@ type Session struct {
 	client        ollama.Client
 	tokenEstimate int
 	revision      uint64
+	// pinnedContexts holds absolute paths of user-pinned guide files
+	// (--context / /context). Only the paths are stored here; file
+	// contents are reloaded into the agent system prompt on demand.
+	pinnedContexts []string
 }
 
 func New(cfg *config.Config) *Session {
@@ -144,6 +148,28 @@ func (s *Session) TokenEstimate() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.tokenEstimate
+}
+
+// SetPinnedContexts replaces the pinned context path list. Paths are
+// stored as given; callers should pass absolute paths.
+func (s *Session) SetPinnedContexts(paths []string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pinnedContexts = append([]string(nil), paths...)
+	s.revision++
+}
+
+// PinnedContexts returns a copy of the pinned context path list.
+func (s *Session) PinnedContexts() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]string(nil), s.pinnedContexts...)
 }
 
 func (s *Session) ShouldCompact() bool {

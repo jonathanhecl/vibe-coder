@@ -207,6 +207,14 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 }
 func (a *Agent) rebuildStableSystemPromptBody() string {
 	systemPrompt := prompt.Build(a.cfg)
+	// Pinned session context sits right after the base + project
+	// instructions: it is explicit user intent, so it outranks auto-loaded
+	// guides but never replaces the base prompt. Because it lives in the
+	// system message (rebuilt every turn), compaction and transcript
+	// truncation can never drop it.
+	if ctxBlock := a.getContextBlock(); ctxBlock != "" {
+		systemPrompt = systemPrompt + "\n\n" + ctxBlock
+	}
 	if toolsBlock := tools.RenderPromptBlock(a.reg); toolsBlock != "" {
 		systemPrompt = systemPrompt + "\n\n" + toolsBlock
 	}
@@ -223,7 +231,7 @@ func (a *Agent) buildSystemPrompt() string {
 	a.mu.RUnlock()
 	goal := strings.TrimSpace(goalRaw)
 
-	key := stableSystemCacheKey(a.cfg, a.reg)
+	key := stableSystemCacheKey(a.cfg, a.reg, a.contextFingerprint())
 
 	a.sysPrompt.mu.Lock()
 	defer a.sysPrompt.mu.Unlock()

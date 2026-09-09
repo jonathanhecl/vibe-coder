@@ -26,6 +26,8 @@ func printHelp(c *Ctx) {
 			{"/compact", "force a sidecar-summarized compaction"},
 			{"/tokens", "show token usage vs the context window"},
 			{"/status", "model, cwd, session and sidecar status"},
+			{"/context <file>", "pin a .md/.txt guide as persistent session instruction"},
+			{"/context list", "show pinned context files"},
 		}},
 		{"Model", [][2]string{
 			{"/model", "show the active model"},

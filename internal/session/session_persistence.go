@@ -37,6 +37,7 @@ func (s *Session) Save() error {
 	cfg := s.cfg
 	id := s.id
 	messages := cloneMessages(s.messages)
+	pinned := append([]string(nil), s.pinnedContexts...)
 	s.mu.RUnlock()
 	if cfg == nil {
 		return fmt.Errorf("session config is nil")
@@ -67,6 +68,9 @@ func (s *Session) Save() error {
 	}
 
 	if err := s.writeProjectIndexFor(id); err != nil {
+		return err
+	}
+	if err := s.writePinnedContextsFor(id, pinned); err != nil {
 		return err
 	}
 	return nil
@@ -117,9 +121,18 @@ func (s *Session) Load(id string) error {
 		return fmt.Errorf("scan session file: %w", err)
 	}
 
+	s.mu.RLock()
+	sessionsDir := ""
+	if s.cfg != nil {
+		sessionsDir = s.cfg.SessionsDir
+	}
+	s.mu.RUnlock()
+	pinned := loadPinnedContextsFor(sessionsDir, sanitized)
+
 	s.mu.Lock()
 	s.id = sanitized
 	s.messages = loaded
+	s.pinnedContexts = pinned
 	s.recomputeTokenEstimate()
 	s.revision++
 	s.mu.Unlock()
@@ -253,6 +266,77 @@ func sanitizeSessionID(id string) string {
 		clean = clean[:64]
 	}
 	return clean
+}
+
+// pinnedContextsPath returns the sidecar path holding pinned context paths
+// for a session id. The lookup is best-effort: callers treat a missing or
+// corrupt sidecar as "no pinned contexts".
+func pinnedContextsPath(sessionsDir, id string) (string, error) {
+	sanitized := sanitizeSessionID(id)
+	if sanitized == "" {
+		return "", fmt.Errorf("invalid session id: %q", id)
+	}
+	sessionsDirAbs, err := filepath.Abs(sessionsDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve sessions dir: %w", err)
+	}
+	path := filepath.Join(sessionsDir, sanitized+".ctx.json")
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve context sidecar path: %w", err)
+	}
+	if !strings.HasPrefix(pathAbs, sessionsDirAbs+string(filepath.Separator)) && pathAbs != sessionsDirAbs {
+		return "", fmt.Errorf("invalid context sidecar path outside sessions dir")
+	}
+	return path, nil
+}
+
+func (s *Session) writePinnedContextsFor(id string, pinned []string) error {
+	target, err := pinnedContextsPath(s.cfg.SessionsDir, id)
+	if err != nil {
+		return err
+	}
+	clean := make([]string, 0, len(pinned))
+	for _, p := range pinned {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			clean = append(clean, trimmed)
+		}
+	}
+	raw, err := json.MarshalIndent(map[string][]string{"pinned_contexts": clean}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode pinned contexts: %w", err)
+	}
+	if err := writeAtomicBytes(s.cfg.SessionsDir, "*.ctx.tmp", target, 0o600, raw); err != nil {
+		return fmt.Errorf("replace pinned contexts file: %w", err)
+	}
+	return nil
+}
+
+// loadPinnedContextsFor reads the sidecar for a session id. Missing,
+// unreadable, or corrupt sidecars yield an empty list so old sessions
+// without pinned context keep working.
+func loadPinnedContextsFor(sessionsDir, id string) []string {
+	target, err := pinnedContextsPath(sessionsDir, id)
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil
+	}
+	var decoded struct {
+		PinnedContexts []string `json:"pinned_contexts"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(decoded.PinnedContexts))
+	for _, p := range decoded.PinnedContexts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func newSessionID() string {

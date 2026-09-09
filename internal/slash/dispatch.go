@@ -7,18 +7,30 @@ import (
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 )
 
 type Ctx struct {
-	Cfg     *config.Config
-	Session *session.Session
-	Perm    *permissions.Manager
-	Agent   planModeAgent
-	Client  commitClient
-	Out     io.Writer
+	Cfg      *config.Config
+	Session  *session.Session
+	Perm     *permissions.Manager
+	Agent    planModeAgent
+	Client   commitClient
+	Out      io.Writer
+	Contexts *contextfiles.Store
+	// Prompter asks interactive questions (e.g. Append vs Replace for
+	// /context). It is optional: when nil, commands print the
+	// non-interactive guidance instead. tui.UI satisfies it.
+	Prompter InputPrompter
+}
+
+// InputPrompter reads one line of user input. It mirrors tui.UI.GetInput
+// so the real UI can be passed without importing the tui package here.
+type InputPrompter interface {
+	GetInput(prompt string) (string, error)
 }
 
 type planModeAgent interface {
@@ -147,6 +159,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/review":
 		return runReviewCommand(c, fields[1:])
+	case "/context":
+		return true, false, runContextCommand(c, trimmed)
 	default:
 		fmt.Fprintf(c.Out, "Unknown command: %s\n", cmd)
 		return true, false, nil

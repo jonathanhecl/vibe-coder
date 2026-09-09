@@ -318,6 +318,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--context-window <n>` — model context window
 - `--no-think` — disable Ollama native thinking (faster replies)
 - `--hide-think` — hide Ollama thinking blocks in CLI output
+- `--context <file>` — pin a `.md`/`.txt` guide file as a persistent session instruction (repeatable, accumulated; also `VIBE_CODER_CONTEXT` env and `CONTEXT=` config key)
 - `--rag` — enable RAG mode
 - `--rag-mode <type>` — RAG mode type
 - `--rag-path <path>` — RAG database path
@@ -386,6 +387,14 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window
 - `/status` — show model, cwd, session and sidecar status
+- `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
+- `/context add <file...>` — accumulate another guide file
+- `/context replace <file...>` — drop all pinned files and pin these instead
+- `/context list` — show pinned files
+- `/context drop <name|#|path>` — unpin one file
+- `/context clear` — unpin all files
+
+Pinned context files are injected into the system prompt on every turn, so they stay alive for the whole session: compaction and transcript truncation can never drop them. The pinned list is saved with the session and restored on `--resume`/`/resume` (file contents are re-read from disk). CLI `--context` flags accumulate: `vibe-coder --context guide.md --context rules.txt`.
 
 ### Model
 

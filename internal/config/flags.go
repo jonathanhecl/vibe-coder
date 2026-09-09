@@ -31,6 +31,7 @@ type cliOptions struct {
 	ragTopK       optionalInt
 	ragModel      optionalString
 	ragIndex      optionalString
+	contextFiles  stringSlice
 	help          optionalBool
 	version       optionalBool
 	noThink       bool
@@ -68,6 +69,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ragTopK, "rag-topk", "rag top-k")
 	fs.Var(&opts.ragModel, "rag-model", "rag model")
 	fs.Var(&opts.ragIndex, "rag-index", "rag index path")
+	fs.Var(&opts.contextFiles, "context", "pin a .md/.txt guide file as persistent session instruction (repeatable)")
 	fs.Var(&opts.help, "help", "show help")
 	fs.Var(&opts.version, "version", "show version")
 	fs.BoolVar(&opts.noThink, "no-think", false, "disable Ollama native thinking")
@@ -145,6 +147,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.ragIndex.set {
 		cfg.RAGIndex = cli.ragIndex.value
+	}
+	if len(cli.contextFiles.values) > 0 {
+		cfg.ContextFiles = append(cfg.ContextFiles, cli.contextFiles.values...)
 	}
 	if cli.help.set {
 		cfg.ShowHelp = cli.help.value
@@ -235,3 +240,19 @@ func (o *optionalFloat) Set(v string) error {
 func (o *optionalFloat) String() string {
 	return strconv.FormatFloat(o.value, 'f', -1, 64)
 }
+
+// stringSlice collects repeatable string flags such as --context.
+// Each occurrence appends one value; commas are preserved so paths
+// containing commas keep working.
+type stringSlice struct {
+	values []string
+	set    bool
+}
+
+func (s *stringSlice) Set(v string) error {
+	s.values = append(s.values, v)
+	s.set = true
+	return nil
+}
+
+func (s *stringSlice) String() string { return strings.Join(s.values, ", ") }

@@ -12,11 +12,13 @@ import (
 )
 
 // stableSystemCacheKey fingerprints inputs that affect the stable portion of
-// the system prompt (base prompt, tools block, skills block).
-func stableSystemCacheKey(cfg *config.Config, reg *tools.Registry) string {
+// the system prompt (base prompt, pinned session context, tools block,
+// skills block).
+func stableSystemCacheKey(cfg *config.Config, reg *tools.Registry, contextFingerprint string) string {
 	parts := []string{
 		runtime.GOOS + "/" + runtime.GOARCH,
 		shellEnvFingerprint(),
+		strings.TrimSpace(contextFingerprint),
 	}
 	if cfg != nil {
 		parts = append(parts,
