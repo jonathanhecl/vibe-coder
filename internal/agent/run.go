@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/terminal"
 )
@@ -52,7 +53,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		}
 
 		a.addTodoProgressNoteIfChanged()
-		reply, err := a.chatOnce(ctx)
+		reply, nativeCalls, err := a.chatOnce(ctx)
 		if err != nil {
 			if IsEmptyAssistantResponseErr(err) {
 				done, err := a.handleEmptyChatResponse(ctx, &emptyChatErrRetries)
@@ -64,6 +65,45 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			return err
 		}
 		emptyChatErrRetries = 0
+		if len(nativeCalls) > 0 {
+			// Native function calling wins over the XML envelope: the
+			// model already chose exact tools, so execute them directly.
+			// Unknown names fall through to the XML path below, which
+			// treats the turn as a final answer instead of partial work.
+			known := true
+			for _, c := range nativeCalls {
+				if a.reg.Get(c.Name) == nil {
+					known = false
+					break
+				}
+			}
+			if known {
+				thinkingOnlyRetries = 0
+				if len(nativeCalls) > MaxToolsPerReply {
+					nativeCalls = nativeCalls[:MaxToolsPerReply]
+				}
+				if strings.TrimSpace(reply) == "" {
+					a.ui.CollapseAssistantOutput()
+					a.sess.AddAssistant("[native tool calls: " + nativeCallNames(nativeCalls) + "]")
+				} else {
+					a.sess.AddAssistant(reply)
+				}
+				for _, c := range nativeCalls {
+					tool := a.reg.Get(c.Name)
+					_, executed, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
+						showPermissionDeniedResult: true,
+					})
+					if err != nil {
+						return err
+					}
+					if !executed {
+						return nil
+					}
+				}
+				a.compactBestEffort(ctx)
+				continue
+			}
+		}
 		if calls := parseXMLFallbackAll(reply, MaxToolsPerReply); len(calls) > 0 {
 			thinkingOnlyRetries = 0
 			// Verify every tool exists before executing any, so a reply

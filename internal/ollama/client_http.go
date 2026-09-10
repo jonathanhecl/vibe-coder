@@ -15,6 +15,7 @@ func NewHTTP(baseURL string) Client {
 			Timeout: defaultHTTPTimeout,
 		},
 		thinkDisabledModels: make(map[string]bool),
+		toolsDisabledModels: make(map[string]bool),
 	}
 }
 
@@ -41,6 +42,35 @@ func (c *HTTPClient) markThinkUnsupported(model string) {
 		c.thinkDisabledModels = make(map[string]bool)
 	}
 	c.thinkDisabledModels[model] = true
+}
+
+// markToolsUnsupported remembers that Ollama rejected tools for this model
+// so later turns skip the doomed 400 round trip (mirrors think handling).
+func (c *HTTPClient) markToolsUnsupported(model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.toolsDisabledModels == nil {
+		c.toolsDisabledModels = make(map[string]bool)
+	}
+	c.toolsDisabledModels[model] = true
+}
+
+// applyToolsSessionOverride strips tools for models already known to
+// reject them in-process.
+func (c *HTTPClient) applyToolsSessionOverride(req *ChatRequest) {
+	model := strings.TrimSpace(req.Model)
+	if model == "" || len(req.Tools) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.toolsDisabledModels[model] {
+		req.Tools = nil
+	}
 }
 
 func newStreamScanner(r io.Reader) *bufio.Scanner {

@@ -75,9 +75,26 @@ func runModelCommand(c *Ctx, args []string) error {
 	available, known := ollama.LookupVision(c.Cfg.VisionByModel, c.Cfg.Model)
 	c.Cfg.VisionAvailable, c.Cfg.VisionKnown = available, known
 	refreshThinkingFlags(c)
-	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s, thinking: %s)\n",
-		c.Cfg.Model, visionWord(known, available), thinkingWord(c))
+	refreshToolsFlags(c)
+	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s, thinking: %s, tools: %s)\n",
+		c.Cfg.Model, visionWord(known, available), thinkingWord(c), toolsWord(c))
 	return nil
+}
+
+func refreshToolsFlags(c *Ctx) {
+	supported, known := ollama.LookupVision(c.Cfg.ToolsByModel, c.Cfg.Model)
+	c.Cfg.ToolsSupported, c.Cfg.ToolsKnown = supported, known
+}
+
+func toolsWord(c *Ctx) string {
+	switch {
+	case c.Cfg.ToolsKnown && c.Cfg.ToolsSupported:
+		return "native"
+	case c.Cfg.ToolsKnown && !c.Cfg.ToolsSupported:
+		return "xml"
+	default:
+		return "auto"
+	}
 }
 
 func thinkingWord(c *Ctx) string {

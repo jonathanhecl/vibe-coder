@@ -265,15 +265,18 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client) {
 	}
 	cfg.VisionByModel = make(map[string]bool, len(models))
 	cfg.ThinkingByModel = make(map[string]bool, len(models))
+	cfg.ToolsByModel = make(map[string]bool, len(models))
 	for _, m := range models {
 		name := strings.ToLower(strings.TrimSpace(m.Name))
 		if name != "" {
 			cfg.VisionByModel[name] = m.SupportsVision()
 			cfg.ThinkingByModel[name] = m.SupportsThinking()
+			cfg.ToolsByModel[name] = m.SupportsTools()
 		}
 	}
 	applyVisionForModel(cfg)
 	applyThinkingForModel(cfg)
+	applyToolsForModel(cfg)
 }
 
 // applyVisionForModel refreshes the vision flags for the active model from
@@ -302,6 +305,17 @@ func applyThinkingForModel(cfg *config.Config) {
 	cfg.ThinkingSupported = supported
 	cfg.ThinkingKnown = known
 	logger.Infof("Thinking support for model %q: supported=%t known=%t", cfg.Model, supported, known)
+}
+
+// applyToolsForModel refreshes the native tool-calling flags for the active
+// model from the cached Tags map. Unknown models leave ToolsKnown=false,
+// which still sends tools optimistically (the client falls back per
+// session on a 400 tool error and caches the result).
+func applyToolsForModel(cfg *config.Config) {
+	supported, known := ollama.LookupVision(cfg.ToolsByModel, cfg.Model)
+	cfg.ToolsSupported = supported
+	cfg.ToolsKnown = known
+	logger.Infof("Tools support for model %q: supported=%t known=%t", cfg.Model, supported, known)
 }
 
 // preloadSessionContexts pins every --context file (accumulated) into the

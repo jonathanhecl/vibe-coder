@@ -195,7 +195,7 @@ func TestTryAutoPullModelAndChatRetry(t *testing.T) {
 	}
 
 	ag.sess.AddUser("hello")
-	reply, err := ag.chatOnce(context.Background())
+	reply, _, err := ag.chatOnce(context.Background())
 	if err != nil {
 		t.Fatalf("chatOnce should recover after pull: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestTryAutoPullModelDeniedAndCancelledChat(t *testing.T) {
 	cancelAgent.sess.AddUser("hello")
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	rootCancel()
-	reply, err := cancelAgent.chatOnce(rootCtx)
+	reply, _, err := cancelAgent.chatOnce(rootCtx)
 	if err != nil {
 		t.Fatalf("chatOnce canceled should not error: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestRunXMLWriteExecutesAndDetectParallelAndBranch(t *testing.T) {
 func TestChatOnceErrorAndTryAutoPullFailure(t *testing.T) {
 	ag := newCoverageAgent(t, errorStreamClient{}, tui.DecisionAllowOnce, true)
 	ag.sess.AddUser("hello")
-	if _, err := ag.chatOnce(context.Background()); err == nil {
+	if _, _, err := ag.chatOnce(context.Background()); err == nil {
 		t.Fatal("expected chatOnce to fail on repeated stream errors")
 	}
 	if ag.tryAutoPullModel(context.Background()) {

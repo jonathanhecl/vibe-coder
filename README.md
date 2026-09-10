@@ -11,9 +11,10 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 
 - **One-shot prompts** (`-p`) and **interactive REPL** with streaming output.
 - **Multi-turn agent loop** (up to 50 iterations, 2 retries) with tool observation feedback.
-- **Batched tool calls** — up to 5 sequential `<invoke>` blocks per reply for independent calls.
+- **Native tool calling** — registry schemas are sent as Ollama `tools`; capability is detected from `/api/tags` (`Tools: native|xml|auto` in `/status`), with per-session 400 fallback and caching.
+- **Batched tool calls** — up to 5 sequential calls per turn (native or `<invoke>` XML fallback) for independent calls.
 - **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
-- **XML fallback parser** — handles non-conformant LLMs that emit `<invoke>` blocks instead of native tool calls.
+- **XML fallback parser** — kept for models without native function calling; native calls always win when present.
 - **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.
 
 ### Tools (exposed to the model)
@@ -396,7 +397,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/resume <id>` — resume a specific session by id (or unique prefix)
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status` — show model, cwd, session, sidecar and vision status
+- `/status` — show model, cwd, session, sidecar, vision, thinking and tools status
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
 - `/context replace <file...>` — drop all pinned files and pin these instead
@@ -409,7 +410,7 @@ Pinned context files are injected into the system prompt on every turn, so they 
 ### Model
 
 - `/model` — show the active model
-- `/model <name>` — switch the active model for this run (vision and thinking support are re-checked and reported)
+- `/model <name>` — switch the active model for this run (vision, thinking and native-tools support are re-checked and reported)
 - `/think` — show the thinking level and model capability
 - `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it)
 - `/sidecar on|off` — toggle the sidecar for this session

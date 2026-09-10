@@ -247,6 +247,147 @@ func TestChatErrorMapping(t *testing.T) {
 	}
 }
 
+func TestChatSendsToolsAndParsesToolCalls(t *testing.T) {
+	t.Parallel()
+
+	var gotTools bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		gotTools = strings.Contains(string(body), `"tools"`)
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"content":""},"done":false}` + "\n"))
+		_, _ = w.Write([]byte(`{"message":{"content":"","tool_calls":[{"function":{"name":"Read","arguments":{"file_path":"a.txt"}}}]},"done":true}` + "\n"))
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	stream, err := client.Chat(context.Background(), ChatRequest{
+		Model:    "qwen3.5:9b",
+		Messages: []Message{{Role: "user", Content: "read a"}},
+		Stream:   true,
+		Tools: []ChatTool{
+			{Type: "function", Function: ChatToolFunction{Name: "Read", Description: "Read a file", Parameters: map[string]any{"type": "object"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat failed: %v", err)
+	}
+	var calls []MessageToolCall
+	for chunk := range stream {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected stream error: %v", chunk.Err)
+		}
+		if len(chunk.ToolCalls) > 0 {
+			calls = chunk.ToolCalls
+		}
+	}
+	if !gotTools {
+		t.Fatal("expected tools in chat request body")
+	}
+	if len(calls) != 1 || calls[0].Function.Name != "Read" {
+		t.Fatalf("unexpected tool calls: %#v", calls)
+	}
+	if calls[0].Function.Arguments["file_path"] != "a.txt" {
+		t.Fatalf("unexpected arguments: %#v", calls[0].Function.Arguments)
+	}
+}
+
+func TestChatNonStreamingParsesToolCalls(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":{"content":"","tool_calls":[{"function":{"name":"Glob","arguments":{"pattern":"*.go"}}}]},"done":true}`))
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	resp, err := client.ChatSync(context.Background(), ChatRequest{
+		Model:    "qwen3.5:9b",
+		Messages: []Message{{Role: "user", Content: "list"}},
+	})
+	if err != nil {
+		t.Fatalf("chatsync failed: %v", err)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Function.Name != "Glob" {
+		t.Fatalf("unexpected tool calls: %#v", resp.ToolCalls)
+	}
+}
+
+func TestChatRetriesWithoutToolsOnUnsupported(t *testing.T) {
+	t.Parallel()
+	var n int
+	var secondHasTools bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			http.NotFound(w, r)
+			return
+		}
+		n++
+		body, _ := io.ReadAll(r.Body)
+		if n == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"model does not support tools"}`))
+			return
+		}
+		secondHasTools = strings.Contains(string(body), `"tools"`)
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"content":"ok"},"done":true}` + "\n"))
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	ch, err := client.Chat(context.Background(), ChatRequest{
+		Model:    "m",
+		Messages: []Message{{Role: "user", Content: "hi"}},
+		Stream:   true,
+		Tools:    []ChatTool{{Type: "function", Function: ChatToolFunction{Name: "Read"}}},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	var got strings.Builder
+	for c := range ch {
+		if c.Err != nil {
+			t.Fatal(c.Err)
+		}
+		got.WriteString(c.Delta)
+	}
+	if got.String() != "ok" {
+		t.Fatalf("got %q", got.String())
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 HTTP requests, got %d", n)
+	}
+	if secondHasTools {
+		t.Fatal("expected retry without tools")
+	}
+
+	// Cached: next turn omits tools without another 400.
+	ch2, err := client.Chat(context.Background(), ChatRequest{
+		Model:    "m",
+		Messages: []Message{{Role: "user", Content: "again"}},
+		Stream:   true,
+		Tools:    []ChatTool{{Type: "function", Function: ChatToolFunction{Name: "Read"}}},
+	})
+	if err != nil {
+		t.Fatalf("second chat: %v", err)
+	}
+	for range ch2 {
+	}
+	if n != 3 {
+		t.Fatalf("expected cached override (3 requests total), got %d", n)
+	}
+}
+
 func TestIsThinkingUnsupportedBody(t *testing.T) {
 	t.Parallel()
 	if !isThinkingUnsupportedBody(`{"error":"\"x\" does not support thinking"}`) {

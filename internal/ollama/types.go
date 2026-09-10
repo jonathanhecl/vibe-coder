@@ -30,6 +30,7 @@ type HTTPClient struct {
 
 	mu                  sync.Mutex
 	thinkDisabledModels map[string]bool // by model name: Ollama rejected think for this model in-process
+	toolsDisabledModels map[string]bool // by model name: Ollama rejected tools for this model in-process
 }
 
 type Message struct {
@@ -52,8 +53,33 @@ type ChatRequest struct {
 	Messages  []Message     `json:"messages"`
 	Stream    bool          `json:"stream"`
 	Think     *ThinkSetting `json:"think,omitempty"`
+	Tools     []ChatTool    `json:"tools,omitempty"`
 	Options   ChatOptions   `json:"options"`
 	KeepAlive int           `json:"keep_alive"`
+}
+
+// ChatTool declares one callable function to Ollama /api/chat following
+// the OpenAI-style convention Ollama documents: {"type":"function",
+// "function":{"name":..., "description":..., "parameters":...}}.
+type ChatTool struct {
+	Type     string           `json:"type"`
+	Function ChatToolFunction `json:"function"`
+}
+
+type ChatToolFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// MessageToolCall is one native function invocation returned by the model.
+type MessageToolCall struct {
+	Function MessageToolCallFunction `json:"function"`
+}
+
+type MessageToolCallFunction struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
 // ThinkSetting controls the Ollama think field. A nil *ThinkSetting omits
@@ -169,17 +195,21 @@ func (t *ThinkSetting) UnmarshalJSON(data []byte) error {
 
 // Chunk is one streamed slice of a chat reply. Delta carries final visible
 // content; Thinking carries reasoning emitted via the native Ollama field
-// (when supported by the model and Ollama version).
+// (when supported by the model and Ollama version). ToolCalls carries
+// native function invocations when the model uses Ollama tool calling
+// instead of the XML fallback envelope.
 type Chunk struct {
-	Delta    string
-	Thinking string
-	Done     bool
-	Err      error
+	Delta     string
+	Thinking  string
+	ToolCalls []MessageToolCall
+	Done      bool
+	Err       error
 }
 
 type ChatResponse struct {
-	Content  string
-	Thinking string
+	Content   string
+	Thinking  string
+	ToolCalls []MessageToolCall
 }
 
 type Model struct {
@@ -218,8 +248,9 @@ type versionResponse struct {
 
 type chatResponseLine struct {
 	Message struct {
-		Content  string `json:"content"`
-		Thinking string `json:"thinking"`
+		Content   string            `json:"content"`
+		Thinking  string            `json:"thinking"`
+		ToolCalls []MessageToolCall `json:"tool_calls"`
 	} `json:"message"`
 	Done  bool   `json:"done"`
 	Error string `json:"error"`

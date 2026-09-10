@@ -17,6 +17,7 @@ func printStatus(c *Ctx) {
 	fmt.Fprintf(c.Out, "Session: %s\n", c.Session.ID())
 	fmt.Fprintf(c.Out, "Vision: %s\n", visionWord(c.Cfg.VisionKnown, c.Cfg.VisionAvailable))
 	fmt.Fprintf(c.Out, "Thinking: %s\n", thinkingStatus(c))
+	fmt.Fprintf(c.Out, "Tools: %s\n", toolsStatus(c))
 	if c.Contexts != nil && c.Contexts.Has() {
 		fmt.Fprintf(c.Out, "Pinned contexts (%d): %s\n", c.Contexts.Count(), strings.Join(c.Contexts.SortedNames(), ", "))
 	}

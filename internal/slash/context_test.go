@@ -194,6 +194,9 @@ func TestStatusShowsPinnedContexts(t *testing.T) {
 	if !strings.Contains(out.String(), "Vision: yes") {
 		t.Fatalf("expected status to report vision, got %q", out.String())
 	}
+	if !strings.Contains(out.String(), "Tools: ") {
+		t.Fatalf("expected status to report tools, got %q", out.String())
+	}
 }
 
 func TestHelpMentionsContext(t *testing.T) {

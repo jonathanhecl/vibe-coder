@@ -85,3 +85,17 @@ func thinkingStatus(c *Ctx) string {
 		return level + " (unknown)"
 	}
 }
+
+// toolsStatus renders the /status Tools line: native when the model
+// advertises function calling, xml fallback when known-unsupported, auto
+// (optimistic try with 400 fallback) when unknown.
+func toolsStatus(c *Ctx) string {
+	switch {
+	case c.Cfg.ToolsKnown && c.Cfg.ToolsSupported:
+		return "native"
+	case c.Cfg.ToolsKnown:
+		return "xml fallback"
+	default:
+		return "auto (native try, xml fallback)"
+	}
+}

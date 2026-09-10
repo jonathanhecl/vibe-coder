@@ -51,7 +51,7 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) []
 	// only here, at send time. The transcript keeps the cheap text form.
 	return a.resolveOutgoingImages(ctx, out)
 }
-func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
+func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 	var lastErr error
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
 		ctx, cancel := context.WithTimeout(rootCtx, a.cfg.EffectiveChatTimeout())
@@ -62,6 +62,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 			Messages: messages,
 			Stream:   true,
 			Think:    ollama.ResolveThinkSetting(a.cfg.OllamaThinkLevel, a.cfg.OllamaNoThink, a.cfg.ThinkingKnown, a.cfg.ThinkingSupported),
+			Tools:    a.nativeChatTools(),
 			Options: ollama.ChatOptions{
 				NumCtx:      a.cfg.ContextWindow,
 				NumPredict:  a.cfg.MaxTokens,
@@ -72,7 +73,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 			a.ui.StopWaiting()
 			cancel()
 			if isCancelledByUser(rootCtx, err) {
-				return "[Cancelled by user]", nil
+				return "[Cancelled by user]", nil, nil
 			}
 			if strings.Contains(strings.ToLower(err.Error()), "model not found") {
 				if pulled := a.tryAutoPullModel(rootCtx); pulled {
@@ -81,16 +82,18 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 				}
 			}
 			lastErr = err
-		} else if reply, err := a.streamAssistantResponse(rootCtx, cancel, stream); err != nil {
+		} else if reply, toolCalls, err := a.streamAssistantResponse(rootCtx, cancel, stream); err != nil {
 			lastErr = err
-		} else if reply != "" {
-			return reply, nil
+		} else if reply != "" || len(toolCalls) > 0 {
+			// A native-only turn (tool calls with blank visible text)
+			// is a valid tool turn, not an empty response.
+			return reply, toolCalls, nil
 		}
 		cancel()
 		if attempt < MaxRetries {
 			select {
 			case <-rootCtx.Done():
-				return "", rootCtx.Err()
+				return "", nil, rootCtx.Err()
 			case <-time.After(time.Duration(1+attempt) * time.Second):
 			}
 		}
@@ -98,10 +101,79 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 	if lastErr == nil {
 		lastErr = fmt.Errorf("empty assistant response")
 	}
-	return "", lastErr
+	return "", nil, lastErr
 }
-func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.CancelFunc, stream <-chan ollama.Chunk) (string, error) {
+
+// nativeChatTools converts the registry schemas to Ollama function
+// declarations. It returns nil when the model is known-unsupported so no
+// doomed 400 round trip is attempted; unknown models get tools
+// optimistically (the client falls back per session on a 400 tool error).
+// The transcript keeps user-envelope tool observations for cross-model
+// compatibility, so native calls execute through the same path as XML.
+func (a *Agent) nativeChatTools() []ollama.ChatTool {
+	if a.cfg != nil && a.cfg.ToolsKnown && !a.cfg.ToolsSupported {
+		return nil
+	}
+	if a.reg == nil {
+		return nil
+	}
+	schemas := a.reg.Schemas()
+	if len(schemas) == 0 {
+		return nil
+	}
+	out := make([]ollama.ChatTool, 0, len(schemas))
+	for _, s := range schemas {
+		name := strings.TrimSpace(s.Function.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, ollama.ChatTool{
+			Type: "function",
+			Function: ollama.ChatToolFunction{
+				Name:        name,
+				Description: s.Function.Description,
+				Parameters:  s.Function.Parameters,
+			},
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// nativeCallsToToolCalls maps Ollama function invocations onto the agent's
+// internal ToolCall shape (nil arguments become an empty params map).
+func nativeCallsToToolCalls(calls []ollama.MessageToolCall) []ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	out := make([]ToolCall, 0, len(calls))
+	for _, c := range calls {
+		name := strings.TrimSpace(c.Function.Name)
+		if name == "" {
+			continue
+		}
+		params := map[string]any{}
+		for k, v := range c.Function.Arguments {
+			params[k] = v
+		}
+		out = append(out, ToolCall{Name: name, Params: params})
+	}
+	return out
+}
+
+// nativeCallNames renders tool names for transcript notes and logs.
+func nativeCallNames(calls []ToolCall) string {
+	names := make([]string, 0, len(calls))
+	for _, c := range calls {
+		names = append(names, c.Name)
+	}
+	return strings.Join(names, ", ")
+}
+func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.CancelFunc, stream <-chan ollama.Chunk) (string, []ToolCall, error) {
 	var buf []byte
+	var toolCalls []ollama.MessageToolCall
 	thinkingSeen := false
 	lastShown := 0 // bytes of assistant text already streamed to the terminal (hides tool XML)
 
@@ -147,12 +219,17 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		if chunk.Err != nil {
 			if isCancelledByUser(rootCtx, chunk.Err) {
 				finishAssistant()
-				return "[Cancelled by user]", nil
+				return "[Cancelled by user]", nil, nil
 			}
 			a.ui.StopWaiting()
 			endThinking()
 			a.ui.EndAssistant()
-			return "", chunk.Err
+			return "", nil, chunk.Err
+		}
+		if len(chunk.ToolCalls) > 0 {
+			// Ollama delivers the complete tool_calls list on the final
+			// message; the last non-empty set wins.
+			toolCalls = chunk.ToolCalls
 		}
 		if chunk.Thinking != "" {
 			thinkingSeen = true
@@ -187,28 +264,30 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			flushUnprinted(full)
 			flushTailAfterTool(full)
 			finishAssistant()
+			native := nativeCallsToToolCalls(toolCalls)
 			// Native thinking often arrives only in chunk.Thinking; delta can be empty.
+			// A native-only tool turn is valid work, not an empty response.
 			// Treat that as retryable instead of ending the run with no visible work.
-			if strings.TrimSpace(full) == "" {
-				return "", fmt.Errorf("empty assistant response (no assistant text or tool call; model may have only emitted thinking)")
+			if strings.TrimSpace(full) == "" && len(native) == 0 {
+				return "", nil, fmt.Errorf("empty assistant response (no assistant text or tool call; model may have only emitted thinking)")
 			}
-			return full, nil
+			return full, native, nil
 		}
 	}
 
 	a.ui.StopWaiting()
 	endThinking()
-	if len(buf) == 0 {
+	if len(buf) == 0 && len(toolCalls) == 0 {
 		cancel()
 		a.ui.EndAssistant()
-		return "", nil
+		return "", nil, nil
 	}
 	full := string(buf)
 	flushUnprinted(full)
 	flushTailAfterTool(full)
 	cancel()
 	a.ui.EndAssistant()
-	return full, nil
+	return full, nativeCallsToToolCalls(toolCalls), nil
 }
 func (a *Agent) rebuildStableSystemPromptBody() string {
 	systemPrompt := prompt.Build(a.cfg)

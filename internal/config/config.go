@@ -88,6 +88,16 @@ type Config struct {
 	// ThinkingByModel caches thinking support per model name so /model and
 	// /think resolve without extra network calls.
 	ThinkingByModel map[string]bool
+	// ToolsSupported/ToolsKnown describe the active model's native function-
+	// calling capability as advertised by Ollama Tags. Unknown until
+	// detection runs; the agent sends native tools optimistically unless
+	// the model is known-unsupported (the client also falls back per
+	// session on a 400 tool error).
+	ToolsSupported bool
+	ToolsKnown     bool
+	// ToolsByModel caches native tool support per model name so /model
+	// switches resolve without extra network calls.
+	ToolsByModel map[string]bool
 	// OllamaHideThink hides native and in-band thinking blocks in TUI (shows response without thinking section).
 	OllamaHideThink bool
 }

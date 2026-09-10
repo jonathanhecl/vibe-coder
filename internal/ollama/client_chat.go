@@ -23,6 +23,15 @@ func isThinkingUnsupportedBody(body string) bool {
 	return strings.Contains(b, "does not support") || strings.Contains(b, "not support")
 }
 
+// isToolsUnsupportedBody detects Ollama's 400 when the model cannot run with "tools".
+func isToolsUnsupportedBody(body string) bool {
+	b := strings.ToLower(body)
+	if !strings.Contains(b, "tool") {
+		return false
+	}
+	return strings.Contains(b, "does not support") || strings.Contains(b, "not support")
+}
+
 // thinkForLog renders the think setting for diagnostics.
 func thinkForLog(t *ThinkSetting) string {
 	if t == nil {
@@ -37,7 +46,9 @@ func thinkForLog(t *ThinkSetting) string {
 	return "false"
 }
 
-// postChat calls /api/chat; on 400 "does not support thinking" it retries once with think disabled.
+// postChat calls /api/chat; on 400 "does not support thinking" it retries
+// once with think disabled, and on 400 tool errors it retries once without
+// tools (marking the model in-process so later turns skip the doomed trip).
 func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Response, error) {
 	attempt := req
 	for {
@@ -45,7 +56,7 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 		if err != nil {
 			return nil, fmt.Errorf("marshal chat request: %w", err)
 		}
-		logger.Infof("Ollama API POST calling /api/chat (attempt with think=%s)", thinkForLog(attempt.Think))
+		logger.Infof("Ollama API POST calling /api/chat (attempt with think=%s tools=%d)", thinkForLog(attempt.Think), len(attempt.Tools))
 		resp, err := doPOSTWithRetry(ctx, c.http, func() (*http.Request, error) {
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", bytes.NewReader(payload))
 			if err != nil {
@@ -69,6 +80,12 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 			logger.Infof("Model doesn't support thinking, retrying with think disabled")
 			c.markThinkUnsupported(attempt.Model)
 			attempt.Think = ThinkOff()
+			continue
+		}
+		if resp.StatusCode == http.StatusBadRequest && len(attempt.Tools) > 0 && isToolsUnsupportedBody(bodyStr) {
+			logger.Infof("Model doesn't support tools, retrying without tools")
+			c.markToolsUnsupported(attempt.Model)
+			attempt.Tools = nil
 			continue
 		}
 		return nil, mapChatError(resp.StatusCode, bodyStr)
@@ -97,6 +114,7 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 		req.KeepAlive = -1
 	}
 	c.applyThinkSessionOverride(&req)
+	c.applyToolsSessionOverride(&req)
 	resp, err := c.postChat(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("ollama chat: %w", err)
@@ -118,7 +136,7 @@ func decodeSingleChatResponse(body io.ReadCloser) (<-chan Chunk, error) {
 		return nil, fmt.Errorf("decode chat response: %w", err)
 	}
 	ch := make(chan Chunk, 1)
-	ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, Done: true}
+	ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: true}
 	close(ch)
 	return ch, nil
 }
@@ -153,8 +171,11 @@ func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 				ch <- Chunk{Err: errors.New(parsed.Error), Done: true}
 				return
 			}
-			chunkCount++
-			ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, Done: parsed.Done}
+		chunkCount++
+		// Ollama streams content deltas per line and delivers the complete
+		// tool_calls list on the final (done) message. Forward them as-is;
+		// the consumer keeps the last non-empty set.
+		ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done}
 			if parsed.Done {
 				logger.Infof("Ollama chat stream done: chunk_count=%d", chunkCount)
 				return
@@ -176,14 +197,15 @@ func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatRespons
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	content, thinking, streamErr := drainStream(stream)
+	content, thinking, toolCalls, streamErr := drainStream(stream)
 	if streamErr != nil {
 		return ChatResponse{}, streamErr
 	}
 	// Some models (e.g. moondream builds) return an empty body on the
 	// non-streaming path while streaming the same turn fine. Retry once via
-	// streaming instead of surfacing a bogus empty reply.
-	if strings.TrimSpace(content.String()) == "" && ctx.Err() == nil {
+	// streaming instead of surfacing a bogus empty reply. A turn carrying
+	// native tool calls is never "empty", even with blank visible text.
+	if strings.TrimSpace(content.String()) == "" && len(toolCalls) == 0 && ctx.Err() == nil {
 		logger.Infof("ChatSync got empty non-streaming reply; retrying via streaming")
 		sreq := req
 		sreq.Stream = true
@@ -191,28 +213,33 @@ func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatRespons
 		if err != nil {
 			return ChatResponse{}, err
 		}
-		content, thinking, streamErr = drainStream(stream)
+		content, thinking, toolCalls, streamErr = drainStream(stream)
 		if streamErr != nil {
 			return ChatResponse{}, streamErr
 		}
 	}
 	out := stripThinkBlocks(content.String())
-	return ChatResponse{Content: out, Thinking: strings.TrimSpace(thinking.String())}, nil
+	return ChatResponse{Content: out, Thinking: strings.TrimSpace(thinking.String()), ToolCalls: toolCalls}, nil
 }
 
 // drainStream collects a chat channel, stopping at the first error or Done.
-func drainStream(stream <-chan Chunk) (content, thinking strings.Builder, err error) {
+// Tool calls stream incrementally or arrive whole on the final message, so
+// the last non-empty set wins (matching Ollama's final-message semantics).
+func drainStream(stream <-chan Chunk) (content, thinking strings.Builder, toolCalls []MessageToolCall, err error) {
 	for chunk := range stream {
 		if chunk.Err != nil {
-			return content, thinking, chunk.Err
+			return content, thinking, toolCalls, chunk.Err
 		}
 		content.WriteString(chunk.Delta)
 		thinking.WriteString(chunk.Thinking)
+		if len(chunk.ToolCalls) > 0 {
+			toolCalls = chunk.ToolCalls
+		}
 		if chunk.Done {
 			break
 		}
 	}
-	return content, thinking, nil
+	return content, thinking, toolCalls, nil
 }
 
 // Compiled once; ChatSync may redact thinking blocks on every non-streaming reply.

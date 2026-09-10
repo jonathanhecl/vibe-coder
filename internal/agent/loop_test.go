@@ -35,6 +35,25 @@ func (c *sequenceClient) Chat(context.Context, ollama.ChatRequest) (<-chan ollam
 	return ch, nil
 }
 
+// nativeSequenceClient replays canned native tool-call turns.
+type nativeSequenceClient struct {
+	fakeClient
+	turns []ollama.Chunk
+	calls int
+}
+
+func (c *nativeSequenceClient) Chat(_ context.Context, _ ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	if c.calls >= len(c.turns) {
+		return nil, context.Canceled
+	}
+	turn := c.turns[c.calls]
+	c.calls++
+	ch := make(chan ollama.Chunk, 1)
+	ch <- turn
+	close(ch)
+	return ch, nil
+}
+
 func TestFileEditCompletionNote(t *testing.T) {
 	note := fileEditCompletionNote("Write", map[string]any{"file_path": "scripts/run_comfyui.bat"})
 	if !strings.Contains(note, "Verify the change") {
@@ -204,6 +223,80 @@ func TestRunExecutesMultipleToolsPerReply(t *testing.T) {
 	}
 	if ui.calls != 2 {
 		t.Fatalf("expected two tool calls in one reply, got %d", ui.calls)
+	}
+}
+
+func TestRunExecutesNativeToolCalls(t *testing.T) {
+	tmp := t.TempDir()
+	aPath := filepath.Join(tmp, "a.txt")
+	if err := os.WriteFile(aPath, []byte("hello a\n"), 0o644); err != nil {
+		t.Fatalf("write fixture a: %v", err)
+	}
+
+	cfg := &config.Config{
+		Model:         "test-model",
+		ContextWindow: 32768,
+		MaxTokens:     128,
+		Temperature:   0.2,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ui := &fakeUI{}
+	client := &nativeSequenceClient{turns: []ollama.Chunk{
+		{
+			ToolCalls: []ollama.MessageToolCall{
+				{Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{"file_path": filepath.ToSlash(aPath)}}},
+			},
+			Done: true,
+		},
+		{Delta: "File read.", Done: true},
+	}}
+	ag := New(cfg, client, reg, perm, sess, ui)
+
+	if err := ag.Run(context.Background(), "read the file"); err != nil {
+		t.Fatalf("run agent: %v", err)
+	}
+	if ui.calls != 1 {
+		t.Fatalf("expected one native tool call, got %d", ui.calls)
+	}
+	msgs := sess.Messages()
+	found := false
+	for _, m := range msgs {
+		if strings.Contains(m.Content, "[native tool calls: Read]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected native transcript note, got %#v", msgs)
+	}
+}
+
+func TestNativeChatToolsRespectsKnownUnsupported(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:          "tiny",
+		ContextWindow:  4096,
+		MaxTokens:      32,
+		Cwd:            tmp,
+		SessionsDir:    filepath.Join(tmp, "sessions"),
+		ToolsKnown:     true,
+		ToolsSupported: false,
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ag := New(cfg, fakeClient{}, reg, perm, sess, &fakeUI{})
+	if got := ag.nativeChatTools(); got != nil {
+		t.Fatalf("expected no native tools for known-unsupported model, got %d", len(got))
+	}
+	cfg.ToolsSupported = true
+	if got := ag.nativeChatTools(); len(got) == 0 {
+		t.Fatal("expected native tools for supported model")
 	}
 }
 
