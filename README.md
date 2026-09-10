@@ -63,7 +63,7 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 
 ## Requirements
 
-- Go `1.25+`
+- Go `1.26+` (see `go.mod`)
 - A running Ollama instance for model-backed execution
 
 ## Install
@@ -545,9 +545,9 @@ go test -tags rag ./...
 
 | Script | Purpose |
 |--------|---------|
-| `build.ps1` / `build.sh` | Dev build with timestamp + short Git hash |
+| `install-dev.ps1` / `install-dev.sh` | Dev build + install with timestamp + short Git hash |
 | `run.ps1` / `run.sh` | Build + run with forwarded CLI flags |
-| `release.ps1` / `release.sh` | Cross-compile for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64; produces archives + `checksums.txt` |
+| `release.ps1` | Cross-compile for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64; produces archives + `checksums.txt` |
 
 ### Project layout
 

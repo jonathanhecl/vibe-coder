@@ -4,7 +4,7 @@
 
 - Use English for all code comments, user-facing messages, logs, errors, and test fixtures.
 - Use `vibe-coder` as the canonical binary and package naming in new code and commands.
-- Follow MVP-first scope discipline from `doc/MVP.md` and `doc/CHECKLIST.md`.
+- Follow MVP-first scope discipline: keep changes small, testable, and documented in README/CHANGELOG when behavior changes.
 - Prefer small, testable packages under `internal/` and keep `cmd/vibe-coder/main.go` focused on wiring.
 
 ## Language and Messaging Rules

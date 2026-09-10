@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# Local dev binaries (Windows: covered by *.exe, Unix: bare name)
+/vibe-coder
+/vibe-coder.exe
+
 # Test binary, built with `go test -c`
 *.test
 
