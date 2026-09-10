@@ -1,8 +1,10 @@
 package session
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,6 +153,43 @@ func countLines(s string) int {
 		}
 	}
 	return n
+}
+
+func TestRenderMessagesForSummaryCapsInput(t *testing.T) {
+	t.Parallel()
+	msgs := make([]Message, 0, 60)
+	for i := 0; i < 60; i++ {
+		msgs = append(msgs, Message{Role: "user", Content: fmt.Sprintf("message-%02d-", i) + strings.Repeat("x", 2000)})
+	}
+	got := renderMessagesForSummary(msgs)
+	if len(got) > 48*1024+512 {
+		t.Fatalf("expected bounded summary input, got %d chars", len(got))
+	}
+	if !strings.Contains(got, "[earliest history omitted") {
+		t.Fatal("expected omission note for clipped input")
+	}
+	// Tail kept in chronological order: newest message last, oldest dropped.
+	if strings.Contains(got, "message-00-") {
+		t.Fatal("expected oldest message to be dropped")
+	}
+	if !strings.Contains(got, "message-59-") {
+		t.Fatal("expected newest message to be kept")
+	}
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected multiple lines, got %d", len(lines))
+	}
+	if !strings.HasPrefix(lines[len(lines)-1], "user: message-59-") {
+		t.Fatalf("expected newest message last, got %q", lines[len(lines)-1][:20])
+	}
+	if !strings.HasPrefix(lines[1], "user: message-") {
+		t.Fatalf("expected chronological order after the note, got %q", lines[1][:20])
+	}
+
+	small := renderMessagesForSummary([]Message{{Role: "user", Content: "x"}})
+	if small != "user: x\n" {
+		t.Fatalf("small input must stay verbatim, got %q", small)
+	}
 }
 
 func TestSetPinnedContextsSkipsUnchangedRevision(t *testing.T) {

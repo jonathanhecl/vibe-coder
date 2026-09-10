@@ -74,14 +74,38 @@ func (s *Session) recomputeTokenEstimate() {
 }
 
 func renderMessagesForSummary(messages []Message) string {
+	// Bound the sidecar input: at the compaction threshold the old
+	// transcript can hold megabytes (verbatim tool outputs), which would
+	// stall the small sidecar model past its timeout and degrade to the
+	// static truncation note. Keep the most recent content so the summary
+	// stays continuous with the messages kept verbatim.
+	const maxSummaryChars = 48 * 1024
 	var b strings.Builder
-	for _, m := range messages {
-		b.WriteString(m.Role)
-		b.WriteString(": ")
-		b.WriteString(m.Content)
-		b.WriteString("\n")
+	clipped := false
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		line := m.Role + ": " + m.Content + "\n"
+		if b.Len()+len(line) > maxSummaryChars {
+			clipped = true
+			break
+		}
+		b.WriteString(line)
 	}
-	return b.String()
+	out := b.String()
+	if !clipped {
+		// Built newest-first above; restore chronological order.
+		return reverseLines(out)
+	}
+	return "[earliest history omitted for size; summarizing the most recent part]\n" + reverseLines(out)
+}
+
+// reverseLines flips a "\n"-terminated line block end to start.
+func reverseLines(s string) string {
+	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func estimateTextTokens(text string) int {
