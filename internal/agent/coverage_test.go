@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -509,5 +510,39 @@ func TestBuildEmptyResponseRetryInput(t *testing.T) {
 	}
 	if len(ag.recentCompletedFileRuntimeNotes(0)) != 0 {
 		t.Fatal("expected 0 notes for limit 0")
+	}
+}
+
+type idleRecordingUI struct {
+	coverageUI
+	waitingCalls atomic.Int32
+}
+
+func (u *idleRecordingUI) StartWaiting(string) { u.waitingCalls.Add(1) }
+
+func TestStreamIdleRestartsWaitingIndicator(t *testing.T) {
+	old := streamIdleProgressInterval
+	streamIdleProgressInterval = 20 * time.Millisecond
+	defer func() { streamIdleProgressInterval = old }()
+
+	ui := &idleRecordingUI{}
+	ag := &Agent{ui: ui, cfg: &config.Config{Model: "test-model"}}
+	stream := make(chan ollama.Chunk, 1)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		stream <- ollama.Chunk{Delta: "hi", Done: true}
+		close(stream)
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reply, _, err := ag.streamAssistantResponse(ctx, cancel, stream)
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+	if reply != "hi" {
+		t.Fatalf("expected reply %q, got %q", "hi", reply)
+	}
+	if ui.waitingCalls.Load() == 0 {
+		t.Fatal("expected idle silence to re-show the waiting indicator")
 	}
 }

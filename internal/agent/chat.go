@@ -178,12 +178,17 @@ func nativeCallNames(calls []ToolCall) string {
 	}
 	return strings.Join(names, ", ")
 }
+// streamIdleProgressInterval controls how often a silent stream re-shows the
+// waiting spinner. The spinner stops once the first tokens arrive, so a model
+// that goes quiet mid-turn would otherwise look frozen with no elapsed time
+// advancing. Re-showing it proves the agent is still waiting.
+var streamIdleProgressInterval = 20 * time.Second
+
 func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.CancelFunc, stream <-chan ollama.Chunk) (string, []ToolCall, error) {
 	var buf []byte
 	var toolCalls []ollama.MessageToolCall
 	thinkingSeen := false
 	lastShown := 0 // bytes of assistant text already streamed to the terminal (hides tool XML)
-
 	endThinking := func() {
 		if thinkingSeen {
 			a.ui.EndThinking()
@@ -222,8 +227,46 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		}
 	}
 
-	for chunk := range stream {
-		if chunk.Err != nil {
+	waitingLabel := fmt.Sprintf("waiting for %s.", shortModelName(a.cfg.Model))
+	idle := time.NewTimer(streamIdleProgressInterval)
+	defer idle.Stop()
+	resetIdle := func() {
+		if !idle.Stop() {
+			select {
+			case <-idle.C:
+			default:
+			}
+		}
+		idle.Reset(streamIdleProgressInterval)
+	}
+	for {
+		select {
+		case <-idle.C:
+			// Silence mid-turn: re-show the spinner with its elapsed
+			// counter so the wait is visibly alive. Skipped while a
+			// thinking panel is open to avoid garbling its line.
+			if !thinkingSeen {
+				a.ui.StartWaiting(waitingLabel)
+			}
+			idle.Reset(streamIdleProgressInterval)
+		case chunk, ok := <-stream:
+			if !ok {
+				a.ui.StopWaiting()
+				endThinking()
+				if len(buf) == 0 && len(toolCalls) == 0 {
+					cancel()
+					a.ui.EndAssistant()
+					return "", nil, nil
+				}
+				full := string(buf)
+				flushUnprinted(full)
+				flushTailAfterTool(full)
+				cancel()
+				a.ui.EndAssistant()
+				return full, nativeCallsToToolCalls(toolCalls), nil
+			}
+			resetIdle()
+			if chunk.Err != nil {
 			if isCancelledByUser(rootCtx, chunk.Err) {
 				finishAssistant()
 				return "[Cancelled by user]", nil, nil
@@ -277,22 +320,9 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 				return "", nil, fmt.Errorf("empty assistant response (no assistant text or tool call; model may have only emitted thinking)")
 			}
 			return full, native, nil
+			}
 		}
 	}
-
-	a.ui.StopWaiting()
-	endThinking()
-	if len(buf) == 0 && len(toolCalls) == 0 {
-		cancel()
-		a.ui.EndAssistant()
-		return "", nil, nil
-	}
-	full := string(buf)
-	flushUnprinted(full)
-	flushTailAfterTool(full)
-	cancel()
-	a.ui.EndAssistant()
-	return full, nativeCallsToToolCalls(toolCalls), nil
 }
 func (a *Agent) rebuildStableSystemPromptBody() string {
 	systemPrompt := prompt.Build(a.cfg)
