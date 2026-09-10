@@ -28,6 +28,9 @@ type Session struct {
 	// (--context / /context). Only the paths are stored here; file
 	// contents are reloaded into the agent system prompt on demand.
 	pinnedContexts []string
+	// lastSavedRevision is the revision successfully persisted by Save.
+	// Save skips the rewrite when nothing changed since (0 = never saved).
+	lastSavedRevision uint64
 }
 
 func New(cfg *config.Config) *Session {

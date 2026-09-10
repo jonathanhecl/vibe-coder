@@ -46,6 +46,11 @@ type Agent struct {
 	// descCacheStore memoizes sidecar-generated image descriptions
 	// ("borrowed vision") per file revision.
 	descCacheStore *vision.Cache
+	// lastTodoNote is the last TODO progress note injected into the
+	// transcript. The note is re-injected only when its content changes,
+	// so long multi-step runs don't pay the full list cost every iteration.
+	// Reset at the start of each Run.
+	lastTodoNote string
 
 	// sysPrompt caches the stable system prompt until disk/registry inputs change.
 	sysPrompt promptCache

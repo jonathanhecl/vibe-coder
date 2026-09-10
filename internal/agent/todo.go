@@ -69,6 +69,34 @@ func (a *Agent) todoWriteTool() *tools.TodoWriteTool {
 	tw, _ := a.reg.Get("TodoWrite").(*tools.TodoWriteTool)
 	return tw
 }
+
+// addTodoProgressNoteIfChanged injects the TODO progress note only when it
+// differs from the last injected one. The list is sticky across turns, so
+// without this every loop iteration would append a duplicate copy to the
+// transcript and burn context on all following turns.
+func (a *Agent) addTodoProgressNoteIfChanged() {
+	note := a.todoProgressNote()
+	if note == "" {
+		return
+	}
+	a.mu.Lock()
+	changed := note != a.lastTodoNote
+	if changed {
+		a.lastTodoNote = note
+	}
+	a.mu.Unlock()
+	if changed {
+		a.sess.AddSystemNote(note)
+	}
+}
+
+// resetTodoNoteDedup forgets the last injected note so the next turn starts
+// fresh (e.g. an older copy may have been compacted away since).
+func (a *Agent) resetTodoNoteDedup() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.lastTodoNote = ""
+}
 func isMeaningfulTodoContent(content string) bool {
 	content = strings.TrimSpace(content)
 	if content == "" {

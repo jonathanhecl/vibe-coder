@@ -38,9 +38,19 @@ func (s *Session) Save() error {
 	id := s.id
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
+	rev := s.revision
+	savedRev := s.lastSavedRevision
 	s.mu.RUnlock()
 	if cfg == nil {
 		return fmt.Errorf("session config is nil")
+	}
+	// Nothing changed since the last successful save: skip the full
+	// rewrite (transcript + index + sidecar). The REPL saves after every
+	// turn, so without this long sessions pay a whole-file rewrite each
+	// time even for slash-only turns. Revision 0 with no prior save still
+	// writes so empty sessions materialize on disk as before.
+	if savedRev != 0 && rev == savedRev {
+		return nil
 	}
 	if err := os.MkdirAll(cfg.SessionsDir, 0o755); err != nil {
 		return fmt.Errorf("create sessions dir: %w", err)
@@ -73,6 +83,13 @@ func (s *Session) Save() error {
 	if err := s.writePinnedContextsFor(id, pinned); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	// Record the snapshot revision, not the current one: messages added
+	// concurrently still force the next Save to rewrite.
+	if s.revision == rev {
+		s.lastSavedRevision = rev
+	}
+	s.mu.Unlock()
 	return nil
 }
 
@@ -135,6 +152,9 @@ func (s *Session) Load(id string) error {
 	s.pinnedContexts = pinned
 	s.recomputeTokenEstimate()
 	s.revision++
+	// Just loaded from disk: memory matches the files, so a subsequent
+	// Save with no changes is a no-op.
+	s.lastSavedRevision = s.revision
 	s.mu.Unlock()
 	return nil
 }

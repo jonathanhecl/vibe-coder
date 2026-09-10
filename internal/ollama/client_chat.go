@@ -162,10 +162,35 @@ func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatRespons
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	var content, thinking strings.Builder
+	content, thinking, streamErr := drainStream(stream)
+	if streamErr != nil {
+		return ChatResponse{}, streamErr
+	}
+	// Some models (e.g. moondream builds) return an empty body on the
+	// non-streaming path while streaming the same turn fine. Retry once via
+	// streaming instead of surfacing a bogus empty reply.
+	if strings.TrimSpace(content.String()) == "" && ctx.Err() == nil {
+		logger.Infof("ChatSync got empty non-streaming reply; retrying via streaming")
+		sreq := req
+		sreq.Stream = true
+		stream, err := c.Chat(ctx, sreq)
+		if err != nil {
+			return ChatResponse{}, err
+		}
+		content, thinking, streamErr = drainStream(stream)
+		if streamErr != nil {
+			return ChatResponse{}, streamErr
+		}
+	}
+	out := stripThinkBlocks(content.String())
+	return ChatResponse{Content: out, Thinking: strings.TrimSpace(thinking.String())}, nil
+}
+
+// drainStream collects a chat channel, stopping at the first error or Done.
+func drainStream(stream <-chan Chunk) (content, thinking strings.Builder, err error) {
 	for chunk := range stream {
 		if chunk.Err != nil {
-			return ChatResponse{}, chunk.Err
+			return content, thinking, chunk.Err
 		}
 		content.WriteString(chunk.Delta)
 		thinking.WriteString(chunk.Thinking)
@@ -173,8 +198,7 @@ func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatRespons
 			break
 		}
 	}
-	out := stripThinkBlocks(content.String())
-	return ChatResponse{Content: out, Thinking: strings.TrimSpace(thinking.String())}, nil
+	return content, thinking, nil
 }
 
 // Compiled once; ChatSync may redact thinking blocks on every non-streaming reply.

@@ -1,8 +1,12 @@
 package ollama
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -78,5 +82,61 @@ func TestMessageSerializesImagesWhenPresent(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "images") {
 		t.Fatalf("expected no images field, got %s", raw)
+	}
+}
+
+func TestChatSyncFallsBackToStreamingOnEmpty(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		if n == 1 {
+			// Moondream-style: empty non-streaming body.
+			_, _ = w.Write([]byte(`{"model":"m","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"message":{"content":"red "},"done":false}` + "\n"))
+		_, _ = w.Write([]byte(`{"message":{"content":"circle"},"done":true}` + "\n"))
+	}))
+	defer srv.Close()
+
+	resp, err := NewHTTP(srv.URL).ChatSync(context.Background(), ChatRequest{
+		Model:    "m",
+		Messages: []Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("chatsync: %v", err)
+	}
+	if resp.Content != "red circle" {
+		t.Fatalf("expected streamed fallback content, got %q", resp.Content)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected exactly 2 calls, got %d", got)
+	}
+}
+
+func TestChatSyncEmptyTwiceStaysEmpty(t *testing.T) {
+	t.Parallel()
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"model":"m","message":{"role":"assistant","content":""},"done":true}`))
+	}))
+	defer srv.Close()
+
+	resp, err := NewHTTP(srv.URL).ChatSync(context.Background(), ChatRequest{
+		Model:    "m",
+		Messages: []Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("chatsync: %v", err)
+	}
+	if resp.Content != "" {
+		t.Fatalf("expected empty content, got %q", resp.Content)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("expected exactly 2 calls (no loop), got %d", got)
 	}
 }

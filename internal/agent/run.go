@@ -24,6 +24,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	defer a.ui.StopESCMonitor()
 
 	a.addRunContext(ctx, userInput)
+	a.resetTodoNoteDedup()
 
 	if tasks, ok := detectParallelTasks(userInput); ok {
 		tool := a.reg.Get("ParallelAgents")
@@ -61,9 +62,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			continue
 		}
 
-		if note := a.todoProgressNote(); note != "" {
-			a.sess.AddSystemNote(note)
-		}
+		a.addTodoProgressNoteIfChanged()
 		reply, err := a.chatOnce(ctx)
 		if err != nil {
 			if IsEmptyAssistantResponseErr(err) {
