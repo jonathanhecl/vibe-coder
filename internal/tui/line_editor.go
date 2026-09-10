@@ -395,7 +395,9 @@ func (e *lineEditor) moveToCursor(newCursor int) {
 // screen, render text and block previews (with newlines for multi-line), then
 // reposition the cursor.
 func (e *lineEditor) redraw() {
-	// Move to start of editable region.
+	// Move to start of editable region (just after the prompt on row 0).
+	// The prompt itself must be preserved, so never move to column 0 and
+	// erase from there.
 	if e.screenRow > 0 {
 		fmt.Fprintf(e.out, "\x1b[%dA", e.screenRow)
 	}
@@ -403,8 +405,10 @@ func (e *lineEditor) redraw() {
 	if e.screenRow == 0 {
 		currentTermCol += e.promptWidth
 	}
-	if currentTermCol > 0 {
-		fmt.Fprintf(e.out, "\x1b[%dD", currentTermCol)
+	if currentTermCol > e.promptWidth {
+		fmt.Fprintf(e.out, "\x1b[%dD", currentTermCol-e.promptWidth)
+	} else if currentTermCol < e.promptWidth {
+		fmt.Fprintf(e.out, "\x1b[%dC", e.promptWidth-currentTermCol)
 	}
 	// Erase from cursor to end of screen.
 	_, _ = io.WriteString(e.out, "\x1b[J")

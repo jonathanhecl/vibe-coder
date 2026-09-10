@@ -330,3 +330,29 @@ func TestInteractiveInputUpDownNavigatesLines(t *testing.T) {
 		t.Fatalf("expected Up to navigate lines not history, got %q", got)
 	}
 }
+
+// TestRedrawPreservesPrompt verifies that history recall (Up) does not erase
+// the prompt. redraw() must move to just after the prompt and erase from
+// there, never from column 0.
+func TestRedrawPreservesPrompt(t *testing.T) {
+	var out bytes.Buffer
+	hist := &inputHistory{entries: []string{"old"}}
+	prompt := "user > "
+	// Type "sasas" then Up to recall "old", then Enter.
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("sasas\x1b[A\n"), &out, Style{}, hist, prompt)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "old" {
+		t.Fatalf("expected history recall, got %q", got)
+	}
+	rendered := out.String()
+	// Buffer "sasas" (5 runes) after prompt width 7 sits at term col 12.
+	// Correct redraw moves left 5 to col 7 (after prompt), not 12 to col 0.
+	if !strings.Contains(rendered, "\x1b[5D\x1b[J") {
+		t.Fatalf("expected redraw to preserve prompt (\\x1b[5D\\x1b[J), got %q", rendered)
+	}
+	if strings.Contains(rendered, "\x1b[12D\x1b[J") {
+		t.Fatalf("redraw erased prompt (moved to col 0), got %q", rendered)
+	}
+}
