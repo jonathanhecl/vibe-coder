@@ -47,3 +47,32 @@ func TestPrintColoredDiffTruncates(t *testing.T) {
 		t.Fatal("expected truncation indicator")
 	}
 }
+
+func TestShowToolResultPrintsFullBashCommandOnError(t *testing.T) {
+	long := "cd /d C:/Users/gense/Desktop/dev/repos/superlong-project && ffprobe output.mp4"
+	if !bashCommandTruncated(long) {
+		t.Fatalf("test command should exceed the header limit: %q", long)
+	}
+	if bashCommandTruncated("ls") {
+		t.Fatal("short command must not count as truncated")
+	}
+	var b strings.Builder
+	u := &PlainUI{out: &b, style: Style{}}
+	u.ShowToolCall("Bash", map[string]any{"command": long})
+	u.ShowToolResult("Bash", "El sistema no puede encontrar la ruta especificada.", true, map[string]any{"command": long})
+	if out := b.String(); !strings.Contains(out, long) {
+		t.Fatalf("expected full command in output, got %q", out)
+	}
+}
+
+func TestShowToolResultOmitsFullBashCommandWhenShort(t *testing.T) {
+	var b strings.Builder
+	u := &PlainUI{out: &b, style: Style{}}
+	u.ShowToolCall("Bash", map[string]any{"command": "ls"})
+	u.ShowToolResult("Bash", "boom", true, map[string]any{"command": "ls"})
+	for _, line := range strings.Split(b.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "$ ") {
+			t.Fatalf("short command must not be duplicated, got %q", b.String())
+		}
+	}
+}

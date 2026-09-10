@@ -95,6 +95,11 @@ func todoGlyph(st Style, status string) (string, func(string) string) {
 	}
 }
 
+// maxToolHeaderLen keeps tool cards (including the spinner card) on one
+// terminal row. ShowToolResult relies on the same limit to detect when a
+// Bash command was truncated and print it in full below the card.
+const maxToolHeaderLen = 52
+
 // CompactToolHeader renders a Cursor-style one-line label for a tool call,
 // e.g. "Read foo.go", "Glob *.go in src/", "Bash $ ls -la". Tool-specific
 // formatting falls back to the generic key=value list for unknown tools.
@@ -102,7 +107,6 @@ func todoGlyph(st Style, status string) (string, func(string) string) {
 // Exported so the agent loop can reuse it for non-stream paths (e.g. tool
 // observation hints) without duplicating the formatting rules.
 func CompactToolHeader(name string, params map[string]any) string {
-	const maxHeaderLen = 52 // keeps spinner card on one terminal row
 	out := ""
 	switch name {
 	case "Read":
@@ -157,7 +161,7 @@ func CompactToolHeader(name string, params map[string]any) string {
 			out = name
 		}
 	}
-	return truncateInline(out, maxHeaderLen)
+	return truncateInline(out, maxToolHeaderLen)
 }
 
 // compactPath turns "/abs/long/path/foo.go" into "path/foo.go" so tool

@@ -78,6 +78,14 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 		printEditDiffPreview(u.out, u.style, toolParams)
 	}
 
+	// A failed Bash with a long command shows only "super..." in the card.
+	// Print the full command so the failure is debuggable.
+	if isError && name == "Bash" && toolParams != nil {
+		if cmd, ok := toolParams["command"].(string); ok && bashCommandTruncated(cmd) {
+			printIndented(u.out, u.style.Dim("$ "+strings.TrimSpace(cmd)))
+		}
+	}
+
 	if isError && strings.TrimSpace(output) != "" {
 		printIndented(u.out, u.style.Red(strings.TrimRight(output, "\n")))
 	}
@@ -85,6 +93,13 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 	u.pendingActive = false
 	u.pendingTool = ""
 	u.pendingHeader = ""
+}
+
+// bashCommandTruncated reports whether the one-line card header hides part
+// of a Bash command (same limit as CompactToolHeader).
+func bashCommandTruncated(cmd string) bool {
+	oneLine := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(cmd), "\n", " "), "\r", " ")
+	return len("Bash $ "+oneLine) > maxToolHeaderLen
 }
 
 // formatParams renders a compact (key=val, ...) suffix with a stable order so
