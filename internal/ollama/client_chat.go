@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 )
@@ -141,51 +142,106 @@ func decodeSingleChatResponse(body io.ReadCloser) (<-chan Chunk, error) {
 	return ch, nil
 }
 
+// streamStallTimeout bounds how long the chat stream may go without
+// delivering any bytes after a 200 OK. A model stuck loading or wedged
+// mid-generation would otherwise leave the agent waiting silently until the
+// 15-minute chat timeout with no progress feedback.
+var streamStallTimeout = 5 * time.Minute
+
 func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 	ch := make(chan Chunk, 8)
 	go func() {
 		defer close(ch)
 		defer body.Close()
-		scanner := newStreamScanner(body)
+		// Unblock a wedged scanner.Scan when the caller cancels: the HTTP
+		// transport normally aborts the read itself, but an explicit close
+		// guarantees Ctrl+C and timeouts always interrupt the wait.
+		stopWatch := context.AfterFunc(ctx, func() { _ = body.Close() })
+		defer stopWatch()
+
+		// Read lines on a separate goroutine so the consumer can enforce
+		// a stall timeout and react to cancellation while Scan blocks.
+		lines := make(chan string, 16)
+		scanDone := make(chan error, 1)
+		go func() {
+			defer close(lines)
+			scanner := newStreamScanner(body)
+			for scanner.Scan() {
+				select {
+				case lines <- scanner.Text():
+				case <-ctx.Done():
+					return
+				}
+			}
+			select {
+			case scanDone <- scanner.Err():
+			case <-ctx.Done():
+			}
+		}()
+
+		// streamStallTimeout bounds how long the stream may go without
+		// delivering any bytes. Without it a wedged model leaves the agent
+		// waiting silently until the 15-minute chat timeout.
+		stall := time.NewTimer(streamStallTimeout)
+		defer stall.Stop()
+		resetStall := func() {
+			if !stall.Stop() {
+				select {
+				case <-stall.C:
+				default:
+				}
+			}
+			stall.Reset(streamStallTimeout)
+		}
 		chunkCount := 0
-		for scanner.Scan() {
+		for {
 			select {
 			case <-ctx.Done():
 				logger.Errorf("Ollama chat stream context cancelled: %v", ctx.Err())
 				ch <- Chunk{Err: ctx.Err(), Done: true}
 				return
-			default:
-			}
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-			var parsed chatResponseLine
-			if err := json.Unmarshal([]byte(line), &parsed); err != nil {
-				logger.Errorf("Ollama chat stream unmarshal failed: %v, raw line: %q", err, line)
-				ch <- Chunk{Err: fmt.Errorf("decode chat stream line: %w", err), Done: true}
+			case <-stall.C:
+				logger.Errorf("Ollama chat stream stalled: no data for %s", streamStallTimeout)
+				_ = body.Close()
+				ch <- Chunk{Err: fmt.Errorf("ollama stream stalled: no data for %s (model may be overloaded; retry with --no-think)", streamStallTimeout), Done: true}
 				return
+			case line, ok := <-lines:
+				if !ok {
+					err := <-scanDone
+					if err != nil {
+						logger.Errorf("Ollama chat stream scanner failed: %v", err)
+						ch <- Chunk{Err: fmt.Errorf("read chat stream: %w", err), Done: true}
+					} else {
+						logger.Infof("Ollama chat stream closed cleanly: chunk_count=%d", chunkCount)
+					}
+					return
+				}
+				resetStall()
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				var parsed chatResponseLine
+				if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+					logger.Errorf("Ollama chat stream unmarshal failed: %v, raw line: %q", err, line)
+					ch <- Chunk{Err: fmt.Errorf("decode chat stream line: %w", err), Done: true}
+					return
+				}
+				if parsed.Error != "" {
+					logger.Errorf("Ollama chat stream error: %s", parsed.Error)
+					ch <- Chunk{Err: errors.New(parsed.Error), Done: true}
+					return
+				}
+				chunkCount++
+				// Ollama streams content deltas per line and delivers the complete
+				// tool_calls list on the final (done) message. Forward them as-is;
+				// the consumer keeps the last non-empty set.
+				ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done}
+				if parsed.Done {
+					logger.Infof("Ollama chat stream done: chunk_count=%d", chunkCount)
+					return
+				}
 			}
-			if parsed.Error != "" {
-				logger.Errorf("Ollama chat stream error: %s", parsed.Error)
-				ch <- Chunk{Err: errors.New(parsed.Error), Done: true}
-				return
-			}
-			chunkCount++
-			// Ollama streams content deltas per line and delivers the complete
-			// tool_calls list on the final (done) message. Forward them as-is;
-			// the consumer keeps the last non-empty set.
-			ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done}
-			if parsed.Done {
-				logger.Infof("Ollama chat stream done: chunk_count=%d", chunkCount)
-				return
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			logger.Errorf("Ollama chat stream scanner failed: %v", err)
-			ch <- Chunk{Err: fmt.Errorf("read chat stream: %w", err), Done: true}
-		} else {
-			logger.Infof("Ollama chat stream closed cleanly: chunk_count=%d", chunkCount)
 		}
 	}()
 	return ch

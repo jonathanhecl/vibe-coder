@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestMergeToolCallsAccumulatesAndDedupes(t *testing.T) {
@@ -100,5 +102,35 @@ func TestChatStringifiedToolCallsAcrossChunks(t *testing.T) {
 	}
 	if calls[0].Function.Arguments["file_path"] != "output.mp4" {
 		t.Fatalf("unexpected arguments: %#v", calls[0].Function.Arguments)
+	}
+}
+
+func TestChatStalledStreamSurfacesError(t *testing.T) {
+	old := streamStallTimeout
+	streamStallTimeout = 100 * time.Millisecond
+	defer func() { streamStallTimeout = old }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// Hold the connection open with no data, like a wedged model.
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	client := NewHTTP(srv.URL)
+	stream, err := client.Chat(context.Background(), ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}, Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err = drainStream(stream)
+	if err == nil {
+		t.Fatal("expected stall error, got nil")
+	}
+	if !strings.Contains(err.Error(), "stalled") {
+		t.Fatalf("expected stall error, got %v", err)
 	}
 }

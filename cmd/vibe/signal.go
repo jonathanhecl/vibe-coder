@@ -20,6 +20,15 @@ func installSignalHandler(ui interface{ Stop() }, sess interface{ Save() error }
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
+		// Arm the forced exit BEFORE cleanup: if Stop or Save ever blocks,
+		// a stuck cleanup must never swallow the second Ctrl+C.
+		go func() {
+			<-sigCh
+			if ui != nil {
+				ui.Stop()
+			}
+			os.Exit(130)
+		}()
 		if ui != nil {
 			ui.Stop()
 		}
@@ -30,14 +39,6 @@ func installSignalHandler(ui interface{ Stop() }, sess interface{ Save() error }
 			_ = sess.Save()
 		}
 		printByeOnInterrupt()
-
-		go func() {
-			<-sigCh
-			if ui != nil {
-				ui.Stop()
-			}
-			os.Exit(130)
-		}()
 
 		time.Sleep(400 * time.Millisecond)
 		if ui != nil {
