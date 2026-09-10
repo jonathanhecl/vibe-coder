@@ -11,7 +11,7 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 
 - **One-shot prompts** (`-p`) and **interactive REPL** with streaming output.
 - **Multi-turn agent loop** (up to 50 iterations, 2 retries) with tool observation feedback.
-- **Native tool calling** — registry schemas are sent as Ollama `tools`; capability is detected from `/api/tags` (`Tools: native|xml|auto` in `/status`), with per-session 400 fallback and caching.
+- **Native tool calling** — registry schemas are sent as Ollama `tools`; capability is detected from `/api/tags`, with a `/api/show` probe when tag metadata is missing (`Tools: native|xml|auto` in `/status`), plus per-session 400 fallback and caching. Streamed calls are accumulated across chunks, and native turns replay structured history (`assistant.tool_calls` + role `tool` results) instead of text envelopes.
 - **Batched tool calls** — up to 5 sequential calls per turn (native or `<invoke>` XML fallback) for independent calls.
 - **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
@@ -22,7 +22,7 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 - **File ops**: `Read`, `Write`, `Edit` (with inline unified-diff preview in the TUI).
 - **Search**: `Glob`, `Grep` (multiline, context lines, output modes).
 - **Shell**: `Bash` and `InteractiveBash` with dangerous-command blocklists and protected-path guards.
-- **Web**: `WebFetch` and `WebSearch` (DuckDuckGo scrape) with SSRF protection.
+- **Web**: `WebFetch` and `WebSearch` (DuckDuckGo scrape) with SSRF protection: private hosts are rejected up front, every redirect target is re-validated (max 5 hops), connections are pinned to publicly resolved addresses (DNS-rebinding guard), and requests respect cancellation.
 - **Notebook**: `NotebookEdit` for `.ipynb` JSON round-trip.
 - **Tasks**: `TodoWrite` (live to-do panel), `TaskStart`, `TaskList`, `TaskComplete`, `TaskCancel`.
 - **Questions**: `AskUserQuestion` for interactive multi-choice prompts.

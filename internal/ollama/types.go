@@ -40,6 +40,41 @@ type Message struct {
 	// Images carries base64-encoded pictures for vision-capable models
 	// (Ollama /api/chat images field). Empty for text-only turns.
 	Images []string `json:"images,omitempty"`
+	// ToolCalls replays native function invocations on assistant turns, and
+	// ToolName identifies native tool results (role "tool"), following the
+	// history shape documented for /api/chat.
+	ToolCalls []MessageToolCall `json:"tool_calls,omitempty"`
+	ToolName  string            `json:"tool_name,omitempty"`
+}
+
+// MergeToolCalls accumulates streamed tool calls. Ollama may emit each call
+// as soon as it is complete, or repeat the full list on the final chunk,
+// so clients must append while dropping exact duplicates.
+func MergeToolCalls(base, incoming []MessageToolCall) []MessageToolCall {
+	if len(incoming) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base)+len(incoming))
+	key := func(c MessageToolCall) string {
+		raw, err := json.Marshal(c.Function.Arguments)
+		if err != nil {
+			raw = []byte(fmt.Sprint(c.Function.Arguments))
+		}
+		return c.Function.Name + "\x00" + string(raw)
+	}
+	out := base
+	for _, c := range base {
+		seen[key(c)] = struct{}{}
+	}
+	for _, c := range incoming {
+		k := key(c)
+		if _, dup := seen[k]; dup {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, c)
+	}
+	return out
 }
 
 type ChatOptions struct {

@@ -97,7 +97,7 @@ func TestRecordToolObservationSummarisesNonReadOutputWhenSidecarEnabled(t *testi
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
-	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("payload\n", 500), "")
+	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("payload\n", 500), "", false)
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {
@@ -122,7 +122,7 @@ func TestRecordToolObservationKeepsLargeReadOutputVerbatim(t *testing.T) {
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
 	body := strings.Repeat("source-line\n", 500)
-	a.recordToolObservation(context.Background(), "Read", body, "")
+	a.recordToolObservation(context.Background(), "Read", body, "", false)
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 || !strings.Contains(msgs[0].Content, body) {
@@ -139,7 +139,7 @@ func TestRecordToolObservationSkipsSummariseForSmallOutput(t *testing.T) {
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10_000)))
 
-	a.recordToolObservation(context.Background(), "Read", "short", "")
+	a.recordToolObservation(context.Background(), "Read", "short", "", false)
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {
@@ -159,7 +159,7 @@ func TestRecordToolObservationFallsBackOnSidecarError(t *testing.T) {
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
-	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("z", 4096), "")
+	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("z", 4096), "", false)
 
 	msgs := a.sess.Messages()
 	if len(msgs) != 1 {

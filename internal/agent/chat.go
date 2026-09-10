@@ -41,11 +41,17 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) []
 	}
 	for i := start; i < len(hist); i++ {
 		m := hist[i]
-		role := m.Role
-		if role != "user" && role != "assistant" {
+		switch m.Role {
+		case "user", "assistant", "tool":
+		default:
 			continue
 		}
-		out = append(out, ollama.Message{Role: role, Content: m.Content})
+		out = append(out, ollama.Message{
+			Role:      m.Role,
+			Content:   m.Content,
+			ToolCalls: m.ToolCalls,
+			ToolName:  m.ToolName,
+		})
 	}
 	// Markers become image bytes (or sidecar descriptions, or honest notes)
 	// only here, at send time. The transcript keeps the cheap text form.
@@ -108,8 +114,9 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 // declarations. It returns nil when the model is known-unsupported so no
 // doomed 400 round trip is attempted; unknown models get tools
 // optimistically (the client falls back per session on a 400 tool error).
-// The transcript keeps user-envelope tool observations for cross-model
-// compatibility, so native calls execute through the same path as XML.
+// Native turns persist structured history (assistant tool_calls + role
+// "tool" results); the XML fallback keeps envelope-based text so models
+// without native function calling keep working.
 func (a *Agent) nativeChatTools() []ollama.ChatTool {
 	if a.cfg != nil && a.cfg.ToolsKnown && !a.cfg.ToolsSupported {
 		return nil
@@ -226,11 +233,9 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			a.ui.EndAssistant()
 			return "", nil, chunk.Err
 		}
-		if len(chunk.ToolCalls) > 0 {
-			// Ollama delivers the complete tool_calls list on the final
-			// message; the last non-empty set wins.
-			toolCalls = chunk.ToolCalls
-		}
+		// Tool calls may arrive split across chunks (or repeated in the final
+		// one): accumulate them instead of keeping only the last chunk.
+		toolCalls = ollama.MergeToolCalls(toolCalls, chunk.ToolCalls)
 		if chunk.Thinking != "" {
 			thinkingSeen = true
 			a.ui.StreamThinking(chunk.Thinking)

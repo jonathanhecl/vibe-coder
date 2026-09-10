@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -35,24 +36,88 @@ func (t *WebFetchTool) Schema() Schema {
 	}
 }
 
-func (t *WebFetchTool) Execute(_ context.Context, params map[string]any) Result {
+const maxFetchRedirects = 5
+
+// errFetchNotRetryable aborts the request (redirect chain violations and
+// private destinations must not fall through to another fetch attempt).
+var errFetchNotRetryable = errors.New("fetch blocked by network policy")
+
+func validateFetchURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("only http/https URLs are allowed")
+	}
+	if parsed.Hostname() == "" {
+		return fmt.Errorf("url is missing a host")
+	}
+	if isPrivateHost(parsed.Hostname()) {
+		return fmt.Errorf("private or localhost URLs are blocked")
+	}
+	return nil
+}
+
+// guardedDialContext pins fetches to public addresses at connection time, so
+// a hostname re-resolving to a private IP (DNS rebinding) cannot connect even
+// though the URL check passed earlier.
+func guardedDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	addrs, err := (&net.Resolver{}).LookupIP(ctx, "ip", host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ip := range addrs {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+			return nil, fmt.Errorf("%w: %s resolves to private address %s", errFetchNotRetryable, host, ip)
+		}
+	}
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("%w: no addresses for %s", errFetchNotRetryable, host)
+	}
+	return (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, network, net.JoinHostPort(addrs[0].String(), port))
+}
+
+func newWebFetchClient() *http.Client {
+	transport := &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         guardedDialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= maxFetchRedirects {
+				return fmt.Errorf("%w: too many redirects (limit %d)", errFetchNotRetryable, maxFetchRedirects)
+			}
+			if err := validateFetchURL(req.URL.String()); err != nil {
+				return fmt.Errorf("%w: redirect to %s: %v", errFetchNotRetryable, req.URL.Redacted(), err)
+			}
+			return nil
+		},
+	}
+}
+
+func (t *WebFetchTool) Execute(ctx context.Context, params map[string]any) Result {
 	rawURL, ok := params["url"].(string)
 	if !ok || strings.TrimSpace(rawURL) == "" {
 		return errResult("url is required")
 	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return errResult(fmt.Sprintf("invalid url: %v", err))
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return errResult("only http/https URLs are allowed")
-	}
-	if isPrivateHost(parsed.Hostname()) {
-		return errResult("private or localhost URLs are blocked")
+	rawURL = strings.TrimSpace(rawURL)
+	if err := validateFetchURL(rawURL); err != nil {
+		return errResult(err.Error())
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(rawURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return errResult(fmt.Sprintf("build request: %v", err))
+	}
+	resp, err := newWebFetchClient().Do(req)
 	if err != nil {
 		return errResult(fmt.Sprintf("fetch url: %v", err))
 	}
@@ -76,7 +141,7 @@ func htmlToText(html string) string {
 	reStyle := regexp.MustCompile(`(?is)<style.*?>.*?</style>`)
 	reTag := regexp.MustCompile(`(?s)<[^>]+>`)
 	text := reScript.ReplaceAllString(html, " ")
-	text = reStyle.ReplaceAllString(text, " ")
+	text = reStyle.ReplaceAllString(html, " ")
 	text = reTag.ReplaceAllString(text, " ")
 	text = strings.ReplaceAll(text, "\t", " ")
 	text = strings.ReplaceAll(text, "\r", " ")
@@ -105,5 +170,5 @@ func isPrivateHost(host string) bool {
 		}
 		return false
 	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast()
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
 }

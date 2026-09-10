@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/terminal"
 )
 
@@ -13,6 +14,22 @@ type toolExecutionMode struct {
 	// differently. Keep that UI detail explicit while sharing execution logic.
 	showPermissionDeniedResult bool
 	endAssistantOnDenied       bool
+	// structured marks native tool-call turns: their results persist as
+	// role "tool" messages instead of the XML-fallback user envelope.
+	structured bool
+}
+
+// toolCallsToWire converts internal tool calls back to Ollama's wire shape
+// for history replay.
+func toolCallsToWire(calls []ToolCall) []ollama.MessageToolCall {
+	out := make([]ollama.MessageToolCall, 0, len(calls))
+	for _, c := range calls {
+		out = append(out, ollama.MessageToolCall{Function: ollama.MessageToolCallFunction{
+			Name:      c.Name,
+			Arguments: c.Params,
+		}})
+	}
+	return out
 }
 
 func (a *Agent) Run(rootCtx context.Context, userInput string) error {
@@ -84,14 +101,16 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				}
 				if strings.TrimSpace(reply) == "" {
 					a.ui.CollapseAssistantOutput()
-					a.sess.AddAssistant("[native tool calls: " + nativeCallNames(nativeCalls) + "]")
-				} else {
-					a.sess.AddAssistant(reply)
 				}
+				// Persist the structured calls (and any visible text) so the
+				// next turn replays Ollama's native history shape instead of
+				// a text-only approximation that loses arguments.
+				a.sess.AddAssistantToolCalls(reply, toolCallsToWire(nativeCalls))
 				for _, c := range nativeCalls {
 					tool := a.reg.Get(c.Name)
 					_, executed, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
 						showPermissionDeniedResult: true,
+						structured:                 true,
 					})
 					if err != nil {
 						return err

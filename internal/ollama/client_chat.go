@@ -171,11 +171,11 @@ func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 				ch <- Chunk{Err: errors.New(parsed.Error), Done: true}
 				return
 			}
-		chunkCount++
-		// Ollama streams content deltas per line and delivers the complete
-		// tool_calls list on the final (done) message. Forward them as-is;
-		// the consumer keeps the last non-empty set.
-		ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done}
+			chunkCount++
+			// Ollama streams content deltas per line and delivers the complete
+			// tool_calls list on the final (done) message. Forward them as-is;
+			// the consumer keeps the last non-empty set.
+			ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done}
 			if parsed.Done {
 				logger.Infof("Ollama chat stream done: chunk_count=%d", chunkCount)
 				return
@@ -223,8 +223,8 @@ func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatRespons
 }
 
 // drainStream collects a chat channel, stopping at the first error or Done.
-// Tool calls stream incrementally or arrive whole on the final message, so
-// the last non-empty set wins (matching Ollama's final-message semantics).
+// Tool calls can arrive split across several chunks, so they are
+// accumulated (with duplicate suppression) instead of last-write-wins.
 func drainStream(stream <-chan Chunk) (content, thinking strings.Builder, toolCalls []MessageToolCall, err error) {
 	for chunk := range stream {
 		if chunk.Err != nil {
@@ -232,9 +232,7 @@ func drainStream(stream <-chan Chunk) (content, thinking strings.Builder, toolCa
 		}
 		content.WriteString(chunk.Delta)
 		thinking.WriteString(chunk.Thinking)
-		if len(chunk.ToolCalls) > 0 {
-			toolCalls = chunk.ToolCalls
-		}
+		toolCalls = MergeToolCalls(toolCalls, chunk.ToolCalls)
 		if chunk.Done {
 			break
 		}

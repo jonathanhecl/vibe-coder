@@ -265,13 +265,17 @@ func TestRunExecutesNativeToolCalls(t *testing.T) {
 	}
 	msgs := sess.Messages()
 	found := false
+	toolObs := false
 	for _, m := range msgs {
-		if strings.Contains(m.Content, "[native tool calls: Read]") {
+		if m.Role == "assistant" && len(m.ToolCalls) == 1 && m.ToolCalls[0].Function.Name == "Read" {
 			found = true
 		}
+		if m.Role == "tool" && m.ToolName == "Read" {
+			toolObs = true
+		}
 	}
-	if !found {
-		t.Fatalf("expected native transcript note, got %#v", msgs)
+	if !found || !toolObs {
+		t.Fatalf("expected structured native history, got %#v", msgs)
 	}
 }
 

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -84,7 +85,17 @@ func renderMessagesForSummary(messages []Message) string {
 	clipped := false
 	for i := len(messages) - 1; i >= 0; i-- {
 		m := messages[i]
-		line := m.Role + ": " + m.Content + "\n"
+		line := m.Role
+		if m.ToolName != "" {
+			line += "(" + m.ToolName + ")"
+		}
+		line += ": " + m.Content
+		if len(m.ToolCalls) > 0 {
+			if raw, err := json.Marshal(m.ToolCalls); err == nil {
+				line += " [tool_calls: " + string(raw) + "]"
+			}
+		}
+		line += "\n"
 		if b.Len()+len(line) > maxSummaryChars {
 			clipped = true
 			break

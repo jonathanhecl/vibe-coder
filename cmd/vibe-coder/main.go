@@ -268,15 +268,55 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client) {
 	cfg.ToolsByModel = make(map[string]bool, len(models))
 	for _, m := range models {
 		name := strings.ToLower(strings.TrimSpace(m.Name))
-		if name != "" {
-			cfg.VisionByModel[name] = m.SupportsVision()
-			cfg.ThinkingByModel[name] = m.SupportsThinking()
-			cfg.ToolsByModel[name] = m.SupportsTools()
+		// Absent capability metadata is "unknown", not "unsupported":
+		// recording false here would silently disable tools/vision.
+		if name == "" || !m.CapabilitiesKnown {
+			continue
 		}
+		cfg.VisionByModel[name] = m.SupportsVision()
+		cfg.ThinkingByModel[name] = m.SupportsThinking()
+		cfg.ToolsByModel[name] = m.SupportsTools()
 	}
+	probeModelCapabilities(ctx, cfg, client, models)
 	applyVisionForModel(cfg)
 	applyThinkingForModel(cfg)
 	applyToolsForModel(cfg)
+}
+
+// probeModelCapabilities resolves "unknown" capability state for the active
+// and sidecar models via /api/show. Other models stay unknown until used.
+func probeModelCapabilities(ctx context.Context, cfg *config.Config, client ollama.Client, models []ollama.Model) {
+	inspector, ok := client.(interface {
+		Show(context.Context, string) (ollama.Model, error)
+	})
+	if !ok {
+		return
+	}
+	probed := map[string]bool{}
+	for _, want := range []string{cfg.Model, cfg.SidecarModel} {
+		want = strings.TrimSpace(want)
+		if want == "" {
+			continue
+		}
+		m := ollama.MatchModel(models, want)
+		if m == nil || m.CapabilitiesKnown {
+			continue
+		}
+		key := strings.ToLower(m.Name)
+		if probed[key] {
+			continue
+		}
+		probed[key] = true
+		info, err := inspector.Show(ctx, m.Name)
+		if err != nil || !info.CapabilitiesKnown {
+			continue
+		}
+		cfg.VisionByModel[key] = info.SupportsVision()
+		cfg.ThinkingByModel[key] = info.SupportsThinking()
+		cfg.ToolsByModel[key] = info.SupportsTools()
+		logger.Infof("Capability probe for model %q via /api/show: vision=%t thinking=%t tools=%t",
+			key, info.SupportsVision(), info.SupportsThinking(), info.SupportsTools())
+	}
 }
 
 // applyVisionForModel refreshes the vision flags for the active model from

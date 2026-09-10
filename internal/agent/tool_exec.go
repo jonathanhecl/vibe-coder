@@ -80,7 +80,7 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
 		a.maybeShowTodos(toolName)
 	}
-	a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel)
+	a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
 	if !result.IsError {
 		if note := fileEditCompletionNote(toolName, toolParams); note != "" {
 			a.sess.AddSystemNote(note)
@@ -100,7 +100,7 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 			}
 			if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"]), approve); strings.TrimSpace(auto) != "" {
 				a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
-				a.recordToolObservation(ctx, "AUTO-TEST", auto, "")
+				a.recordToolObservation(ctx, "AUTO-TEST", auto, "", false)
 			}
 		}
 	}
@@ -196,13 +196,20 @@ func fileEditCompletionNote(toolName string, params map[string]any) string {
 	}
 	return fmt.Sprintf("File %s: %s. Verify the change now: Read the edited region and run the relevant check (tests, build, or lint via Bash). Re-edit only if verification proves it is still wrong; otherwise move on to the next step.", verb, path)
 }
-func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hintsForModel string) {
+func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hintsForModel string, structured bool) {
 	a.mu.RLock()
 	side := a.side
 	a.mu.RUnlock()
 	obs := output
 	if hintsForModel != "" {
 		obs = output + "\n\n[assistant-hints]\n" + hintsForModel + "\n[/assistant-hints]"
+	}
+	record := func(name, output string) {
+		if structured {
+			a.sess.AddToolResult(name, output)
+			return
+		}
+		a.sess.AddToolObservation(name, output)
 	}
 	// Use the Pool's configured threshold (not the package default) so
 	// tests that lower it via WithSummariseThreshold still exercise the
@@ -215,12 +222,12 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 		summary, used, _ := side.SummariseToolOutput(ctx, toolName, obs)
 		a.ui.StopWaiting()
 		if used && summary != "" {
-			a.sess.AddToolObservation(toolName, summary)
+			record(toolName, summary)
 			a.ui.ShowToolResult(toolName,
 				fmt.Sprintf("sidecar condensed %d bytes → summary stored in context", len(obs)),
 				false, nil)
 			return
 		}
 	}
-	a.sess.AddToolObservation(toolName, obs)
+	record(toolName, obs)
 }

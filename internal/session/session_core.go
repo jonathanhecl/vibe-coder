@@ -14,6 +14,11 @@ type Message struct {
 	Role      string    `json:"role"`
 	Content   string    `json:"content"`
 	Timestamp time.Time `json:"timestamp"`
+	// Structured native-tool fields: assistant turns can replay ToolCalls,
+	// and role "tool" messages carry ToolName. They persist alongside the
+	// text content so the wire history matches /api/chat's native schema.
+	ToolCalls []ollama.MessageToolCall `json:"tool_calls,omitempty"`
+	ToolName  string                   `json:"tool_name,omitempty"`
 }
 
 type Session struct {
@@ -135,6 +140,34 @@ func (s *Session) AddToolObservation(toolName, output string) {
 	s.addMessage(Message{
 		Role:      "user",
 		Content:   content,
+		Timestamp: time.Now().UTC(),
+	})
+}
+
+// AddAssistantToolCalls stores a native tool-call assistant turn with the
+// exact calls the model issued (not just their names). The XML fallback
+// path stores its envelopes in Content instead and does not use this.
+func (s *Session) AddAssistantToolCalls(content string, calls []ollama.MessageToolCall) {
+	s.addMessage(Message{
+		Role:      "assistant",
+		Content:   content,
+		ToolCalls: calls,
+		Timestamp: time.Now().UTC(),
+	})
+}
+
+// AddToolResult stores a native tool result (role "tool") tied to the
+// calling tool name. The envelope-based AddToolObservation stays the
+// representation for the XML fallback path.
+func (s *Session) AddToolResult(toolName, output string) {
+	body := strings.TrimSpace(output)
+	if body == "" {
+		body = "(no output)"
+	}
+	s.addMessage(Message{
+		Role:      "tool",
+		Content:   body,
+		ToolName:  toolName,
 		Timestamp: time.Now().UTC(),
 	})
 }
