@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 )
 
 func (a *Agent) addRunContext(ctx context.Context, userInput string) {
@@ -54,7 +56,9 @@ func (a *Agent) compactBestEffort(ctx context.Context) {
 	if !a.sess.ShouldCompact() {
 		return
 	}
-	_ = a.sess.Compact(ctx, false)
+	if err := a.sess.Compact(ctx, false); err != nil {
+		logger.Errorf("context compaction failed: %v", err)
+	}
 }
 func (a *Agent) BuildEmptyResponseRetryInput(baseInput string, repeatedState bool) string {
 	baseInput = strings.TrimSpace(baseInput)

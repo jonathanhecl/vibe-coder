@@ -302,7 +302,7 @@ func TestCompactFallbackAndSidecar(t *testing.T) {
 	if err := s.Compact(context.Background(), false); err != nil {
 		t.Fatalf("compact fallback failed: %v", err)
 	}
-	if s.MessageCount() > 31 {
+	if s.MessageCount() > 32 {
 		t.Fatalf("expected compacted messages, got %d", s.MessageCount())
 	}
 }
@@ -371,4 +371,3 @@ func TestWriteProjectIndexForExplicitID(t *testing.T) {
 		t.Fatalf("expected LoadByProject to find customID %q, got %q", customID, loaded.ID())
 	}
 }
-

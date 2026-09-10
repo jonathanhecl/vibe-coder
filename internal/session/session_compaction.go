@@ -11,7 +11,23 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
-const compactionTimeout = 90 * time.Second
+const (
+	compactionTimeout  = 90 * time.Second
+	compactionKeepTail = 30
+)
+
+// compactionSummaryPrompt instructs the sidecar to preserve the information
+// the agent needs to continue: the task, decisions, file paths, TODO state,
+// and what remains to do. A generic "summarize concisely" loses exactly the
+// details that cause the agent to repeat work or forget the goal.
+const compactionSummaryPrompt = `Summarize the earlier portion of this agent conversation. Preserve:
+- The user's original task and any constraints or preferences they stated.
+- Key decisions made and the reasoning behind them.
+- File paths that were read, created, or modified (with one-line descriptions).
+- Commands that were run and their outcome (success/failure, key findings).
+- The current TODO state: which steps are done and which remain.
+- Any errors or blockers encountered and how they were resolved.
+Do not include verbatim file contents or full command output. Be concise but complete.`
 
 func (s *Session) Compact(ctx context.Context, force bool) error {
 	if s == nil {
@@ -21,11 +37,15 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 	s.mu.RLock()
 	cfg := s.cfg
 	client := s.client
-	if cfg == nil || (!force && (len(s.messages) <= 30 || (len(s.messages) <= 300 && s.tokenEstimate <= int(0.7*float64(cfg.ContextWindow))))) || len(s.messages) <= 30 {
+	if cfg == nil || len(s.messages) <= compactionKeepTail {
 		s.mu.RUnlock()
 		return nil
 	}
-	cut := len(s.messages) - 30
+	if !force && len(s.messages) <= 300 && s.tokenEstimate <= int(0.7*float64(cfg.ContextWindow)) {
+		s.mu.RUnlock()
+		return nil
+	}
+	cut := len(s.messages) - compactionKeepTail
 	old := append([]Message(nil), s.messages[:cut]...)
 	recent := append([]Message(nil), s.messages[cut:]...)
 	revision := s.revision
@@ -37,7 +57,7 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 		resp, err := client.ChatSync(compactCtx, ollama.ChatRequest{
 			Model: cfg.SidecarModel,
 			Messages: []ollama.Message{
-				{Role: "system", Content: "Summarize the conversation concisely."},
+				{Role: "system", Content: compactionSummaryPrompt},
 				{Role: "user", Content: renderMessagesForSummary(old)},
 			},
 			Stream: false,
@@ -56,14 +76,53 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 	if s.revision != revision {
 		return fmt.Errorf("session changed during compaction")
 	}
-	s.messages = append([]Message{{
+	// Build the compacted transcript: summary, then the original first user
+	// message preserved verbatim (so the agent never loses the task), then the
+	// kept tail with orphaned native tool results converted to user-role
+	// envelopes so the wire history stays valid (a role:"tool" message without
+	// a preceding assistant tool_calls is rejected by Ollama and confuses the
+	// model).
+	newMsgs := make([]Message, 0, len(recent)+3)
+	newMsgs = append(newMsgs, Message{
 		Role:      "user",
 		Content:   "[Earlier conversation summary]\n" + summary,
 		Timestamp: time.Now().UTC(),
-	}}, recent...)
+	})
+	if first := s.firstUserMessageUnlocked(); first != nil {
+		newMsgs = append(newMsgs, *first)
+	}
+	newMsgs = append(newMsgs, normalizeKeptMessages(recent)...)
+	s.messages = newMsgs
 	s.recomputeTokenEstimate()
 	s.revision++
 	return nil
+}
+
+// normalizeKeptMessages converts any role:"tool" message that lost its
+// preceding assistant tool_calls (because that assistant turn was compacted)
+// into a user-role observation envelope. This keeps the wire history valid
+// for Ollama /api/chat and preserves the tool output for the model.
+func normalizeKeptMessages(msgs []Message) []Message {
+	out := make([]Message, 0, len(msgs))
+	for i, m := range msgs {
+		if m.Role == "tool" {
+			if i == 0 || !hasToolCalls(msgs[i-1]) {
+				// Orphaned tool result: convert to user observation envelope.
+				out = append(out, Message{
+					Role:      "user",
+					Content:   ToolObservationUserContent(m.ToolName, m.Content),
+					Timestamp: m.Timestamp,
+				})
+				continue
+			}
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func hasToolCalls(m Message) bool {
+	return m.Role == "assistant" && len(m.ToolCalls) > 0
 }
 
 func (s *Session) recomputeTokenEstimate() {

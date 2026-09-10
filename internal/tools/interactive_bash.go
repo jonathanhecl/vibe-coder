@@ -125,13 +125,20 @@ func (t *InteractiveBashTool) Execute(ctx context.Context, params map[string]any
 		if final == "" {
 			final = "(no output)"
 		}
+		exitCode := sess.ExitCode()
 		_ = t.mgr.Terminate(sess.ID)
 		if len(final) > 30*1024 {
 			head := final[:15*1024]
 			tail := final[len(final)-15*1024:]
 			final = head + "\n... (truncated) ...\n" + tail
 		}
-		return Result{Output: strings.TrimRight(final, "\n")}
+		final = strings.TrimRight(final, "\n")
+		if exitCode != 0 {
+			final = fmt.Sprintf("%s\n\n[exit_code: %d]", final, exitCode)
+		} else {
+			final = fmt.Sprintf("%s\n\n[exit_code: 0]", final)
+		}
+		return Result{Output: final}
 	}
 
 	if output == "" {
@@ -242,13 +249,16 @@ func (t *SendInputTool) Execute(ctx context.Context, params map[string]any) Resu
 		if output == "" {
 			output = "(session exited, no additional output)"
 		}
+		exitCode := sess.ExitCode()
 		_ = t.mgr.Terminate(sessionID)
 		if len(output) > 30*1024 {
 			head := output[:15*1024]
 			tail := output[len(output)-15*1024:]
 			output = head + "\n... (truncated) ...\n" + tail
 		}
-		return Result{Output: strings.TrimRight(output, "\n")}
+		output = strings.TrimRight(output, "\n")
+		output = fmt.Sprintf("%s\n\n[exit_code: %d]", output, exitCode)
+		return Result{Output: output}
 	}
 
 	if output == "" {
@@ -308,9 +318,27 @@ func (t *TerminateSessionTool) Execute(ctx context.Context, params map[string]an
 		return errResult("session not found: " + sessionID)
 	}
 
-	remaining, _ := sess.ReadOutput(2 * time.Second)
+	// Read remaining output with ctx awareness so cancellation aborts the
+	// read instead of blocking for the full 2s.
+	type readResult struct {
+		output  string
+		running bool
+	}
+	readDone := make(chan readResult, 1)
+	go func() {
+		out, running := sess.ReadOutput(2 * time.Second)
+		readDone <- readResult{output: out, running: running}
+	}()
+	var remaining string
+	select {
+	case <-ctx.Done():
+		remaining = ""
+	case res := <-readDone:
+		remaining = res.output
+	}
 	remaining = stripANSI(remaining)
 
+	exitCode := sess.ExitCode()
 	if err := t.mgr.Terminate(sessionID); err != nil {
 		return errResult(fmt.Sprintf("failed to terminate session: %v", err))
 	}
@@ -318,5 +346,7 @@ func (t *TerminateSessionTool) Execute(ctx context.Context, params map[string]an
 	if remaining == "" {
 		remaining = "(session terminated)"
 	}
-	return Result{Output: strings.TrimRight(remaining, "\n")}
+	remaining = strings.TrimRight(remaining, "\n")
+	remaining = fmt.Sprintf("%s\n\n[exit_code: %d]", remaining, exitCode)
+	return Result{Output: remaining}
 }

@@ -17,6 +17,14 @@ const (
 	maxSessions     = 5
 	sessionTTL      = 5 * time.Minute
 	cleanupInterval = 30 * time.Second
+	// maxOutputBuf caps the accumulated output buffer per session. A chatty
+	// command (tail -f, verbose build, infinite loop) would otherwise grow
+	// memory without bound. When the buffer exceeds this, the oldest half is
+	// discarded so the model always sees the most recent output.
+	maxOutputBuf = 256 * 1024
+	// outputTrimTarget is the size the buffer is trimmed down to when it
+	// exceeds maxOutputBuf (half of the cap).
+	outputTrimTarget = maxOutputBuf / 2
 )
 
 // Manager holds interactive  sessions and handles lifecycle.
@@ -142,6 +150,7 @@ type Session struct {
 	mu           sync.RWMutex
 	exited       bool
 	exitErr      error
+	exitCode     int
 	startTime    time.Time
 	lastActivity time.Time
 	doneCh       chan struct{}
@@ -214,6 +223,23 @@ func (s *Session) copyOutput(r io.Reader) {
 		if n > 0 {
 			s.mu.Lock()
 			s.outputBuf.Write(buf[:n])
+			// Bound the buffer: if it grew past the cap, drop the oldest
+			// content so memory stays bounded while keeping recent output.
+			if s.outputBuf.Len() > maxOutputBuf {
+				oldLen := s.outputBuf.Len()
+				retained := s.outputBuf.Bytes()[oldLen-outputTrimTarget:]
+				dropped := oldLen - outputTrimTarget
+				s.outputBuf.Reset()
+				s.outputBuf.Write(retained)
+				// Adjust readPos: data before the trim point is gone.
+				if s.readPos <= dropped {
+					// The read cursor was in the dropped region; reset so
+					// the consumer sees all retained data as new.
+					s.readPos = 0
+				} else {
+					s.readPos -= dropped
+				}
+			}
 			s.mu.Unlock()
 		}
 		if err != nil {
@@ -228,6 +254,16 @@ func (s *Session) waitForExit() {
 	s.mu.Lock()
 	s.exitErr = err
 	s.exited = true
+	// Extract the process exit code so tools can report success/failure to
+	// the model. exec.ExitError provides it on Unix and Windows; a nil
+	// error means the process exited 0.
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			s.exitCode = exitErr.ExitCode()
+		} else {
+			s.exitCode = -1
+		}
+	}
 	s.mu.Unlock()
 	close(s.doneCh)
 }
@@ -237,6 +273,18 @@ func (s *Session) IsRunning() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return !s.exited
+}
+
+// ExitCode returns the process exit code once the session has exited, or -1
+// if the process is still running or the code is unavailable. The model uses
+// this to distinguish success (0) from failure (non-zero).
+func (s *Session) ExitCode() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.exited {
+		return -1
+	}
+	return s.exitCode
 }
 
 // SendInput writes a line of input to the session's stdin.
@@ -252,36 +300,48 @@ func (s *Session) SendInput(input string) error {
 // ReadOutput reads new output from the session with a timeout.
 // It returns the newly produced output since the last call and a bool
 // indicating whether the session is still running.
+//
+// The timeout is an absolute cap: even if output keeps flowing, ReadOutput
+// returns when the timeout expires. A short inactivity window (200ms) is
+// used to coalesce rapid bursts, but it never extends past the absolute
+// deadline.
 func (s *Session) ReadOutput(timeout time.Duration) (string, bool) {
 	s.mu.Lock()
 	readPos := s.readPos
 	s.mu.Unlock()
 
-	deadline := time.Now().Add(timeout)
-	hasNewData := false
+	absoluteDeadline := time.Now().Add(timeout)
+	const inactivityWindow = 200 * time.Millisecond
+	lastDataTime := time.Now()
+	initialReadPos := readPos
 
-	for time.Now().Before(deadline) {
+	for time.Now().Before(absoluteDeadline) {
 		s.mu.RLock()
 		currentLen := s.outputBuf.Len()
 		exited := s.exited
 		s.mu.RUnlock()
 
 		if currentLen > readPos {
-			hasNewData = true
 			readPos = currentLen
-			// Keep reading briefly to catch rapid output
-			deadline = time.Now().Add(200 * time.Millisecond)
+			lastDataTime = time.Now()
+			// Brief pause to coalesce a burst of output, but never past
+			// the absolute deadline.
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
 
-		if hasNewData && (exited || time.Now().After(deadline)) {
-			break
-		}
 		if exited {
 			break
 		}
 
+		// If we've seen data but now it's been quiet past the inactivity
+		// window, return what we have.
+		if readPos > initialReadPos && time.Since(lastDataTime) >= inactivityWindow {
+			break
+		}
+
+		// If we've never seen data and half the timeout elapsed, also
+		// check the absolute deadline is not near to avoid busy-waiting.
 		time.Sleep(50 * time.Millisecond)
 	}
 

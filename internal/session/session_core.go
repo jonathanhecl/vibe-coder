@@ -224,6 +224,27 @@ func (s *Session) PinnedContexts() []string {
 	return append([]string(nil), s.pinnedContexts...)
 }
 
+// firstUserMessageUnlocked returns the first user-role message that is not a
+// tool observation envelope or a runtime note. This is the original task the
+// user asked the agent to perform; compaction preserves it verbatim so the
+// agent never loses its goal. Caller must hold s.mu.
+func (s *Session) firstUserMessageUnlocked() *Message {
+	for i := range s.messages {
+		m := &s.messages[i]
+		if m.Role != "user" {
+			continue
+		}
+		if strings.HasPrefix(m.Content, "[tool_result") {
+			continue
+		}
+		if strings.HasPrefix(m.Content, "[Earlier conversation summary]") {
+			continue
+		}
+		return m
+	}
+	return nil
+}
+
 func (s *Session) ShouldCompact() bool {
 	if s == nil {
 		return false
