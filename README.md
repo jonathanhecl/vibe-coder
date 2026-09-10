@@ -327,6 +327,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--no-think` — disable Ollama native thinking (faster replies)
 - `--think <level>` — thinking effort: `off|low|medium|high|max` (default: model default; persisted with `--save` as `THINK`)
 - `--hide-think` — hide Ollama thinking blocks in CLI output
+- `--show-think` — show Ollama thinking blocks in CLI output (overrides config/env)
 - `--context <file>` — pin a `.md`/`.txt` guide file as a persistent session instruction (repeatable, accumulated; also `VIBE_CODER_CONTEXT` env and `CONTEXT=` config key)
 - `--rag` — enable RAG mode
 - `--rag-mode <type>` — RAG mode type

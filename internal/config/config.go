@@ -207,6 +207,7 @@ Flags:
   --no-think                Disable Ollama native thinking (faster replies)
   --think <level>           Thinking effort: off|low|medium|high|max (default: model default)
   --hide-think              Hide Ollama thinking blocks in CLI output
+  --show-think              Show Ollama thinking blocks in CLI output (overrides config/env)
 
 Special directive:
   --save                    Persist model, sidecar, host, hide-think, think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true

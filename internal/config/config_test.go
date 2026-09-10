@@ -437,6 +437,19 @@ func TestLoadHideThinkFromEnvAndCLI(t *testing.T) {
 	if !cfg3.OllamaHideThink {
 		t.Fatal("expected OllamaHideThink from CLI")
 	}
+
+	t.Setenv("VIBE_CODER_HIDE_THINK", "true")
+	cfg4, err := Load([]string{"--show-think"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg4.OllamaHideThink {
+		t.Fatal("expected --show-think to override env HIDE_THINK")
+	}
+
+	if _, err := Load([]string{"--hide-think", "--show-think"}); err == nil {
+		t.Fatal("expected error for conflicting --hide-think and --show-think")
+	}
 }
 
 func TestSaveModelSettingsHideThink(t *testing.T) {

@@ -37,6 +37,7 @@ type cliOptions struct {
 	thinkLevel    optionalString
 	noThink       bool
 	hideThink     bool
+	showThink     bool
 }
 
 func parseCLI(args []string) (cliOptions, error) {
@@ -77,9 +78,13 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.thinkLevel, "think-level", "thinking effort: off|low|medium|high|max")
 	fs.BoolVar(&opts.noThink, "no-think", false, "disable Ollama native thinking")
 	fs.BoolVar(&opts.hideThink, "hide-think", false, "hide Ollama thinking blocks in CLI output")
+	fs.BoolVar(&opts.showThink, "show-think", false, "show Ollama thinking blocks in CLI output")
 
 	if err := fs.Parse(args); err != nil {
 		return opts, err
+	}
+	if opts.hideThink && opts.showThink {
+		return opts, fmt.Errorf("cannot use both --hide-think and --show-think")
 	}
 	if len(fs.Args()) > 0 {
 		return opts, fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
@@ -168,6 +173,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.hideThink {
 		cfg.OllamaHideThink = true
+	}
+	if cli.showThink {
+		cfg.OllamaHideThink = false
 	}
 }
 
