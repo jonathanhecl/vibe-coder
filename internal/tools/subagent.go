@@ -48,7 +48,7 @@ func NewParallelAgentsTool(sub *SubAgentTool) *ParallelAgentsTool {
 
 func (t *SubAgentTool) Name() string { return "SubAgent" }
 func (t *SubAgentTool) Description() string {
-	return "Run an isolated sub-agent with file-search tools (Read, Glob, Grep) for up to max_turns iterations. Set allow_writes=true to also allow Write, Edit, Bash."
+	return "Run an isolated sub-agent with file-search tools (Read, Glob, Grep) for up to max_turns iterations. Set allow_writes=true to request Write, Edit, Bash; each call still requires parent permissions and obeys the active mode."
 }
 func (t *SubAgentTool) Schema() Schema {
 	return Schema{
@@ -90,6 +90,10 @@ func (t *SubAgentTool) runLoop(ctx context.Context, userPrompt string, turns int
 	if turns > maxSubAgentTurns {
 		turns = maxSubAgentTurns
 	}
+	executor := executorFromContext(ctx)
+	if allowWrites && executor == nil {
+		return "", fmt.Errorf("sub-agent writes require the parent authorization executor")
+	}
 	allowed := map[string]Tool{
 		"Read": NewReadTool(),
 		"Glob": NewGlobTool(),
@@ -123,7 +127,19 @@ func (t *SubAgentTool) runLoop(ctx context.Context, userPrompt string, turns int
 				fmt.Fprintf(&obs, "[tool_result name=%s]\nError: tool %q is not allowed in this sub-agent.\n[/tool_result]\n", c.name, c.name)
 				continue
 			}
-			res := tool.Execute(ctx, c.params)
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+			var res Result
+			if executor != nil {
+				var err error
+				res, err = executor(ctx, tool, c.params)
+				if err != nil {
+					return "", err
+				}
+			} else {
+				res = tool.Execute(ctx, c.params)
+			}
 			out := res.Output
 			if len(out) > maxSubAgentObservationChars {
 				out = out[:maxSubAgentObservationChars] + "\n... (truncated) ..."

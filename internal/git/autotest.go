@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/safety"
 )
 
 type AutoTest struct {
@@ -30,17 +32,21 @@ func (a *AutoTest) Enabled() bool {
 	return len(cmd) > 0
 }
 
-func (a *AutoTest) RunAfterEdit(ctx context.Context, filePath string) string {
+func (a *AutoTest) RunAfterEdit(ctx context.Context, filePath string, approve ...func([]string) bool) string {
 	name, _ := a.detectCached()
 	cmdArgs := a.buildAutoTestCommand(name, filePath)
 	if len(cmdArgs) == 0 {
 		return ""
+	}
+	if len(approve) > 0 && !approve[0](append([]string(nil), cmdArgs...)) {
+		return "[AUTO-TEST] skipped: command execution was not approved."
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, cmdArgs[0], cmdArgs[1:]...)
 	cmd.Dir = a.cwd
+	cmd.Env = safety.CleanEnv()
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return ""

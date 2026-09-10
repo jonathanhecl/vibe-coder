@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
 )
 
 func gitAvailable() bool {
@@ -74,20 +76,22 @@ func TestGitUndoWithoutCheckpoint(t *testing.T) {
 	}
 }
 
-func TestGitUndoRestoresStash(t *testing.T) {
+func TestGitUndoRestoresCheckpoint(t *testing.T) {
 	if !gitAvailable() {
 		t.Skip("git not available")
 	}
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	target := filepath.Join(dir, "a.txt")
+	cp := gitx.NewCheckpoint(dir)
+	if err := cp.Create("test", target); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(target, []byte("bad change\n"), 0o644); err != nil {
 		t.Fatalf("modify fixture: %v", err)
 	}
-	stash := exec.Command("git", "stash", "push", "-m", "vibe-coder/test/1", "--", "a.txt")
-	stash.Dir = dir
-	if out, err := stash.CombinedOutput(); err != nil {
-		t.Fatalf("stash push: %v\n%s", err, out)
+	if err := cp.Complete(); err != nil {
+		t.Fatal(err)
 	}
 	t.Chdir(dir)
 
@@ -102,7 +106,7 @@ func TestGitUndoRestoresStash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read restored file: %v", err)
 	}
-	if !strings.Contains(string(data), "bad change") {
-		t.Fatalf("expected stashed change restored, got %q", data)
+	if string(data) != "hello\n" {
+		t.Fatalf("expected pre-edit contents restored, got %q", data)
 	}
 }

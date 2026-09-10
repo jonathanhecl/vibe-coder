@@ -80,6 +80,23 @@ func TestSubAgentRejectsDisallowedWriteTool(t *testing.T) {
 	}
 }
 
+func TestSubAgentCannotAuthorizeItsOwnWrites(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "unauthorized.txt")
+	client := &sequenceSubClient{replies: []string{
+		`<invoke name="Write">{"file_path":"` + filepath.ToSlash(target) + `","contents":"unexpected"}</invoke>`,
+		"done",
+	}}
+	sub := NewSubAgentTool(&config.Config{Model: "test"}, client)
+	result := sub.Execute(context.Background(), map[string]any{"prompt": "write", "allow_writes": true})
+	if !result.IsError {
+		t.Fatalf("expected missing authorization executor error, got %+v", result)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("unauthorized file was created: %v", err)
+	}
+}
+
 func TestParseSubAgentInvokes(t *testing.T) {
 	calls := parseSubAgentInvokes(
 		`<invoke name="Glob">{"pattern":"*.go"}</invoke><invoke name="Read">{"file_path":"a"}</invoke>`, 3)

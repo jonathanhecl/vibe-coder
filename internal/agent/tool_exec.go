@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
@@ -13,23 +11,18 @@ import (
 )
 
 func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName string, toolParams map[string]any, mode toolExecutionMode) (tools.Result, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return tools.Result{}, false, err
+	}
+	toolName = tool.Name()
 	logger.Infof("Tool execution request: tool=%s, params=%+v", toolName, toolParams)
-	if a.InPlanMode() && toolName == "Write" && !a.isWriteAllowedInPlan(toolParams) {
-		blockMsg := "Write blocked in plan mode. Allowed path: <cwd>/.vibe-coder/plans/"
-		logger.Errorf("Tool Write blocked in plan mode")
-		a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
-		a.sess.AddSystemNote(blockMsg)
-		return tools.Result{}, false, nil
-	}
-	if a.InReviewMode() && isToolBlockedInReview(toolName) {
-		blockMsg := fmt.Sprintf("%s blocked in review mode. Only read-only tools are allowed.", toolName)
-		logger.Errorf("Tool %s blocked in review mode", toolName)
-		a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
-		a.sess.AddSystemNote(blockMsg)
-		return tools.Result{}, false, nil
-	}
-
 	a.rescuePathParam(ctx, toolName, toolParams)
+	if blockMsg := a.toolModeBlock(tool, toolParams); blockMsg != "" {
+		logger.Errorf("%s", blockMsg)
+		a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
+		a.sess.AddSystemNote(blockMsg)
+		return tools.Result{Output: blockMsg, IsError: true}, false, nil
+	}
 	if !a.perm.Check(toolName, toolParams, a.ui) {
 		deny := permissionDeniedNote(a.perm)
 		logger.Errorf("Tool %s execution denied by permissions", toolName)
@@ -40,13 +33,13 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		if mode.endAssistantOnDenied {
 			a.ui.EndAssistant()
 		}
-		return tools.Result{}, false, nil
+		return tools.Result{Output: deny, IsError: true}, false, nil
 	}
 
 	if toolName == "Write" || toolName == "Edit" {
 		// Create a checkpoint before mutating files so failed edits can be
 		// inspected or rolled back by the user outside the agent loop.
-		// The edited file scopes the stash; unrelated dirty files stay put.
+		// The snapshot covers only the edited file; the working tree stays put.
 		logger.Infof("Creating checkpoint pre-edit")
 		if err := a.cp.Create("pre-edit", asString(toolParams["file_path"])); err != nil {
 			logger.Errorf("Failed to create checkpoint: %v", err)
@@ -55,7 +48,18 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	}
 
 	logger.Infof("Calling Tool Execute: tool=%s", toolName)
-	result := tool.Execute(ctx, toolParams)
+	result := tool.Execute(tools.WithExecutor(ctx, a.executeDelegatedTool), toolParams)
+	if toolName == "Write" || toolName == "Edit" {
+		var checkpointErr error
+		if result.IsError {
+			checkpointErr = a.cp.Discard()
+		} else {
+			checkpointErr = a.cp.Complete()
+		}
+		if checkpointErr != nil {
+			return result, true, fmt.Errorf("finish file checkpoint: %w", checkpointErr)
+		}
+	}
 	logger.Infof("Tool %s Execute completed. is_error=%t, output_len=%d", toolName, result.IsError, len(result.Output))
 	if result.IsError {
 		logger.Errorf("Tool %s execution returned error output: %q", toolName, result.Output)
@@ -86,9 +90,18 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		if w := a.getWatcher(); w != nil {
 			w.RefreshSnapshot()
 		}
-		if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"])); strings.TrimSpace(auto) != "" {
-			a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
-			a.recordToolObservation(ctx, "AUTO-TEST", auto, "")
+		if !a.InPlanMode() {
+			approve := func(args []string) bool {
+				quoted := make([]string, len(args))
+				for i, arg := range args {
+					quoted[i] = fmt.Sprintf("%q", arg)
+				}
+				return a.perm.Check("Bash", map[string]any{"command": strings.Join(quoted, " "), "workdir": a.cfg.Cwd}, a.ui)
+			}
+			if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"]), approve); strings.TrimSpace(auto) != "" {
+				a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
+				a.recordToolObservation(ctx, "AUTO-TEST", auto, "")
+			}
 		}
 	}
 	return result, true, nil
@@ -210,54 +223,4 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 		}
 	}
 	a.sess.AddToolObservation(toolName, obs)
-}
-func (a *Agent) isWriteAllowedInPlan(params map[string]any) bool {
-	rawPath, _ := params["file_path"].(string)
-	if strings.TrimSpace(rawPath) == "" {
-		return false
-	}
-	absPath := rawPath
-	if !filepath.IsAbs(absPath) {
-		absPath = filepath.Join(a.cfg.Cwd, absPath)
-	}
-	resolvedPath := absPath
-	if v, err := filepath.EvalSymlinks(absPath); err == nil && strings.TrimSpace(v) != "" {
-		resolvedPath = v
-	}
-
-	allowedRoot := filepath.Join(a.cfg.Cwd, ".vibe-coder", "plans")
-	_ = os.MkdirAll(allowedRoot, 0o755)
-	resolvedRoot := allowedRoot
-	if v, err := filepath.EvalSymlinks(allowedRoot); err == nil && strings.TrimSpace(v) != "" {
-		resolvedRoot = v
-	}
-
-	pathAbs, err := filepath.Abs(resolvedPath)
-	if err != nil {
-		return false
-	}
-	rootAbs, err := filepath.Abs(resolvedRoot)
-	if err != nil {
-		return false
-	}
-	if pathAbs == rootAbs {
-		return true
-	}
-	return strings.HasPrefix(pathAbs, rootAbs+string(filepath.Separator))
-}
-
-var reviewBlockedTools = map[string]bool{
-	"Write":            true,
-	"Edit":             true,
-	"NotebookEdit":     true,
-	"Bash":             true,
-	"InteractiveBash":  true,
-	"SendInput":        true,
-	"TerminateSession": true,
-	"SubAgent":         true,
-	"ParallelAgents":   true,
-}
-
-func isToolBlockedInReview(toolName string) bool {
-	return reviewBlockedTools[toolName]
 }

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -119,7 +120,7 @@ func NewGitUndoTool() *GitUndoTool { return &GitUndoTool{} }
 
 func (t *GitUndoTool) Name() string { return "GitUndo" }
 func (t *GitUndoTool) Description() string {
-	return "Restore the latest vibe-coder file checkpoint (git stash pop). Use after a bad Write/Edit."
+	return "Restore the latest completed file checkpoint without changing the index or stashes. Refuse if the file changed after the agent edit."
 }
 func (t *GitUndoTool) Schema() Schema {
 	return Schema{
@@ -141,18 +142,16 @@ func (t *GitUndoTool) Execute(ctx context.Context, _ map[string]any) Result {
 	if !cp.IsRepo() {
 		return errResult("Not a git repository.")
 	}
-	listStash, err := runGit(ctx, cwd, "stash", "list")
-	if err != nil {
-		return errResult(gitFriendlyError(listStash, err))
+	if err := ctx.Err(); err != nil {
+		return errResult(err.Error())
 	}
-	if !strings.Contains(listStash, "vibe-coder/") {
+	if err := cp.Rollback(); errors.Is(err, gitx.ErrNoCheckpoint) {
 		return Result{Output: "No vibe-coder checkpoint found (nothing to undo)."}
-	}
-	if err := cp.Rollback(); err != nil {
+	} else if err != nil {
 		return errResult(fmt.Sprintf("restore checkpoint: %v", err))
 	}
 	status, _ := runGit(ctx, cwd, "status", "--short", "--branch")
-	note := "Restored the latest vibe-coder checkpoint (git stash pop)."
+	note := "Restored the latest vibe-coder file checkpoint. Index and stashes unchanged."
 	if trimmed := strings.TrimSpace(status); trimmed != "" {
 		note += "\n\n" + truncateMiddle(trimmed, gitStatusMaxBytes)
 	}

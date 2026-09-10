@@ -1,15 +1,29 @@
 package git
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
+var ErrNoCheckpoint = errors.New("no completed checkpoint found")
+
 type Checkpoint struct {
-	cwd string
+	cwd         string
+	pendingPath string
+	pending     *fileCheckpoint
+}
+
+type fileCheckpoint struct {
+	Label  string             `json:"label"`
+	Path   string             `json:"path"`
+	Before checkpointState    `json:"before"`
+	After  checkpointRevision `json:"after"`
 }
 
 func NewCheckpoint(cwd string) *Checkpoint {
@@ -17,56 +31,130 @@ func NewCheckpoint(cwd string) *Checkpoint {
 }
 
 func (c *Checkpoint) IsRepo() bool {
-	_, err := c.run("rev-parse", "--is-inside-work-tree")
-	return err == nil
+	out, err := c.run("rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
 }
 
 func (c *Checkpoint) Create(label string, paths ...string) error {
+	if c.pending != nil {
+		return fmt.Errorf("previous checkpoint is still pending")
+	}
 	if !c.IsRepo() {
 		return nil
 	}
-	stashLabel := fmt.Sprintf("vibe-coder/%s/%d", label, time.Now().Unix())
-	rel := relPathsInsideRepo(c.cwd, paths)
-	if len(rel) > 0 {
-		// Prefer a pathspec stash: only the edited file is snapshotted, so
-		// big repos skip the full-workdir scan and unrelated dirty files
-		// stay exactly where they were.
-		args := append([]string{"stash", "push", "--include-untracked", "--keep-index", "-m", stashLabel, "--"}, rel...)
-		if out, err := c.run(args...); err == nil {
-			return nil
-		} else if low := strings.ToLower(out); !strings.Contains(low, "pathspec") && !strings.Contains(low, "did not match") {
-			return err
-		}
-		// Pathspec rejected (e.g. ignored file): fall back to the full stash
-		// so every other dirty file is still protected as before.
-	}
-	out, err := c.run("stash", "push", "--include-untracked", "--keep-index", "-m", stashLabel)
+	root, dir, err := c.location()
 	if err != nil {
-		low := strings.ToLower(out)
-		if strings.Contains(low, "no local changes") || strings.Contains(low, "no changes") {
-			return nil
-		}
 		return err
 	}
+	if len(paths) != 1 || strings.TrimSpace(paths[0]) == "" {
+		return fmt.Errorf("checkpoint requires one file inside the repository")
+	}
+	path := paths[0]
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(c.cwd, path)
+	}
+	rel := relPathsInsideRepo(root, []string{path})
+	if len(rel) != 1 {
+		return fmt.Errorf("checkpoint requires one file inside the repository")
+	}
+	// Snapshot only the edited file without modifying its contents or index.
+	// Tracked, untracked, ignored, and not-yet-created files use the same path.
+	// Unrelated dirty files and the user's stash list remain untouched.
+	target, err := checkpointTarget(root, rel[0])
+	if err != nil {
+		return err
+	}
+	before, err := readCheckpointState(target)
+	if err != nil {
+		return err
+	}
+	if len(before.Data) > maxCheckpointBytes/2 {
+		return fmt.Errorf("checkpoint source exceeds %d bytes", maxCheckpointBytes/2)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(dir, fmt.Sprintf("%020d-*.pending", time.Now().UnixNano()))
+	if err != nil {
+		return err
+	}
+	entry := &fileCheckpoint{Label: label, Path: rel[0], Before: before}
+	err = json.NewEncoder(file).Encode(entry)
+	if err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(file.Name())
+		return err
+	}
+	// Keep the pre-image pending until the tool succeeds and its post-image
+	// is recorded; failed tool calls cannot replace a usable undo checkpoint.
+	c.pendingPath, c.pending = file.Name(), entry
 	return nil
 }
 
-// relPathsInsideRepo converts absolute paths to cwd-relative pathspec
-// entries, dropping anything outside the repo tree.
+func (c *Checkpoint) Complete() error {
+	if c.pending == nil {
+		return nil
+	}
+	root, _, err := c.location()
+	if err != nil {
+		return err
+	}
+	target, err := checkpointTarget(root, c.pending.Path)
+	if err != nil {
+		return err
+	}
+	after, err := readCheckpointState(target)
+	if err != nil {
+		return err
+	}
+	if after.revision() == c.pending.Before.revision() {
+		return c.Discard()
+	}
+	entry := *c.pending
+	entry.After = after.revision()
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	completed := strings.TrimSuffix(c.pendingPath, ".pending") + ".json"
+	if err := replaceCheckpointFile(completed, raw, 0o600); err != nil {
+		return err
+	}
+	return c.Discard()
+}
+
+func (c *Checkpoint) Discard() error {
+	if c.pending == nil {
+		return nil
+	}
+	if err := os.Remove(c.pendingPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	c.pending, c.pendingPath = nil, ""
+	return nil
+}
+
+// relPathsInsideRepo converts absolute paths to repository-relative entries,
+// dropping anything outside the repo tree or pointing at the tree itself.
 func relPathsInsideRepo(cwd string, paths []string) []string {
 	out := make([]string, 0, len(paths))
 	for _, p := range paths {
-		trimmed := strings.TrimSpace(p)
-		if trimmed == "" {
+		p = strings.TrimSpace(p)
+		if p == "" {
 			continue
 		}
-		rel := trimmed
-		if filepath.IsAbs(trimmed) {
-			r, err := filepath.Rel(cwd, trimmed)
-			if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-				continue
-			}
-			rel = r
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(cwd, p)
+		}
+		rel, err := filepath.Rel(cwd, p)
+		if err != nil || !filepath.IsLocal(rel) || rel == "." {
+			continue
 		}
 		out = append(out, filepath.ToSlash(rel))
 	}
@@ -75,26 +163,68 @@ func relPathsInsideRepo(cwd string, paths []string) []string {
 
 func (c *Checkpoint) Rollback() error {
 	if !c.IsRepo() {
-		return nil
+		return ErrNoCheckpoint
 	}
-	list, err := c.run("stash", "list")
+	root, dir, err := c.location()
 	if err != nil {
 		return err
 	}
-	lines := strings.Split(strings.TrimSpace(list), "\n")
-	targetRef := ""
-	for _, line := range lines {
-		if strings.Contains(line, "vibe-coder/") {
-			ref := strings.SplitN(line, ":", 2)[0]
-			targetRef = strings.TrimSpace(ref)
-			break
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return ErrNoCheckpoint
+	}
+	if err != nil {
+		return err
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
 		}
+		path := filepath.Join(dir, entry.Name())
+		state, err := readCheckpointState(path)
+		if err != nil {
+			return err
+		}
+		var saved fileCheckpoint
+		if err := json.Unmarshal(state.Data, &saved); err != nil {
+			return fmt.Errorf("invalid checkpoint: %w", err)
+		}
+		target, err := checkpointTarget(root, saved.Path)
+		if err != nil {
+			return err
+		}
+		current, err := readCheckpointState(target)
+		if err != nil {
+			return err
+		}
+		if current.revision() != saved.After {
+			return fmt.Errorf("cannot undo %s: file changed after the agent edit; checkpoint preserved", saved.Path)
+		}
+		if saved.Before.Exists {
+			if err := replaceCheckpointFile(target, saved.Before.Data, saved.Before.Mode.Perm()); err != nil {
+				return err
+			}
+		} else if current.Exists {
+			if err := os.Remove(target); err != nil {
+				return err
+			}
+		}
+		return os.Remove(path)
 	}
-	if targetRef == "" {
-		return nil
+	return ErrNoCheckpoint
+}
+
+func (c *Checkpoint) location() (string, string, error) {
+	root, err := c.run("rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", "", err
 	}
-	_, err = c.run("stash", "pop", targetRef)
-	return err
+	gitDir, err := c.run("rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Clean(strings.TrimSpace(root)), filepath.Join(strings.TrimSpace(gitDir), "vibe-coder-checkpoints"), nil
 }
 
 func (c *Checkpoint) run(args ...string) (string, error) {

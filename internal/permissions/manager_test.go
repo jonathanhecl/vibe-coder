@@ -49,6 +49,29 @@ func TestAlwaysConfirmBashEvenWithYesMode(t *testing.T) {
 	}
 }
 
+func TestAlwaysConfirmSurvivesRememberedApproval(t *testing.T) {
+	for _, name := range []string{"Bash", "InteractiveBash"} {
+		m := NewManager(&config.Config{YesMode: true})
+		m.AllowSession(name)
+		if m.Check(name, map[string]any{"command": "sudo echo confirmation"}, fakeUI{decision: tui.DecisionDeny}) {
+			t.Fatalf("%s remembered approval bypassed mandatory confirmation", name)
+		}
+	}
+}
+
+func TestPersistentDenyAppliesToSafeTools(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vibe-coder.env")
+	if err := os.WriteFile(path, []byte("TOOL_PERMISSIONS={\"read\":\"deny\",\"subagent\":\"deny\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(&config.Config{PermFile: path, YesMode: true})
+	for _, name := range []string{"Read", "SubAgent"} {
+		if m.Check(name, nil, nil) {
+			t.Fatalf("persistent deny ignored for %s", name)
+		}
+	}
+}
+
 func TestAllowSessionDoesNotWritePermFile(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()

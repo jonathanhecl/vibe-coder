@@ -33,6 +33,7 @@ type Agent struct {
 	ui     tui.UI
 
 	mu          sync.RWMutex
+	delegatedMu sync.Mutex
 	planMode    bool
 	reviewMode  bool
 	watcher     *watcher.Watcher

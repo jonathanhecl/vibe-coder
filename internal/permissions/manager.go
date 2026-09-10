@@ -106,32 +106,19 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	pRule := m.persistent[tool]
 	m.mu.Unlock()
 
-	if toolTier(tool) == TierSafe {
-		return true
-	}
-	if allowed {
-		return true
-	}
-	if pRule == "allow" {
-		return true
-	}
 	if pRule == "deny" {
 		return false
 	}
-
-	if yesMode {
-		if tool == "bash" {
-			cmd, _ := params["command"].(string)
-			if needsAlwaysConfirmBash(cmd) {
-				// Keep prompting below.
-			} else {
-				return true
-			}
-		} else {
-			return true
-		}
+	if toolTier(tool) == TierSafe {
+		return true
+	}
+	command, _ := params["command"].(string)
+	alwaysConfirm := (tool == "bash" || tool == "interactivebash") && needsAlwaysConfirmBash(command)
+	if !alwaysConfirm && (allowed || pRule == "allow" || yesMode) {
+		return true
 	}
 
+	// Keep prompting below.
 	if ui == nil {
 		return false
 	}

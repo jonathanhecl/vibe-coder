@@ -121,7 +121,9 @@ func TestCheckpointCreateInRepo(t *testing.T) {
 	if !c.IsRepo() {
 		t.Fatalf("expected repo")
 	}
-	_ = c.Create("test")
+	if err := c.Create("test", filepath.Join(tmp, "a.txt")); err != nil {
+		t.Fatalf("checkpoint in repository without commits: %v", err)
+	}
 }
 
 func fmtError(out string, err error) error {
@@ -137,7 +139,7 @@ func (e *gitErr) Error() string {
 	return strings.TrimSpace(e.out) + ": " + e.err.Error()
 }
 
-func TestCheckpointPathspecScopesStash(t *testing.T) {
+func TestCheckpointPreservesWorkingTree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -166,14 +168,18 @@ func TestCheckpointPathspecScopesStash(t *testing.T) {
 	if err := c.Create("test", filepath.Join(tmp, "a.txt")); err != nil {
 		t.Fatalf("pathspec checkpoint: %v", err)
 	}
-	if got := readFile(t, filepath.Join(tmp, "a.txt")); got != "v1" {
-		t.Fatalf("expected a.txt restored to v1, got %q", got)
+	if got := readFile(t, filepath.Join(tmp, "a.txt")); got != "v2" {
+		t.Fatalf("checkpoint changed a.txt: got %q, want v2", got)
 	}
 	if got := readFile(t, filepath.Join(tmp, "b.txt")); got != "v2" {
 		t.Fatalf("expected b.txt untouched (v2), got %q", got)
 	}
-	if out := run("stash", "list"); !strings.Contains(out, "vibe-coder/test/") {
-		t.Fatalf("expected stash entry, got %q", out)
+	if out := run("stash", "list"); strings.TrimSpace(out) != "" {
+		t.Fatalf("checkpoint changed the stash list: %q", out)
+	}
+	writeFixture(t, filepath.Join(tmp, "a.txt"), "v3")
+	if err := c.Complete(); err != nil {
+		t.Fatal(err)
 	}
 	// Rollback restores the edited file.
 	if err := c.Rollback(); err != nil {

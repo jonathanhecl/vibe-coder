@@ -39,13 +39,15 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 
 ### Safety and permissions
 
-- **Three permission tiers**: Safe (always allow), Ask (prompt), Network (always prompt).
-- **`-y` mode** flips global allow except for always-confirm Bash patterns.
+- **Three permission tiers**: Safe (allow unless denied), Ask, and Network (prompt unless approved by a remembered rule or `-y`). Persistent denials apply to safe tools too.
+- **`-y` mode** enables auto-approval except for mandatory confirmation patterns in `Bash` and `InteractiveBash`. Remembered approvals cannot bypass those confirmations.
 - **In-session memory** — `/yes` and `/no` toggle at runtime; decisions are remembered for the current session.
-- **Persistent permissions** — saved to `<configDir>/permissions.json` (skips `Bash:allow`).
+- **Persistent permissions** — saved as `TOOL_PERMISSIONS` in `vibe-coder.env` (skips `Bash:allow`; legacy `permissions.json` is migrated).
 - **Dangerous-command blocklist** (`rm -rf /`, `> /dev/sda`, etc.) and **protected-path guard** (`/proc`, `/sys`, `~/.ssh/id_*`, `~/.aws/credentials`, etc.).
-- **Environment scrubbing** — `Bash` runs with `safety.CleanEnv()` to strip secrets.
-- **Plan mode** — `/plan` restricts writes to `<cwd>/.vibe-coder/plans/` until `/approve` returns to act mode.
+- **Environment scrubbing** — shell tools and auto-tests run with `safety.CleanEnv()` to strip secrets.
+- **Plan mode** — `/plan` permits read-only tools and session task management; `Write`/`Edit` are restricted to `<cwd>/.vibe-coder/plans/`, without symlink paths. Shell commands, auto-tests, `NotebookEdit`, `GitUndo`, and unknown/MCP tool effects are blocked until act mode resumes.
+- **Review mode** — `/review <prompt>` permits read-only tools and session task management, with no file mutations or shell commands. Unknown/MCP tool effects are blocked by default.
+- **Delegated permissions** — sub-agents inherit the parent's tool availability, permission checks, and active mode. `allow_writes=true` only requests access; it does not grant approval. Child tool execution is serialized, including permission prompts, checkpoints, and auto-tests.
 
 ### TUI
 
@@ -61,7 +63,7 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 - **RAG** (optional, `-tags rag`) — SQLite-backed indexing and cosine-similarity retrieval. Build with `--rag-index`, query with `--rag`.
 - **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`.
 - **Skills auto-load** — searches three directories for skill markdown files (50 KiB cap, sanitized).
-- **Git checkpoint + auto-test** — pre-Edit/Write stash scoped to the edited file; related tests run automatically (source file → its test files, test file → itself or its `Test*` funcs) and failures are re-injected as `[AUTO-TEST]` observations.
+- **File checkpoint + auto-test** — pre-Edit/Write copies leave the working tree, index, and stashes untouched. A successful changed file becomes a completed checkpoint; failed or unchanged edits do not replace usable undo history. Related tests request shell execution permission, and failures or denied execution are re-injected as `[AUTO-TEST]` observations.
 - **File watcher** — external file changes appear as `[System Note] N file change(s) detected` on the next iteration.
 
 ## Requirements
@@ -466,6 +468,14 @@ do not call these directly, but their behavior affects speed and context usage:
   `vendor`, `dist`, `build`, `target`, and `.vibe-coder`.
 - `Read`, `Glob`, and `Grep` respect cancellation, so ESC/Ctrl-C can stop
   long file operations cleanly.
+
+### File checkpoints and undo
+
+In Git repositories, `Write` and `Edit` save a private pre-edit copy under the worktree's Git directory (`vibe-coder-checkpoints/`, files created with mode `0600`). Checkpoints support tracked, staged, untracked, ignored, and newly created files without changing the index or using `git stash`.
+
+`GitUndo` restores the latest completed checkpoint for the repository only when the current file's contents and permissions still match the recorded post-edit state. Otherwise it reports a conflict and preserves both the file and checkpoint. Undoing a newly created file removes that file, not its parent directories. Existing files recover their original contents and permissions.
+
+Checkpoint creation rejects paths outside the repository, Git metadata, symlink paths, and source files larger than 16 MiB. Post-edit files are limited to 32 MiB for checkpoint validation. Outside Git repositories, edits still work but no checkpoints are created. Pending copies from interrupted edits are retained for manual recovery and are not automatically restored. Stashes from older versions remain untouched and must be inspected manually; `GitUndo` no longer pops them.
 
 ## Vision
 
