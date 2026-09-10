@@ -255,8 +255,14 @@ func saveConfig(path string, cfg mcpConfigFile) error {
 	if err != nil {
 		return fmt.Errorf("serialize config to JSON: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// mcp.json may hold secrets via --env, so restrict to owner-only.
+	// WriteFile only applies the mode on creation, so Chmod afterwards to
+	// also tighten files created previously with wider permissions.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config file: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("restrict config file permissions: %w", err)
 	}
 	return nil
 }

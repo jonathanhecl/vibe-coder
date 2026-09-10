@@ -64,7 +64,8 @@ func main() {
 	}
 
 	logger.Infof("vibe-coder %s starting", version.Value)
-	logger.Infof("CLI args: %v", os.Args)
+	// Args are redacted: --env values and other secrets must never land in the log.
+	logger.Infof("CLI args: %v", logger.RedactArgs(os.Args))
 	logger.Infof("ConfigDir: %s, ConfigFile: %s", cfg.ConfigDir, cfg.ConfigFile)
 	logger.Infof("OllamaHost: %s, Model: %s, UI: %s", cfg.OllamaHost, cfg.Model, cfg.UI)
 

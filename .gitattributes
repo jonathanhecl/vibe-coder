@@ -1,0 +1,25 @@
+# Normalize line endings: LF in the repo for text files, native on checkout.
+# Code and scripts force LF because gofmt and sh shebangs break on CRLF.
+* text=auto
+
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.env text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.txt text eol=lf
+
+# Binaries are never normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.exe binary
+*.dll binary
+*.zip binary

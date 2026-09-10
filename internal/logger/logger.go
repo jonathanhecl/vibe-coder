@@ -33,9 +33,16 @@ func Init(configDir string) (io.Closer, error) {
 	}
 
 	path := filepath.Join(configDir, "vibe-coder.log")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	// The log may contain CLI args and prompts, so restrict to owner-only.
+	// OpenFile only applies the mode on creation, so Chmod afterwards to
+	// also tighten log files created previously with wider permissions.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("open log file: %w", err)
+	}
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("restrict log file permissions: %w", err)
 	}
 
 	logFile = f

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,17 @@ func TestRunCLI_AddAndRemoveLocal(t *testing.T) {
 	}
 	if srv.Env["PORT"] != "8080" || srv.Env["DEBUG"] != "true" {
 		t.Errorf("unexpected env: %v", srv.Env)
+	}
+
+	// mcp.json may hold --env secrets, so it must be owner-only.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(localFile)
+		if err != nil {
+			t.Fatalf("failed to stat local config: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm&0o077 != 0 {
+			t.Errorf("expected owner-only permissions on mcp.json, got %04o", perm)
+		}
 	}
 
 	// 2. Remove local server
@@ -200,6 +212,32 @@ func TestRunCLI_ServerNotFoundToRemove(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found in config") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSaveConfigRestrictsPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "mcp.json")
+	// Simulate a config file created previously with wider permissions.
+	if err := os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o644); err != nil {
+		t.Fatalf("failed to write raw: %v", err)
+	}
+	if err := saveConfig(path, mcpConfigFile{
+		MCPServers: map[string]ServerConfig{
+			"srv": {Command: "cmd", Env: map[string]string{"API_KEY": "secret"}},
+		},
+	}); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("failed to stat saved config: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("expected owner-only permissions after save, got %04o", perm)
 	}
 }
 

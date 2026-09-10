@@ -29,6 +29,10 @@ var (
 	}{
 		{regexp.MustCompile(`(?i)\bcurl\b.*\|\s*\bsh\b`), "curl piped to shell"},
 		{regexp.MustCompile(`(?i)\bwget\b.*\|\s*\bsh\b`), "wget piped to shell"},
+		{regexp.MustCompile(`(?i)\b(iwr|irm)\b.*\|\s*\biex\b`), "remote script piped to Invoke-Expression"},
+		{regexp.MustCompile(`(?i)\binvoke-(webrequest|restmethod)\b.*\|\s*\binvoke-expression\b`), "remote script piped to Invoke-Expression"},
+		{regexp.MustCompile(`(?i)\biex\b.*\bnet\.webclient\b`), "Invoke-Expression with Net.WebClient"},
+		{regexp.MustCompile(`(?i)\bnet\.webclient\b.*\biex\b`), "Net.WebClient piped to Invoke-Expression"},
 		{regexp.MustCompile(`(?i)\brm\s+-rf\s+/`), "rm -rf from root"},
 		{regexp.MustCompile(`(?i)\bmkfs\b`), "format filesystem"},
 		{regexp.MustCompile(`(?i)\bdd\b.*\bof=/dev/`), "dd to device"},
@@ -153,34 +157,37 @@ func IsProtectedPath(path string) bool {
 		expanded = resolved
 	}
 	clean := filepath.Clean(expanded)
-	lower := strings.ToLower(clean)
+	// Compare in slash form so forward-slash paths (common in Go, shells,
+	// and model output) match on Windows, where Separator is backslash.
+	slashed := filepath.ToSlash(clean)
+	lower := strings.ToLower(slashed)
 
-	if strings.HasPrefix(clean, "/proc/") || strings.HasPrefix(clean, "/sys/") || strings.HasPrefix(clean, "/dev/") {
+	if strings.HasPrefix(slashed, "/proc/") || strings.HasPrefix(slashed, "/sys/") || strings.HasPrefix(slashed, "/dev/") {
 		return true
 	}
-	if clean == "/etc/shadow" || clean == "/etc/sudoers" {
+	if slashed == "/etc/shadow" || slashed == "/etc/sudoers" {
 		return true
 	}
 
-	if strings.Contains(lower, ".ssh"+string(filepath.Separator)+"id_") {
+	if strings.Contains(lower, ".ssh/id_") {
 		return true
 	}
-	if strings.Contains(lower, ".aws"+string(filepath.Separator)+"credentials") {
+	if strings.Contains(lower, ".aws/credentials") {
 		return true
 	}
-	if strings.Contains(lower, ".config"+string(filepath.Separator)+"gcloud"+string(filepath.Separator)) {
+	if strings.Contains(lower, ".config/gcloud/") {
 		return true
 	}
-	if strings.Contains(lower, ".kube"+string(filepath.Separator)+"config") {
+	if strings.Contains(lower, ".kube/config") {
 		return true
 	}
 
 	if runtime.GOOS == "windows" {
-		if strings.Contains(lower, `c:\windows\system32\config\`) {
+		if strings.Contains(lower, `c:/windows/system32/config/`) {
 			return true
 		}
-		appData := strings.ToLower(os.Getenv("APPDATA"))
-		if appData != "" && strings.HasPrefix(lower, filepath.Clean(appData+`\Microsoft\Crypto\`)) {
+		appData := strings.ToLower(filepath.ToSlash(os.Getenv("APPDATA")))
+		if appData != "" && strings.HasPrefix(lower, strings.TrimSuffix(appData, "/")+`/microsoft/crypto/`) {
 			return true
 		}
 	}
