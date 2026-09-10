@@ -154,15 +154,31 @@ func (s *Session) TokenEstimate() int {
 }
 
 // SetPinnedContexts replaces the pinned context path list. Paths are
-// stored as given; callers should pass absolute paths.
+// stored as given; callers should pass absolute paths. The revision only
+// moves when the list actually changes so unchanged syncs keep Save cheap.
 func (s *Session) SetPinnedContexts(paths []string) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if equalStrings(s.pinnedContexts, paths) {
+		return
+	}
 	s.pinnedContexts = append([]string(nil), paths...)
 	s.revision++
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if strings.TrimSpace(a[i]) != strings.TrimSpace(b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // PinnedContexts returns a copy of the pinned context path list.

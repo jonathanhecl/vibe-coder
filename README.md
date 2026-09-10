@@ -58,7 +58,7 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 - **RAG** (optional, `-tags rag`) — SQLite-backed indexing and cosine-similarity retrieval. Build with `--rag-index`, query with `--rag`.
 - **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`.
 - **Skills auto-load** — searches three directories for skill markdown files (50 KiB cap, sanitized).
-- **Git checkpoint + auto-test** — pre-Edit/Write stash; failing tests are re-injected as `[AUTO-TEST]` observations.
+- **Git checkpoint + auto-test** — pre-Edit/Write stash scoped to the edited file; related tests run automatically (source file → its test files, test file → itself or its `Test*` funcs) and failures are re-injected as `[AUTO-TEST]` observations.
 - **File watcher** — external file changes appear as `[System Note] N file change(s) detected` on the next iteration.
 
 ## Requirements

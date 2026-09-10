@@ -35,9 +35,13 @@ func TestBuildAutoTestCommand(t *testing.T) {
 		want     []string
 	}{
 		{name: "pytest target test file", testName: "pytest", filePath: "tests/test_main.py", want: []string{"pytest", "-x", "--no-header", filepath.Clean("tests/test_main.py")}},
-		{name: "pytest skip non-test file", testName: "pytest", filePath: "src/main.py", want: nil},
+		{name: "pytest skip non-test file without cwd", testName: "pytest", filePath: "src/main.py", want: nil},
 		{name: "go target package for test file", testName: "go", filePath: filepath.FromSlash("internal/agent/loop_test.go"), want: []string{"go", "test", "./internal/agent"}},
-		{name: "go skip non-test file", testName: "go", filePath: filepath.FromSlash("internal/agent/loop.go"), want: nil},
+		{name: "go target package for source file", testName: "go", filePath: filepath.FromSlash("internal/agent/loop.go"), want: []string{"go", "test", "./internal/agent"}},
+		{name: "cargo module filter", testName: "cargo", filePath: filepath.FromSlash("src/auth/login.rs"), want: []string{"cargo", "test", "--quiet", "auth::login"}},
+		{name: "cargo integration target", testName: "cargo", filePath: filepath.FromSlash("tests/api.rs"), want: []string{"cargo", "test", "--quiet", "--test", "api"}},
+		{name: "cargo crate root runs suite", testName: "cargo", filePath: filepath.FromSlash("src/main.rs"), want: []string{"cargo", "test", "--quiet"}},
+		{name: "unknown runner resolves nil", testName: "other", filePath: "any.txt", want: nil},
 	}
 
 	for _, tt := range tests {
@@ -131,4 +135,60 @@ type gitErr struct {
 
 func (e *gitErr) Error() string {
 	return strings.TrimSpace(e.out) + ": " + e.err.Error()
+}
+
+func TestCheckpointPathspecScopesStash(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	tmp := t.TempDir()
+	run := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = tmp
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	run("init")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "test")
+	writeFixture(t, filepath.Join(tmp, "a.txt"), "v1")
+	writeFixture(t, filepath.Join(tmp, "b.txt"), "v1")
+	run("add", ".")
+	run("commit", "-m", "init")
+
+	writeFixture(t, filepath.Join(tmp, "a.txt"), "v2")
+	writeFixture(t, filepath.Join(tmp, "b.txt"), "v2")
+
+	c := NewCheckpoint(tmp)
+	if err := c.Create("test", filepath.Join(tmp, "a.txt")); err != nil {
+		t.Fatalf("pathspec checkpoint: %v", err)
+	}
+	if got := readFile(t, filepath.Join(tmp, "a.txt")); got != "v1" {
+		t.Fatalf("expected a.txt restored to v1, got %q", got)
+	}
+	if got := readFile(t, filepath.Join(tmp, "b.txt")); got != "v2" {
+		t.Fatalf("expected b.txt untouched (v2), got %q", got)
+	}
+	if out := run("stash", "list"); !strings.Contains(out, "vibe-coder/test/") {
+		t.Fatalf("expected stash entry, got %q", out)
+	}
+	// Rollback restores the edited file.
+	if err := c.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if got := readFile(t, filepath.Join(tmp, "a.txt")); got != "v2" {
+		t.Fatalf("expected a.txt v2 after rollback, got %q", got)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

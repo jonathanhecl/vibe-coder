@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -20,11 +21,25 @@ func (c *Checkpoint) IsRepo() bool {
 	return err == nil
 }
 
-func (c *Checkpoint) Create(label string) error {
+func (c *Checkpoint) Create(label string, paths ...string) error {
 	if !c.IsRepo() {
 		return nil
 	}
 	stashLabel := fmt.Sprintf("vibe-coder/%s/%d", label, time.Now().Unix())
+	rel := relPathsInsideRepo(c.cwd, paths)
+	if len(rel) > 0 {
+		// Prefer a pathspec stash: only the edited file is snapshotted, so
+		// big repos skip the full-workdir scan and unrelated dirty files
+		// stay exactly where they were.
+		args := append([]string{"stash", "push", "--include-untracked", "--keep-index", "-m", stashLabel, "--"}, rel...)
+		if out, err := c.run(args...); err == nil {
+			return nil
+		} else if low := strings.ToLower(out); !strings.Contains(low, "pathspec") && !strings.Contains(low, "did not match") {
+			return err
+		}
+		// Pathspec rejected (e.g. ignored file): fall back to the full stash
+		// so every other dirty file is still protected as before.
+	}
 	out, err := c.run("stash", "push", "--include-untracked", "--keep-index", "-m", stashLabel)
 	if err != nil {
 		low := strings.ToLower(out)
@@ -34,6 +49,28 @@ func (c *Checkpoint) Create(label string) error {
 		return err
 	}
 	return nil
+}
+
+// relPathsInsideRepo converts absolute paths to cwd-relative pathspec
+// entries, dropping anything outside the repo tree.
+func relPathsInsideRepo(cwd string, paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+		rel := trimmed
+		if filepath.IsAbs(trimmed) {
+			r, err := filepath.Rel(cwd, trimmed)
+			if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+				continue
+			}
+			rel = r
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out
 }
 
 func (c *Checkpoint) Rollback() error {

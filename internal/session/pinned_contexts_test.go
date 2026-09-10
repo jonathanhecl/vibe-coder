@@ -152,3 +152,38 @@ func countLines(s string) int {
 	}
 	return n
 }
+
+func TestSetPinnedContextsSkipsUnchangedRevision(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: filepath.Join(tmp, "sessions"),
+	}
+	s := New(cfg)
+	s.AddUser("hello")
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(cfg.SessionsDir, s.ID()+".jsonl")
+	before, _ := os.Stat(target)
+	time.Sleep(20 * time.Millisecond)
+
+	s.SetPinnedContexts(nil)
+	s.SetPinnedContexts([]string{})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.Stat(target)
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("expected identical pins sync to skip the rewrite")
+	}
+
+	s.SetPinnedContexts([]string{"/guides/a.md"})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if pins := s.PinnedContexts(); len(pins) != 1 {
+		t.Fatalf("expected pins stored, got %v", pins)
+	}
+}

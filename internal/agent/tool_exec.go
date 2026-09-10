@@ -46,8 +46,9 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if toolName == "Write" || toolName == "Edit" {
 		// Create a checkpoint before mutating files so failed edits can be
 		// inspected or rolled back by the user outside the agent loop.
+		// The edited file scopes the stash; unrelated dirty files stay put.
 		logger.Infof("Creating checkpoint pre-edit")
-		if err := a.cp.Create("pre-edit"); err != nil {
+		if err := a.cp.Create("pre-edit", asString(toolParams["file_path"])); err != nil {
 			logger.Errorf("Failed to create checkpoint: %v", err)
 			return tools.Result{}, false, err
 		}
