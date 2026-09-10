@@ -134,6 +134,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/model", "/models":
 		return true, false, runModelCommand(c, fields[1:])
+	case "/think":
+		return true, false, runThinkCommand(c, fields[1:])
 	case "/tokens":
 		printTokens(c)
 		return true, false, nil

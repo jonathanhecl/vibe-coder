@@ -223,11 +223,14 @@ Model keys and overrides:
 - Config file key: `MODEL=<model-name>`
 - Config file key: `UI=plain|rich`
 - Config file key: `SIDECAR_MODEL=<model-name>`
+- Config file key: `THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_MODEL=<model-name>`
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
+- Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
+- CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
 
 If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
 
@@ -317,6 +320,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--temperature <f>` — sampling temperature
 - `--context-window <n>` — model context window
 - `--no-think` — disable Ollama native thinking (faster replies)
+- `--think <level>` — thinking effort: `off|low|medium|high|max` (default: model default; persisted with `--save` as `THINK`)
 - `--hide-think` — hide Ollama thinking blocks in CLI output
 - `--context <file>` — pin a `.md`/`.txt` guide file as a persistent session instruction (repeatable, accumulated; also `VIBE_CODER_CONTEXT` env and `CONTEXT=` config key)
 - `--rag` — enable RAG mode
@@ -325,7 +329,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `OLLAMA_HOST`, and `HIDE_THINK` into `vibe-coder.env`
+- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
 ## MCP & Skills Management CLI
 
@@ -403,7 +407,9 @@ Pinned context files are injected into the system prompt on every turn, so they 
 ### Model
 
 - `/model` — show the active model
-- `/model <name>` — switch the active model for this run (vision support is re-checked and reported)
+- `/model <name>` — switch the active model for this run (vision and thinking support are re-checked and reported)
+- `/think` — show the thinking level and model capability
+- `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it)
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/sidecar status` — show current sidecar state

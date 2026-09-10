@@ -74,8 +74,21 @@ func runModelCommand(c *Ctx, args []string) error {
 	// and /status stay honest after a switch. Unknown models report unknown.
 	available, known := ollama.LookupVision(c.Cfg.VisionByModel, c.Cfg.Model)
 	c.Cfg.VisionAvailable, c.Cfg.VisionKnown = available, known
-	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s)\n", c.Cfg.Model, visionWord(known, available))
+	refreshThinkingFlags(c)
+	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s, thinking: %s)\n",
+		c.Cfg.Model, visionWord(known, available), thinkingWord(c))
 	return nil
+}
+
+func thinkingWord(c *Ctx) string {
+	switch {
+	case c.Cfg.ThinkingKnown && c.Cfg.ThinkingSupported:
+		return "yes"
+	case c.Cfg.ThinkingKnown && !c.Cfg.ThinkingSupported:
+		return "no"
+	default:
+		return "unknown"
+	}
 }
 
 func visionWord(known, available bool) string {

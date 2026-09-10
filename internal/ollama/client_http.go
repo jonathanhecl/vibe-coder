@@ -26,7 +26,7 @@ func (c *HTTPClient) applyThinkSessionOverride(req *ChatRequest) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.thinkDisabledModels[model] {
-		req.Think = false
+		req.Think = ThinkOff()
 	}
 }
 

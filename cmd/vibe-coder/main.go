@@ -263,13 +263,16 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client) {
 		return
 	}
 	cfg.VisionByModel = make(map[string]bool, len(models))
+	cfg.ThinkingByModel = make(map[string]bool, len(models))
 	for _, m := range models {
 		name := strings.ToLower(strings.TrimSpace(m.Name))
 		if name != "" {
 			cfg.VisionByModel[name] = m.SupportsVision()
+			cfg.ThinkingByModel[name] = m.SupportsThinking()
 		}
 	}
 	applyVisionForModel(cfg)
+	applyThinkingForModel(cfg)
 }
 
 // applyVisionForModel refreshes the vision flags for the active model from
@@ -288,6 +291,16 @@ func applyVisionForModel(cfg *config.Config) {
 	sideAvailable, sideKnown := ollama.LookupVision(cfg.VisionByModel, cfg.SidecarModel)
 	cfg.SidecarVisionAvailable, cfg.SidecarVisionKnown = sideAvailable, sideKnown
 	logger.Infof("Vision support for sidecar %q: available=%t known=%t", cfg.SidecarModel, sideAvailable, sideKnown)
+}
+
+// applyThinkingForModel refreshes the thinking-capability flags for the
+// active model from the cached Tags map. Unknown models leave
+// ThinkingKnown=false.
+func applyThinkingForModel(cfg *config.Config) {
+	supported, known := ollama.LookupVision(cfg.ThinkingByModel, cfg.Model)
+	cfg.ThinkingSupported = supported
+	cfg.ThinkingKnown = known
+	logger.Infof("Thinking support for model %q: supported=%t known=%t", cfg.Model, supported, known)
 }
 
 // preloadSessionContexts pins every --context file (accumulated) into the

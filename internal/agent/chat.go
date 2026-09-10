@@ -61,7 +61,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 			Model:    a.cfg.Model,
 			Messages: messages,
 			Stream:   true,
-			Think:    !a.cfg.OllamaNoThink,
+			Think:    ollama.ResolveThinkSetting(a.cfg.OllamaThinkLevel, a.cfg.OllamaNoThink, a.cfg.ThinkingKnown, a.cfg.ThinkingSupported),
 			Options: ollama.ChatOptions{
 				NumCtx:      a.cfg.ContextWindow,
 				NumPredict:  a.cfg.MaxTokens,

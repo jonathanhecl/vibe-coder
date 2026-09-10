@@ -102,6 +102,16 @@ func (m Model) SupportsVision() bool {
 	return false
 }
 
+// SupportsThinking reports whether the model advertises thinking capability.
+func (m Model) SupportsThinking() bool {
+	for _, cap := range m.Capabilities {
+		if strings.TrimSpace(strings.ToLower(cap)) == "thinking" {
+			return true
+		}
+	}
+	return false
+}
+
 // LookupVision resolves vision support for name against a lowercase
 // model-name to vision-support map (as built from Tags). It tolerates a
 // missing or extra ":latest" tag, and a tagless name that matches exactly

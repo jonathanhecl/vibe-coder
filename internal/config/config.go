@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
 const (
@@ -75,6 +77,17 @@ type Config struct {
 	ChatTimeout time.Duration
 	// OllamaNoThink disables native thinking in /api/chat when false is sent (faster replies; quality trade-off).
 	OllamaNoThink bool
+	// OllamaThinkLevel selects the Ollama think value: "" (unset, default
+	// thinking), "off", "on", "low", "medium", "high" or "max". An explicit
+	// level wins over OllamaNoThink. Persisted via THINK with --save.
+	OllamaThinkLevel string
+	// ThinkingSupported/ThinkingKnown describe the active model's thinking
+	// capability as advertised by Ollama Tags. Unknown until detection runs.
+	ThinkingSupported bool
+	ThinkingKnown     bool
+	// ThinkingByModel caches thinking support per model name so /model and
+	// /think resolve without extra network calls.
+	ThinkingByModel map[string]bool
 	// OllamaHideThink hides native and in-band thinking blocks in TUI (shows response without thinking section).
 	OllamaHideThink bool
 }
@@ -129,6 +142,11 @@ func Load(args []string) (*Config, error) {
 	if err := validateUIMode(cfg.UI); err != nil {
 		return nil, err
 	}
+	if norm, ok := ollama.NormalizeThinkLevel(cfg.OllamaThinkLevel); !ok {
+		return nil, fmt.Errorf("invalid think level %q: expected off|low|medium|high|max", cfg.OllamaThinkLevel)
+	} else {
+		cfg.OllamaThinkLevel = norm
+	}
 
 	if _, err := url.ParseRequestURI(cfg.OllamaHost); err != nil {
 		return nil, fmt.Errorf("invalid ollama host %q: %w", cfg.OllamaHost, err)
@@ -177,10 +195,11 @@ Flags:
   --rag-model string        RAG embedding model
   --rag-index string        Build/index RAG path and exit
   --no-think                Disable Ollama native thinking (faster replies)
+  --think <level>           Thinking effort: off|low|medium|high|max (default: model default)
   --hide-think              Hide Ollama thinking blocks in CLI output
 
 Special directive:
-  --save                    Persist model, sidecar, host, hide-think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
+  --save                    Persist model, sidecar, host, hide-think, think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 

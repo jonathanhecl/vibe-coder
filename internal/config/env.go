@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
 const defaultChatRequestTimeout = 15 * time.Minute
@@ -54,6 +56,11 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_NO_THINK")); v != "" {
 		if b, ok := parseBoolish(v); ok && b {
 			cfg.OllamaNoThink = true
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_THINK")); v != "" {
+		if norm, ok := ollama.NormalizeThinkLevel(v); ok && norm != "" {
+			cfg.OllamaThinkLevel = norm
 		}
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_HIDE_THINK", "VIBE_CODER_HIDE_THINKING")); v != "" {

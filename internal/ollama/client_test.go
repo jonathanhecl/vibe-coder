@@ -164,7 +164,7 @@ func TestChatStreamSplitsThinkingAndContent(t *testing.T) {
 		Model:    "qwen3.5:9b",
 		Messages: []Message{{Role: "user", Content: "hi"}},
 		Stream:   true,
-		Think:    true,
+		Think:    ThinkOn(),
 	})
 	if err != nil {
 		t.Fatalf("chat failed: %v", err)
@@ -283,7 +283,7 @@ func TestChatRetriesWithoutThinkOnUnsupported(t *testing.T) {
 			{Role: "user", Content: "hi"},
 		},
 		Stream: true,
-		Think:  true,
+		Think:  ThinkOn(),
 	})
 	if err != nil {
 		t.Fatalf("chat: %v", err)
@@ -329,7 +329,7 @@ func TestChatSkipsThinkAfterModelMarkedUnsupported(t *testing.T) {
 		Model:    "m",
 		Messages: []Message{{Role: "user", Content: "a"}},
 		Stream:   true,
-		Think:    true,
+		Think:    ThinkOn(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -341,7 +341,7 @@ func TestChatSkipsThinkAfterModelMarkedUnsupported(t *testing.T) {
 		Model:    "m",
 		Messages: []Message{{Role: "user", Content: "b"}},
 		Stream:   true,
-		Think:    true,
+		Think:    ThinkOn(),
 	})
 	if err != nil {
 		t.Fatal(err)

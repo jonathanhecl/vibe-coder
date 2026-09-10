@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
 func configFileExists(path string) (bool, error) {
@@ -96,6 +98,10 @@ func applyConfigFile(cfg *Config, path string) error {
 			if b, ok := parseBoolish(value); ok {
 				cfg.OllamaNoThink = b
 			}
+		case "THINK":
+			if norm, ok := ollama.NormalizeThinkLevel(value); ok && norm != "" {
+				cfg.OllamaThinkLevel = norm
+			}
 		case "HIDE_THINK", "HIDE_THINKING":
 			if b, ok := parseBoolish(value); ok {
 				cfg.OllamaHideThink = b
@@ -135,6 +141,7 @@ func SaveModelSettings(cfg *Config) error {
 		"SIDECAR_MODEL": strings.TrimSpace(cfg.SidecarModel),
 		"OLLAMA_HOST":   strings.TrimSpace(cfg.OllamaHost),
 		"HIDE_THINK":    strconv.FormatBool(cfg.OllamaHideThink),
+		"THINK":         strings.TrimSpace(cfg.OllamaThinkLevel),
 	}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(lines)+4)
@@ -164,7 +171,7 @@ func SaveModelSettings(cfg *Config) error {
 		}
 		out = append(out, key+"="+value)
 	}
-	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "OLLAMA_HOST", "HIDE_THINK"} {
+	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
 		if seen[key] {
 			continue
 		}

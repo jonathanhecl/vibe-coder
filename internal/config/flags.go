@@ -34,6 +34,7 @@ type cliOptions struct {
 	contextFiles  stringSlice
 	help          optionalBool
 	version       optionalBool
+	thinkLevel    optionalString
 	noThink       bool
 	hideThink     bool
 }
@@ -72,6 +73,8 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.contextFiles, "context", "pin a .md/.txt guide file as persistent session instruction (repeatable)")
 	fs.Var(&opts.help, "help", "show help")
 	fs.Var(&opts.version, "version", "show version")
+	fs.Var(&opts.thinkLevel, "think", "thinking effort: off|low|medium|high|max")
+	fs.Var(&opts.thinkLevel, "think-level", "thinking effort: off|low|medium|high|max")
 	fs.BoolVar(&opts.noThink, "no-think", false, "disable Ollama native thinking")
 	fs.BoolVar(&opts.hideThink, "hide-think", false, "hide Ollama thinking blocks in CLI output")
 
@@ -159,6 +162,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.noThink {
 		cfg.OllamaNoThink = true
+	}
+	if cli.thinkLevel.set {
+		cfg.OllamaThinkLevel = cli.thinkLevel.value
 	}
 	if cli.hideThink {
 		cfg.OllamaHideThink = true

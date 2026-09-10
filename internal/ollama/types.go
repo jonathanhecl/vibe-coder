@@ -2,7 +2,10 @@ package ollama
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -45,12 +48,123 @@ type ChatOptions struct {
 }
 
 type ChatRequest struct {
-	Model     string      `json:"model"`
-	Messages  []Message   `json:"messages"`
-	Stream    bool        `json:"stream"`
-	Think     bool        `json:"think,omitempty"`
-	Options   ChatOptions `json:"options"`
-	KeepAlive int         `json:"keep_alive"`
+	Model     string        `json:"model"`
+	Messages  []Message     `json:"messages"`
+	Stream    bool          `json:"stream"`
+	Think     *ThinkSetting `json:"think,omitempty"`
+	Options   ChatOptions   `json:"options"`
+	KeepAlive int           `json:"keep_alive"`
+}
+
+// ThinkSetting controls the Ollama think field. A nil *ThinkSetting omits
+// the field (server default); otherwise it marshals to a boolean or a
+// thinking level string ("low", "medium", "high", "max").
+//
+// A pointer is required because a plain bool with omitempty cannot send an
+// explicit false — and omitting think is NOT the same as disabling it:
+// Ollama enables thinking by default on capable models.
+type ThinkSetting struct {
+	// Level is "" (boolean mode), or a thinking level.
+	Level string
+	// Enabled selects think:true in boolean mode. Ignored when Level != "".
+	Enabled bool
+}
+
+// ThinkOn requests default thinking (think:true).
+func ThinkOn() *ThinkSetting { return &ThinkSetting{Enabled: true} }
+
+// ThinkOff explicitly disables thinking (think:false, actually sent).
+func ThinkOff() *ThinkSetting { return &ThinkSetting{Enabled: false} }
+
+// ThinkLevel requests a thinking effort level (think:"low"|"medium"|"high"|"max").
+func ThinkLevel(level string) *ThinkSetting { return &ThinkSetting{Level: level, Enabled: true} }
+
+// IsActive reports whether this setting requests any thinking (boolean true
+// or a level). Used to decide think-related retries.
+func (t *ThinkSetting) IsActive() bool {
+	if t == nil {
+		return false
+	}
+	if t.Level != "" {
+		return true
+	}
+	return t.Enabled
+}
+
+// NormalizeThinkLevel lowercases and validates a user-supplied thinking
+// value. Accepted: off, on, low, medium, high, max (plus true/false/yes/no
+// aliases and "" for unset). Returns the canonical form and validity.
+func NormalizeThinkLevel(raw string) (string, bool) {
+	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
+	case "":
+		return "", true
+	case "off", "false", "no", "disable", "disabled":
+		return "off", true
+	case "on", "true", "yes", "enable", "enabled":
+		return "on", true
+	case "low", "medium", "high", "max":
+		return v, true
+	default:
+		return "", false
+	}
+}
+
+// ResolveThinkSetting maps a configured think level ("" = unset) plus the
+// legacy no-think flag and the detected thinking capability into the wire
+// setting. Explicit levels always win; known non-thinking models get the
+// field omitted so no doomed 400 round trip is attempted.
+func ResolveThinkSetting(level string, noThink, known, supported bool) *ThinkSetting {
+	if norm, ok := NormalizeThinkLevel(level); ok && norm != "" {
+		switch norm {
+		case "off":
+			return ThinkOff()
+		case "on":
+			return ThinkOn()
+		default:
+			return ThinkLevel(norm)
+		}
+	}
+	if noThink {
+		return ThinkOff()
+	}
+	if known && !supported {
+		return nil
+	}
+	return ThinkOn()
+}
+
+func (t ThinkSetting) MarshalJSON() ([]byte, error) {
+	if t.Level != "" {
+		return json.Marshal(t.Level)
+	}
+	return json.Marshal(t.Enabled)
+}
+
+// UnmarshalJSON accepts the same bool|string union the Ollama API uses.
+func (t *ThinkSetting) UnmarshalJSON(data []byte) error {
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		t.Level = ""
+		t.Enabled = b
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("think must be a boolean or a level string: %w", err)
+	}
+	norm, ok := NormalizeThinkLevel(s)
+	if !ok || norm == "" {
+		return fmt.Errorf("invalid think level: %q", s)
+	}
+	switch norm {
+	case "off":
+		t.Level, t.Enabled = "", false
+	case "on":
+		t.Level, t.Enabled = "", true
+	default:
+		t.Level, t.Enabled = norm, true
+	}
+	return nil
 }
 
 // Chunk is one streamed slice of a chat reply. Delta carries final visible

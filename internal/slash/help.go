@@ -36,6 +36,8 @@ func printHelp(c *Ctx) {
 		{"Model", [][2]string{
 			{"/model", "show the active model"},
 			{"/model <name>", "switch the active model for this run"},
+			{"/think", "show the thinking level and model capability"},
+			{"/think off|low|medium|high|max|on", "set thinking effort for this session"},
 			{"/sidecar on|off", "toggle the sidecar for this session"},
 			{"/sidecar perm-on|perm-off", "persist sidecar state to vibe-coder.env"},
 			{"/sidecar status", "show current sidecar state"},

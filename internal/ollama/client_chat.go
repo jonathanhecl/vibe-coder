@@ -23,6 +23,20 @@ func isThinkingUnsupportedBody(body string) bool {
 	return strings.Contains(b, "does not support") || strings.Contains(b, "not support")
 }
 
+// thinkForLog renders the think setting for diagnostics.
+func thinkForLog(t *ThinkSetting) string {
+	if t == nil {
+		return "unset"
+	}
+	if t.Level != "" {
+		return t.Level
+	}
+	if t.Enabled {
+		return "true"
+	}
+	return "false"
+}
+
 // postChat calls /api/chat; on 400 "does not support thinking" it retries once with think disabled.
 func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Response, error) {
 	attempt := req
@@ -31,7 +45,7 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 		if err != nil {
 			return nil, fmt.Errorf("marshal chat request: %w", err)
 		}
-		logger.Infof("Ollama API POST calling /api/chat (attempt with Think=%t)", attempt.Think)
+		logger.Infof("Ollama API POST calling /api/chat (attempt with think=%s)", thinkForLog(attempt.Think))
 		resp, err := doPOSTWithRetry(ctx, c.http, func() (*http.Request, error) {
 			httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/chat", bytes.NewReader(payload))
 			if err != nil {
@@ -51,10 +65,10 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 		bodyStr := readLimitedBody(resp.Body, 32*1024)
 		_ = resp.Body.Close()
 		logger.Errorf("Ollama API POST failed: status=%d, body=%q", resp.StatusCode, bodyStr)
-		if resp.StatusCode == http.StatusBadRequest && attempt.Think && isThinkingUnsupportedBody(bodyStr) {
-			logger.Infof("Model doesn't support thinking, retrying with Think=false")
+		if resp.StatusCode == http.StatusBadRequest && attempt.Think.IsActive() && isThinkingUnsupportedBody(bodyStr) {
+			logger.Infof("Model doesn't support thinking, retrying with think disabled")
 			c.markThinkUnsupported(attempt.Model)
-			attempt.Think = false
+			attempt.Think = ThinkOff()
 			continue
 		}
 		return nil, mapChatError(resp.StatusCode, bodyStr)
