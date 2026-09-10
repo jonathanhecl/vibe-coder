@@ -42,7 +42,7 @@ type cliOptions struct {
 func parseCLI(args []string) (cliOptions, error) {
 	var opts cliOptions
 
-	fs := flag.NewFlagSet("vibe-coder", flag.ContinueOnError)
+	fs := flag.NewFlagSet("vibe", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 
 	fs.Var(&opts.prompt, "p", "one-shot prompt")

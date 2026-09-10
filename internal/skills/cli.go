@@ -30,17 +30,17 @@ func RunCLI(configDir, cwd string, args []string) error {
 	case "add":
 		return handleAdd(configDir, cwd, subArgs)
 	default:
-		return fmt.Errorf("unknown skill subcommand: %q. Run 'vibe-coder skill' for help", subcommand)
+		return fmt.Errorf("unknown skill subcommand: %q. Run 'vibe skill' for help", subcommand)
 	}
 }
 
 func printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  vibe-coder skill list")
+	fmt.Println("  vibe skill list")
 	fmt.Println("        List all currently loaded skills, their paths, and previews.")
 	fmt.Println()
-	fmt.Println("  vibe-coder skill add [flags] <name> <source_file_path>")
-	fmt.Println("        Copy an existing Markdown skill file into vibe-coder's skill directories.")
+	fmt.Println("  vibe skill add [flags] <name> <source_file_path>")
+	fmt.Println("        Copy an existing Markdown skill file into vibe's skill directories.")
 	fmt.Println()
 	fmt.Println("Flags:")
 	fmt.Println("  --global")
@@ -92,7 +92,7 @@ func handleAdd(configDir, cwd string, args []string) error {
 
 	parsedArgs := fs.Args()
 	if len(parsedArgs) < 2 {
-		return errors.New("missing <name> or <source_file_path>. Usage: vibe-coder skill add [flags] <name> <source_file_path>")
+		return errors.New("missing <name> or <source_file_path>. Usage: vibe skill add [flags] <name> <source_file_path>")
 	}
 
 	name := parsedArgs[0]

@@ -63,7 +63,7 @@ func main() {
 		defer closer.Close()
 	}
 
-	logger.Infof("vibe-coder %s starting", version.Value)
+	logger.Infof("vibe %s starting", version.Value)
 	// Args are redacted: --env values and other secrets must never land in the log.
 	logger.Infof("CLI args: %v", logger.RedactArgs(os.Args))
 	logger.Infof("ConfigDir: %s, ConfigFile: %s", cfg.ConfigDir, cfg.ConfigFile)
@@ -84,7 +84,7 @@ func main() {
 	}
 
 	if cfg.ShowVer {
-		fmt.Fprintf(os.Stdout, "vibe-coder %s\n", version.Value)
+		fmt.Fprintf(os.Stdout, "vibe %s\n", version.Value)
 		return
 	}
 

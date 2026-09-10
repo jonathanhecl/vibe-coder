@@ -2,7 +2,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Builds cross-platform binaries for vibe-coder, tags the release, pushes to origin, and creates a GitHub Release with assets.
+    Builds cross-platform binaries for vibe, tags the release, pushes to origin, and creates a GitHub Release with assets.
 .EXAMPLE
     ./release.ps1 v0.1.0
 #>
@@ -136,8 +136,8 @@ foreach ($target in $targets) {
     $goos = $target.GOOS
     $goarch = $target.GOARCH
     $ext = $target.Ext
-    $binName = "vibe-coder$ext"
-    $assetName = "vibe-coder_${Version}_${goos}_${goarch}.zip"
+    $binName = "vibe$ext"
+    $assetName = "vibe_${Version}_${goos}_${goarch}.zip"
     $stageDir = Join-Path $distDir "build_${goos}_${goarch}"
 
     New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
@@ -148,7 +148,7 @@ foreach ($target in $targets) {
     $env:GOARCH = $goarch
     $env:CGO_ENABLED = '0'
 
-    go build -ldflags $ldflags -o $binPath ./cmd/vibe-coder
+    go build -ldflags $ldflags -o $binPath ./cmd/vibe
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[ERROR] Build failed for $goos/$goarch." -ForegroundColor Red
         exit 1
@@ -204,7 +204,7 @@ $releaseBody = @{
     tag_name               = $Version
     target_commitish       = $branch
     name                   = "Release $Version"
-    body                   = "Release $Version of vibe-coder."
+    body                   = "Release $Version of vibe."
     draft                  = $false
     prerelease             = $false
     generate_release_notes = $true

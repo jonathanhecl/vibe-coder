@@ -9,6 +9,9 @@
 *.dylib
 
 # Local dev binaries (Windows: covered by *.exe, Unix: bare name)
+/vibe
+/vibe.exe
+# Legacy binary name (pre-rename)
 /vibe-coder
 /vibe-coder.exe
 

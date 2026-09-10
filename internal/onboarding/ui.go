@@ -9,7 +9,7 @@ import (
 )
 
 func (w *wizard) printIntro(buildVersion string) {
-	header := "vibe-coder " + strings.TrimSpace(buildVersion)
+	header := "vibe " + strings.TrimSpace(buildVersion)
 	if w.style.Enabled() {
 		fmt.Fprintf(w.out, "\n%s %s\n", w.style.BoldBrightGreen(">>"), w.style.BoldGreen(header))
 		fmt.Fprintf(w.out, "%s\n", w.style.DimGreen("Welcome. Let's set up your first run."))
@@ -24,10 +24,10 @@ func (w *wizard) printFinal(cfg *config.Config) {
 	if w.style.Enabled() {
 		fmt.Fprintln(w.out, "")
 		fmt.Fprintln(w.out, w.style.BoldBrightGreen("┌────────────────────────────────────────────┐"))
-		fmt.Fprintln(w.out, w.style.BoldBrightGreen("│  vibe-coder setup complete                 │"))
+		fmt.Fprintln(w.out, w.style.BoldBrightGreen("│  vibe setup complete                      │"))
 		fmt.Fprintln(w.out, w.style.BoldBrightGreen("└────────────────────────────────────────────┘"))
 	} else {
-		fmt.Fprintln(w.out, "\n--- vibe-coder setup complete ---")
+		fmt.Fprintln(w.out, "\n--- vibe setup complete ---")
 	}
 	fmt.Fprintf(w.out, "Saved settings to %s\n", cfg.ConfigFile)
 	fmt.Fprintln(w.out)

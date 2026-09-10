@@ -13,7 +13,7 @@ func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string
 	sidecar := formatSidecarBanner(cfg)
 	if !style.Enabled() {
 		return fmt.Sprintf(
-			"vibe-coder %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
+			"vibe %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
 			version.Value, sessionID, cfg.Model, sidecar, cfg.OllamaHost,
 		)
 	}
@@ -21,7 +21,7 @@ func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string
 		return fmt.Sprintf("%s %s\n", style.BoldGreen(k+":"), style.BrightGreen(v))
 	}
 	header := fmt.Sprintf("%s %s\n",
-		style.BoldGreen("vibe-coder"),
+		style.BoldGreen("vibe"),
 		style.DimGreen(version.Value),
 	)
 	return header +

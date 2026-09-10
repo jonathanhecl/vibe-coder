@@ -3,9 +3,9 @@
 ## Project Defaults
 
 - Use English for all code comments, user-facing messages, logs, errors, and test fixtures.
-- Use `vibe-coder` as the canonical binary and package naming in new code and commands.
+- Use `vibe` as the canonical binary name in new code and commands (repo/module stays `vibe-coder`).
 - Follow MVP-first scope discipline: keep changes small, testable, and documented in README/CHANGELOG when behavior changes.
-- Prefer small, testable packages under `internal/` and keep `cmd/vibe-coder/main.go` focused on wiring.
+- Prefer small, testable packages under `internal/` and keep `cmd/vibe/main.go` focused on wiring.
 
 ## Language and Messaging Rules
 

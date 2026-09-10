@@ -47,19 +47,19 @@ func RunCLI(configDir, cwd string, args []string) error {
 	case "remove":
 		return handleRemove(configDir, cwd, subArgs)
 	default:
-		return fmt.Errorf("unknown mcp subcommand: %q. Run 'vibe-coder mcp' for help", subcommand)
+		return fmt.Errorf("unknown mcp subcommand: %q. Run 'vibe mcp' for help", subcommand)
 	}
 }
 
 func printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  vibe-coder mcp list")
+	fmt.Println("  vibe mcp list")
 	fmt.Println("        List configured MCP servers from both global and project configurations.")
 	fmt.Println()
-	fmt.Println("  vibe-coder mcp add [flags] <name> <command> [args...]")
+	fmt.Println("  vibe mcp add [flags] <name> <command> [args...]")
 	fmt.Println("        Add or update an MCP server configuration.")
 	fmt.Println()
-	fmt.Println("  vibe-coder mcp remove [flags] <name>")
+	fmt.Println("  vibe mcp remove [flags] <name>")
 	fmt.Println("        Remove an MCP server configuration.")
 	fmt.Println()
 	fmt.Println("Flags:")
@@ -147,7 +147,7 @@ func handleAdd(configDir, cwd string, args []string) error {
 
 	parsedArgs := fs.Args()
 	if len(parsedArgs) < 2 {
-		return errors.New("missing <name> or <command>. Usage: vibe-coder mcp add [flags] <name> <command> [args...]")
+		return errors.New("missing <name> or <command>. Usage: vibe mcp add [flags] <name> <command> [args...]")
 	}
 
 	name := parsedArgs[0]
@@ -202,7 +202,7 @@ func handleRemove(configDir, cwd string, args []string) error {
 
 	parsedArgs := fs.Args()
 	if len(parsedArgs) != 1 {
-		return errors.New("missing server name. Usage: vibe-coder mcp remove [flags] <name>")
+		return errors.New("missing server name. Usage: vibe mcp remove [flags] <name>")
 	}
 
 	name := parsedArgs[0]

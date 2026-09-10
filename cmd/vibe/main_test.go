@@ -59,7 +59,7 @@ func newMainTestAgent(t *testing.T, client ollama.Client) (*agent.Agent, *tools.
 func TestVersionFlagSmoke(t *testing.T) {
 	t.Parallel()
 
-	cmd := exec.Command("go", "run", "./cmd/vibe-coder", "--version")
+	cmd := exec.Command("go", "run", "./cmd/vibe", "--version")
 	cmd.Dir = filepath.Clean("../..")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -67,7 +67,7 @@ func TestVersionFlagSmoke(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(string(out))
-	if got != "vibe-coder dev" {
+	if got != "vibe dev" {
 		t.Fatalf("unexpected version output: %q", got)
 	}
 }
@@ -123,7 +123,7 @@ func TestOneShotPromptSmoke(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cmd := exec.Command("go", "run", "./cmd/vibe-coder",
+	cmd := exec.Command("go", "run", "./cmd/vibe",
 		"--ollama-host", srv.URL,
 		"-m", "llama3.2:3b",
 		"-p", "say hi",
@@ -158,7 +158,7 @@ func TestStartupBanner(t *testing.T) {
 		OllamaHost:   "http://localhost:11434",
 	}
 	out := startupBanner(cfg, "session-123", tui.Style{})
-	if !strings.Contains(out, "vibe-coder") {
+	if !strings.Contains(out, "vibe") {
 		t.Fatalf("missing app name banner: %q", out)
 	}
 	if !strings.Contains(out, "Session started: session-123") {

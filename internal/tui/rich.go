@@ -70,7 +70,7 @@ func (m richStatusModel) View() string {
 	if m.planMode {
 		mode = "PLAN"
 	}
-	left := m.style.Render("vibe-coder · " + mode)
+	left := m.style.Render("vibe · " + mode)
 	phase := m.muted.Render("phase: " + m.phase)
 	clock := m.muted.Render(m.now.Format("15:04:05"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", phase, " ", clock)

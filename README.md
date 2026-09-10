@@ -1,7 +1,7 @@
 # vibe-coder
 
 `vibe-coder` is a local-first coding agent for Ollama, built in Go.
-It runs as a single static CLI binary and supports one-shot prompts, interactive REPL sessions, a rich tool system, session persistence with compaction, and optional RAG — all without leaving your machine.
+It ships as a single static CLI binary named `vibe` and supports one-shot prompts, interactive REPL sessions, a rich tool system, session persistence with compaction, and optional RAG — all without leaving your machine.
 
 ![vibe-coder demo](demo.png)
 
@@ -81,22 +81,22 @@ page, extract it, and move the binary to a directory in your `PATH`.
 
 | OS | Architecture | Asset |
 |----|--------------|-------|
-| Windows | amd64 | `vibe-coder_<version>_windows_amd64.zip` |
-| Linux | amd64 | `vibe-coder_<version>_linux_amd64.zip` |
-| Linux | arm64 | `vibe-coder_<version>_linux_arm64.zip` |
-| macOS | amd64 | `vibe-coder_<version>_darwin_amd64.zip` |
-| macOS | arm64 | `vibe-coder_<version>_darwin_arm64.zip` |
+| Windows | amd64 | `vibe_<version>_windows_amd64.zip` |
+| Linux | amd64 | `vibe_<version>_linux_amd64.zip` |
+| Linux | arm64 | `vibe_<version>_linux_arm64.zip` |
+| macOS | amd64 | `vibe_<version>_darwin_amd64.zip` |
+| macOS | arm64 | `vibe_<version>_darwin_arm64.zip` |
 
 Windows PowerShell example:
 
 ```powershell
 # Download the latest release (replace <version> with the release tag, e.g. v0.1.0)
 $version = "<version>"
-$url = "https://github.com/jonathanhecl/vibe-coder/releases/download/${version}/vibe-coder_${version}_windows_amd64.zip"
-Invoke-WebRequest -Uri $url -OutFile vibe-coder.zip
-Expand-Archive -Path vibe-coder.zip -DestinationPath "$env:LOCALAPPDATA\Programs\vibe-coder" -Force
+$url = "https://github.com/jonathanhecl/vibe-coder/releases/download/${version}/vibe_${version}_windows_amd64.zip"
+Invoke-WebRequest -Uri $url -OutFile vibe.zip
+Expand-Archive -Path vibe.zip -DestinationPath "$env:LOCALAPPDATA\Programs\vibe" -Force
 # Add to PATH, e.g. via Environment Variables settings or:
-$env:Path += ";$env:LOCALAPPDATA\Programs\vibe-coder"
+$env:Path += ";$env:LOCALAPPDATA\Programs\vibe"
 ```
 
 Linux / macOS example:
@@ -104,10 +104,10 @@ Linux / macOS example:
 ```bash
 # Replace <version> and <os>_<arch> with the desired release and platform
 version="<version>"
-asset="vibe-coder_${version}_linux_amd64.zip"
+asset="vibe_${version}_linux_amd64.zip"
 curl -LO "https://github.com/jonathanhecl/vibe-coder/releases/download/${version}/${asset}"
 unzip "${asset}"
-sudo mv vibe-coder /usr/local/bin/
+sudo mv vibe /usr/local/bin/
 ```
 
 ### Install with Go
@@ -115,7 +115,7 @@ sudo mv vibe-coder /usr/local/bin/
 If you have Go installed:
 
 ```bash
-go install github.com/jonathanhecl/vibe-coder/cmd/vibe-coder@latest
+go install github.com/jonathanhecl/vibe-coder/cmd/vibe@latest
 ```
 
 Make sure your `GOBIN` or `GOPATH/bin` is in `PATH`.
@@ -139,31 +139,31 @@ From a local clone, use the dev install scripts to build and install with the cu
 ### Build from source
 
 ```bash
-go build -o vibe-coder ./cmd/vibe-coder
+go build -o vibe ./cmd/vibe
 ```
 
 Windows:
 
 ```powershell
-go build -o vibe-coder.exe ./cmd/vibe-coder
+go build -o vibe.exe ./cmd/vibe
 ```
 
 Verify the install:
 
 ```bash
-vibe-coder --version
+vibe --version
 ```
 
 ## Build
 
 ```bash
-go build -o vibe-coder ./cmd/vibe-coder
+go build -o vibe ./cmd/vibe
 ```
 
 Windows:
 
 ```powershell
-go build -o vibe-coder.exe ./cmd/vibe-coder
+go build -o vibe.exe ./cmd/vibe
 ```
 
 Helper scripts:
@@ -184,25 +184,25 @@ The release workflow produces platform archives in `dist/`, then uploads them as
 One-shot prompt:
 
 ```bash
-./vibe-coder -p "Summarize this repository"
+./vibe -p "Summarize this repository"
 ```
 
 Interactive mode:
 
 ```bash
-./vibe-coder
+./vibe
 ```
 
 Use a specific model and host:
 
 ```bash
-./vibe-coder --model llama3.1:8b --ollama-host http://127.0.0.1:11434
+./vibe --model llama3.1:8b --ollama-host http://127.0.0.1:11434
 ```
 
 Send an initial prompt and keep chatting:
 
 ```bash
-./vibe-coder -p "Refactor main.go" -i
+./vibe -p "Refactor main.go" -i
 ```
 
 ## Model Configuration
@@ -237,18 +237,18 @@ Model keys and overrides:
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 - CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
 
-If no model is set, `vibe-coder` auto-selects one based on detected RAM tier.
+If no model is set, `vibe` auto-selects one based on detected RAM tier.
 
-> **Recommended model**: `ornith:9b` works very well with Ollama for coding and multi-turn tool conversations in `vibe-coder`.
+> **Recommended model**: `ornith:9b` works very well with Ollama for coding and multi-turn tool conversations in `vibe`.
 >
 > ```bash
-> ./vibe-coder --model ornith:9b --ollama-host http://127.0.0.1:11434
+> ./vibe --model ornith:9b --ollama-host http://127.0.0.1:11434
 > ```
 
 ### What is the sidecar model for?
 
 `MODEL` is the conversational/coding model that answers every prompt. The
-**sidecar** is a smaller, faster model `vibe-coder` uses internally for
+**sidecar** is a smaller, faster model `vibe` uses internally for
 short, high-leverage tasks the main model would either bloat the context
 with or answer too slowly. All sidecar calls are guarded by a worker
 semaphore, request deduplication (`singleflight`) and a small LRU cache,
@@ -277,13 +277,13 @@ behaviours: compaction will truncate to a static "Earlier conversation
 truncated…" note, large tool outputs will be inserted verbatim into the
 context, and ambiguous paths will not be rescued.
 
-### Remote Ollama for vibe-coder only
+### Remote Ollama for vibe only
 
-If Ollama runs on another machine in your network, you can configure `vibe-coder` and persist
+If Ollama runs on another machine in your network, you can configure `vibe` and persist
 those settings in one command, without changing global environment variables:
 
 ```powershell
-.\vibe-coder.exe -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" -save
+.\vibe.exe -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" -save
 ```
 
 What this does:
@@ -291,12 +291,12 @@ What this does:
 - Applies model, sidecar model, and host for the current run.
 - Writes `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` to
   `%LOCALAPPDATA%\vibe-coder\vibe-coder.env`.
-- Keeps the change scoped to `vibe-coder` only (no `setx` needed).
+- Keeps the change scoped to `vibe` only (no `setx` needed).
 
 Next runs can simply use:
 
 ```powershell
-.\vibe-coder.exe
+.\vibe.exe
 ```
 
 If you use PowerShell and want to run from source with the same flags:
@@ -338,7 +338,7 @@ If you use PowerShell and want to run from source with the same flags:
 
 ## MCP & Skills Management CLI
 
-`vibe-coder` provides dedicated CLI subcommands to list, add, and remove MCP servers and custom skills.
+`vibe` provides dedicated CLI subcommands to list, add, and remove MCP servers and custom skills.
 
 ### MCP (Model Context Protocol)
 
@@ -346,20 +346,20 @@ Manage stdio-based JSON-RPC MCP servers in global or project-local configuration
 
 * **List configured servers**:
   ```bash
-  vibe-coder mcp list
+  vibe mcp list
   ```
 * **Add or update an MCP server**:
   ```bash
   # Adds a local server under .vibe-coder/mcp.json (default)
-  vibe-coder mcp add --env API_KEY=secret weather-server node path/to/server.js
+  vibe mcp add --env API_KEY=secret weather-server node path/to/server.js
   
   # Adds a global server under configDir/mcp.json
-  vibe-coder mcp add --global --env DEBUG=true logger-server python path/to/logger.py
+  vibe mcp add --global --env DEBUG=true logger-server python path/to/logger.py
   ```
 * **Remove a server**:
   ```bash
-  vibe-coder mcp remove weather-server
-  vibe-coder mcp remove --global logger-server
+  vibe mcp remove weather-server
+  vibe mcp remove --global logger-server
   ```
 
 ### Skills
@@ -368,15 +368,15 @@ Manage instruction-based custom agent skills.
 
 * **List loaded skills**:
   ```bash
-  vibe-coder skill list
+  vibe skill list
   ```
 * **Add a new skill**:
   ```bash
   # Adds a local skill under .vibe-coder/skills/my-skill.md (default)
-  vibe-coder skill add my-skill path/to/source.md
+  vibe skill add my-skill path/to/source.md
 
   # Adds a global skill under configDir/skills/my-skill.md
-  vibe-coder skill add --global my-global-skill path/to/source.md
+  vibe skill add --global my-global-skill path/to/source.md
   ```
 
 ## Slash Commands
@@ -407,7 +407,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/context drop <name|#|path>` — unpin one file
 - `/context clear` — unpin all files
 
-Pinned context files are injected into the system prompt on every turn, so they stay alive for the whole session: compaction and transcript truncation can never drop them. The pinned list is saved with the session and restored on `--resume`/`/resume` (file contents are re-read from disk). CLI `--context` flags accumulate: `vibe-coder --context guide.md --context rules.txt`.
+Pinned context files are injected into the system prompt on every turn, so they stay alive for the whole session: compaction and transcript truncation can never drop them. The pinned list is saved with the session and restored on `--resume`/`/resume` (file contents are re-read from disk). CLI `--context` flags accumulate: `vibe --context guide.md --context rules.txt`.
 
 ### Model
 
@@ -479,7 +479,7 @@ Checkpoint creation rejects paths outside the repository, Git metadata, symlink 
 
 ## Vision
 
-`vibe-coder` detects at startup whether the active model advertises vision
+`vibe` detects at startup whether the active model advertises vision
 capability (`/api/tags`) and tells the agent about it in the system prompt,
 so it knows whether attached images actually reach it. `/status` reports
 `Vision: yes|no|unknown`, and `/model` re-checks on every switch.
@@ -488,7 +488,7 @@ With a vision-capable model (e.g. `llava`, `qwen2-vl`, `moondream`), ask
 about pictures directly — `Read` on an image file attaches it:
 
 ```bash
-./vibe-coder --model llava
+./vibe --model llava
 > review ./photos and organize them into subfolders by clothing color
 ```
 
@@ -504,7 +504,7 @@ details, the model can call `DescribeImage` with a question — answered by
 the sidecar when it sees, otherwise by the main model itself:
 
 ```bash
-./vibe-coder --model qwen3.5:9b --sidecar moondream
+./vibe --model qwen3.5:9b --sidecar moondream
 > read ./photos/jacket.png, then check the buttons closely
 ```
 
@@ -527,19 +527,19 @@ Rules and limits:
 Build an index:
 
 ```bash
-./vibe-coder --rag-index ./somewhere
+./vibe --rag-index ./somewhere
 ```
 
 Run with RAG enabled:
 
 ```bash
-./vibe-coder --rag -p "Find where permissions are enforced"
+./vibe --rag -p "Find where permissions are enforced"
 ```
 
 RAG is an optional build feature. To compile with RAG support:
 
 ```bash
-go build -tags rag -o vibe-coder ./cmd/vibe-coder
+go build -tags rag -o vibe ./cmd/vibe
 ```
 
 ## Development
@@ -565,7 +565,7 @@ go test -tags rag ./...
 ### Project layout
 
 ```
-cmd/vibe-coder/          # Entry point and CLI wiring
+cmd/vibe/                # Entry point and CLI wiring
 internal/
   agent/                 # Agent loop, chat orchestration, tool execution
   config/                # Config loader (defaults < file < env < CLI)
@@ -590,7 +590,7 @@ internal/
 
 ## Architecture Overview
 
-`vibe-coder` is structured as a thin `cmd/` layer over focused `internal/`
+`vibe` is structured as a thin `cmd/` layer over focused `internal/`
 packages:
 
 1. **Config** (`internal/config`) loads settings with the precedence
