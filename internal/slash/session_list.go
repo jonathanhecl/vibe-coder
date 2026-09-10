@@ -32,8 +32,10 @@ func runSessionAlias(c *Ctx, args []string) error {
 	switch first {
 	case "list", "ls", "delete", "del", "rm", "remove":
 		return runSessionsCommand(c, args)
+	case "last", "latest":
+		return runResumeLast(c)
 	default:
-		return runResume(c, args[0])
+		return loadSessionByID(c, args[0])
 	}
 }
 
@@ -74,6 +76,6 @@ func runSessionsList(c *Ctx) error {
 		)
 		fmt.Fprintln(c.Out, row)
 	}
-	fmt.Fprintln(c.Out, st.Dim("(* = current project path | use /resume <id>, /session <id>, or /sessions delete <id>)"))
+	fmt.Fprintln(c.Out, st.Dim("(* = current project path | use /resume, /session <id>, or /sessions delete <id>)"))
 	return nil
 }

@@ -197,10 +197,13 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 	out.Reset()
 	handled, shouldExit, err = Dispatch(ctx, "/resume "+prevID)
 	if err != nil || !handled || shouldExit {
-		t.Fatalf("unexpected /resume <id> result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+		t.Fatalf("unexpected /resume with args result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(out.String(), "Usage: /resume") {
+		t.Fatalf("expected /resume with args to print usage, got %q", out.String())
 	}
 	if live.ID() != prevID {
-		t.Fatalf("/resume <id> should keep id %s, got %s", prevID, live.ID())
+		t.Fatalf("/resume with args must not swap sessions, got %s", live.ID())
 	}
 
 	out.Reset()
@@ -214,12 +217,12 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 
 	out.Reset()
 	shortID := prevID[:16]
-	handled, shouldExit, err = Dispatch(ctx, "/resume "+shortID)
+	handled, shouldExit, err = Dispatch(ctx, "/session "+shortID)
 	if err != nil || !handled || shouldExit {
-		t.Fatalf("unexpected /resume <prefix> result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+		t.Fatalf("unexpected /session <prefix> result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 	if live.ID() != prevID {
-		t.Fatalf("/resume <prefix> should resolve to id %s, got %s", prevID, live.ID())
+		t.Fatalf("/session <prefix> should resolve to id %s, got %s", prevID, live.ID())
 	}
 }
 
@@ -266,16 +269,16 @@ func TestResumeLastLoadsMostRecent(t *testing.T) {
 	if !strings.Contains(out.String(), "Resumed session") {
 		t.Fatalf("expected resume confirmation, got %q", out.String())
 	}
-
 	// Now current == newer (just re-saved, so newest on disk); "last" must
 	// skip it and load the older one instead of reloading itself.
 	out.Reset()
-	handled, shouldExit, err = Dispatch(ctx, "/resume last")
+	handled, shouldExit, err = Dispatch(ctx, "/session last")
 	if err != nil || !handled || shouldExit {
-		t.Fatalf("unexpected /resume last result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+		t.Fatalf("unexpected /session last result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 	if live.ID() != oldSess.ID() {
-		t.Fatalf("/resume last should skip current and load %s, got %s", oldSess.ID(), live.ID())
+		t.Fatalf("/session last should skip current and load %s, got %s", oldSess.ID(),
+			live.ID())
 	}
 
 	// Empty store reports no other sessions instead of erroring.

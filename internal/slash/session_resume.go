@@ -8,30 +8,34 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
-func runResume(c *Ctx, id string) error {
+func runResume(c *Ctx) error {
 	if c.Session.MessageCount() > 0 {
 		if err := c.Session.Save(); err != nil {
 			return fmt.Errorf("save current session before resume: %w", err)
 		}
 	}
-	id = strings.TrimSpace(id)
-	if id == "" {
-		ok, err := c.Session.LoadByProject()
-		if err != nil {
-			return err
-		}
-		if !ok {
-			fmt.Fprintln(c.Out, "No previous session found for the current project path. Use /sessions to list, or /resume <id>.")
-			return nil
-		}
-		printResumeContext(c, true)
-		restorePinnedContexts(c)
+	ok, err := c.Session.LoadByProject()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		fmt.Fprintln(c.Out, "No previous session found for the current project path. Use /sessions to list, or /session last.")
 		return nil
 	}
-	if strings.EqualFold(id, "last") || strings.EqualFold(id, "latest") {
-		return runResumeLast(c)
+	printResumeContext(c, true)
+	restorePinnedContexts(c)
+	return nil
+}
+
+// loadSessionByID resolves an id (or unique prefix, with paste-block
+// tolerance) and swaps to it. Used by /session <id>.
+func loadSessionByID(c *Ctx, raw string) error {
+	if c.Session.MessageCount() > 0 {
+		if err := c.Session.Save(); err != nil {
+			return fmt.Errorf("save current session before resume: %w", err)
+		}
 	}
-	resolvedID, err := resolveSessionID(c, id)
+	resolvedID, err := resolveSessionID(c, raw)
 	if err != nil {
 		return err
 	}
@@ -45,8 +49,13 @@ func runResume(c *Ctx, id string) error {
 
 // runResumeLast loads the most recently modified saved session, excluding
 // the current one (ListSessions sorts newest first, and the current session
-// was just saved above, so without the exclusion "last" would reload itself).
+// is saved below, so without the exclusion "last" would reload itself).
 func runResumeLast(c *Ctx) error {
+	if c.Session.MessageCount() > 0 {
+		if err := c.Session.Save(); err != nil {
+			return fmt.Errorf("save current session before resume: %w", err)
+		}
+	}
 	infos, err := session.ListSessions(c.Cfg)
 	if err != nil {
 		return err

@@ -70,11 +70,11 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	case "/session":
 		return true, false, runSessionAlias(c, fields[1:])
 	case "/resume":
-		var id string
 		if len(fields) > 1 {
-			id = strings.TrimSpace(fields[1])
+			fmt.Fprintln(c.Out, "Usage: /resume (takes no arguments; use /session <id> or /session last for other sessions)")
+			return true, false, nil
 		}
-		return true, false, runResume(c, id)
+		return true, false, runResume(c)
 	case "/new":
 		if err := c.Session.Save(); err != nil {
 			return true, false, err
