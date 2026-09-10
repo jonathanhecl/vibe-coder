@@ -117,6 +117,49 @@ type MessageToolCallFunction struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+// UnmarshalJSON accepts both object and stringified-JSON forms for
+// arguments. Some models / Ollama versions emit
+// {"name":"Read","arguments":"{\"file_path\":\"a.go\"}"} (a JSON-encoded
+// string, OpenAI-style) instead of the documented object form
+// {"name":"Read","arguments":{"file_path":"a.go"}}. Without this, the
+// stream decoder fails with "cannot unmarshal string into Go struct
+// field ... of type map[string]interface {}" and aborts the whole turn.
+func (f *MessageToolCallFunction) UnmarshalJSON(data []byte) error {
+	type rawCall struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	var raw rawCall
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	f.Name = raw.Name
+	if len(raw.Arguments) == 0 || string(raw.Arguments) == "null" {
+		f.Arguments = nil
+		return nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw.Arguments, &obj); err == nil {
+		f.Arguments = obj
+		return nil
+	}
+	var encoded string
+	if err := json.Unmarshal(raw.Arguments, &encoded); err != nil {
+		return fmt.Errorf("tool call arguments must be an object or JSON-encoded string: %s", string(raw.Arguments))
+	}
+	trimmed := strings.TrimSpace(encoded)
+	if trimmed == "" || trimmed == "null" {
+		f.Arguments = nil
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return fmt.Errorf("tool call stringified arguments are not a JSON object: %q", encoded)
+	}
+	f.Arguments = decoded
+	return nil
+}
+
 // ThinkSetting controls the Ollama think field. A nil *ThinkSetting omits
 // the field (server default); otherwise it marshals to a boolean or a
 // thinking level string ("low", "medium", "high", "max").
