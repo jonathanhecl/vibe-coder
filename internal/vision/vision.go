@@ -146,3 +146,32 @@ func (c *Cache) Size() int {
 	defer c.mu.Unlock()
 	return len(c.entries)
 }
+
+// Get returns a cached payload without encoding on miss.
+func (c *Cache) Get(key string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	payload, ok := c.entries[key]
+	return payload, ok
+}
+
+// Put stores a payload, evicting the oldest entries past the cap.
+func (c *Cache) Put(key, payload string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.entries[key]; !ok {
+		c.entries[key] = payload
+		c.order = append(c.order, key)
+		for len(c.order) > ImageCacheEntries {
+			oldest := c.order[0]
+			c.order = c.order[1:]
+			delete(c.entries, oldest)
+		}
+	}
+}

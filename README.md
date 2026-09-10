@@ -437,6 +437,8 @@ do not call these directly, but their behavior affects speed and context usage:
   for partial file reads. Without those parameters it reads the full file
   with line numbers. On image files (`.jpg`, `.png`, `.gif`, `.bmp`) it
   attaches the picture to the conversation instead (vision-capable models only).
+- `DescribeImage` has a vision-capable model look at an image file and answer
+  a `question` about it (second opinion or closer look; sidecar preferred).
 - `Write` creates or overwrites a file; dangerous paths and protected
   directories are blocked.
 - `Edit` applies a replacement; the TUI renders a colored unified-diff preview.
@@ -469,6 +471,22 @@ about pictures directly — `Read` on an image file attaches it:
 ```bash
 ./vibe-coder --model llava
 > review ./photos and organize them into subfolders by clothing color
+```
+
+### Borrowed vision (main model without vision)
+
+When the main model cannot see but the sidecar can, `Read` images still
+work: each picture arrives as a sidecar-generated textual description
+(`Vision: via SIDECAR` in the system prompt). The main model works with
+that description as its borrowed eyes.
+
+For a closer look, a second opinion, or a follow-up about specific
+details, the model can call `DescribeImage` with a question — answered by
+the sidecar when it sees, otherwise by the main model itself:
+
+```bash
+./vibe-coder --model qwen3.5:9b --sidecar moondream
+> read ./photos/jacket.png, then check the buttons closely
 ```
 
 Rules and limits:

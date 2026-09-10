@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -59,7 +60,7 @@ func TestBuildOllamaMessagesIncludesTranscript(t *testing.T) {
 	reg := tools.NewRegistry()
 	perm := permissions.NewManager(&config.Config{YesMode: true})
 	ag := New(cfg, fakeClient{}, reg, perm, sess, &fakeUI{})
-	msgs := ag.buildOllamaMessages("SYSTEM_PROMPT")
+	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM_PROMPT")
 	if len(msgs) != 3 {
 		t.Fatalf("expected system + user + assistant, got %d", len(msgs))
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
-func (a *Agent) buildOllamaMessages(systemPrompt string) []ollama.Message {
+func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) []ollama.Message {
 	hist := a.sess.MessagesReadOnly()
 	out := []ollama.Message{{Role: "system", Content: systemPrompt}}
 	if len(hist) == 0 {
@@ -47,15 +47,15 @@ func (a *Agent) buildOllamaMessages(systemPrompt string) []ollama.Message {
 		}
 		out = append(out, ollama.Message{Role: role, Content: m.Content})
 	}
-	// Markers become image bytes only here, at send time. The transcript
-	// keeps the cheap text form.
-	return a.resolveImageAttachments(out)
+	// Markers become image bytes (or sidecar descriptions, or honest notes)
+	// only here, at send time. The transcript keeps the cheap text form.
+	return a.resolveOutgoingImages(ctx, out)
 }
 func (a *Agent) chatOnce(rootCtx context.Context) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
 		ctx, cancel := context.WithTimeout(rootCtx, a.cfg.EffectiveChatTimeout())
-		messages := a.buildOllamaMessages(a.buildSystemPrompt())
+		messages := a.buildOllamaMessages(ctx, a.buildSystemPrompt())
 		a.ui.StartWaiting(fmt.Sprintf("waiting for %s…", shortModelName(a.cfg.Model)))
 		stream, err := a.client.Chat(ctx, ollama.ChatRequest{
 			Model:    a.cfg.Model,

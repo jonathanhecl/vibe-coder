@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"image/png"
@@ -62,7 +63,7 @@ func TestResolveImageAttachmentsAttaches(t *testing.T) {
 
 	ag.sess.AddUser("describe this")
 	ag.sess.AddToolObservation("Read", vision.MarkerFor(photo))
-	msgs := ag.buildOllamaMessages("SYSTEM")
+	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(msgs))
 	}
@@ -171,7 +172,7 @@ func TestBuildOllamaMessagesReservesImageBudget(t *testing.T) {
 	// image proxy it overflows, so the old turn must be trimmed.
 	ag.sess.AddUser(strings.Repeat("x", 7000) + "\n" + vision.MarkerFor("/tmp/old.png"))
 	ag.sess.AddUser("new question")
-	msgs := ag.buildOllamaMessages("SYSTEM")
+	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 	if len(msgs) != 2 || msgs[1].Content != "new question" {
 		t.Fatalf("expected trimming to drop the image turn, got %d messages", len(msgs))
 	}

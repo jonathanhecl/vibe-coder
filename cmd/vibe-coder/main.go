@@ -18,6 +18,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/onboarding"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
 	"github.com/jonathanhecl/vibe-coder/internal/skills"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
@@ -115,6 +116,10 @@ func main() {
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
+	// One shared sidecar pool for the agent and the DescribeImage tool so
+	// vision second-opinions respect the same load controls as summaries.
+	sidePool := sidecar.New(cfg, client)
+	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool))
 
 	mcpCtx, mcpCancel := mcp.DefaultInitContext()
 	defer mcpCancel()
@@ -134,6 +139,7 @@ func main() {
 
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	ag.SetContextStore(ctxStore)
+	ag.SetSidecar(sidePool)
 	fileWatcher := watcher.New(cfg.Cwd)
 	ag.SetWatcher(fileWatcher)
 	defer fileWatcher.Close()
@@ -267,12 +273,21 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client) {
 }
 
 // applyVisionForModel refreshes the vision flags for the active model from
-// the cached Tags map. Unknown models leave VisionKnown=false.
+// the cached Tags map. Unknown models leave VisionKnown=false. The sidecar
+// model resolves through the same map; it only changes via CLI/env, so
+// startup detection is enough for the whole session.
 func applyVisionForModel(cfg *config.Config) {
 	available, known := ollama.LookupVision(cfg.VisionByModel, cfg.Model)
 	cfg.VisionAvailable = available
 	cfg.VisionKnown = known
 	logger.Infof("Vision support for model %q: available=%t known=%t", cfg.Model, available, known)
+	if strings.TrimSpace(cfg.SidecarModel) == "" {
+		cfg.SidecarVisionAvailable, cfg.SidecarVisionKnown = false, false
+		return
+	}
+	sideAvailable, sideKnown := ollama.LookupVision(cfg.VisionByModel, cfg.SidecarModel)
+	cfg.SidecarVisionAvailable, cfg.SidecarVisionKnown = sideAvailable, sideKnown
+	logger.Infof("Vision support for sidecar %q: available=%t known=%t", cfg.SidecarModel, sideAvailable, sideKnown)
 }
 
 // preloadSessionContexts pins every --context file (accumulated) into the

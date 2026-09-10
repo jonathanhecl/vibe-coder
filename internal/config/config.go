@@ -51,6 +51,11 @@ type Config struct {
 	// VisionByModel caches vision support per model name so /model switches
 	// resolve without extra network calls.
 	VisionByModel map[string]bool
+	// SidecarVisionAvailable/Known mirror the main vision flags for the
+	// sidecar model. When the main model cannot see but the sidecar can,
+	// attached images arrive as sidecar-generated descriptions.
+	SidecarVisionAvailable bool
+	SidecarVisionKnown     bool
 
 	RAG         bool
 	RAGModel    string

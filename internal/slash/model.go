@@ -55,7 +55,7 @@ func printSidecarStatus(c *Ctx) {
 	} else if strings.TrimSpace(c.Cfg.SidecarModel) == "" {
 		fmt.Fprintln(c.Out, "Sidecar: no model configured (SIDECAR_MODEL).")
 	} else {
-		fmt.Fprintln(c.Out, "Sidecar: on ("+strings.TrimSpace(c.Cfg.SidecarModel)+")")
+		fmt.Fprintln(c.Out, "Sidecar: on ("+strings.TrimSpace(c.Cfg.SidecarModel)+", vision: "+visionWord(c.Cfg.SidecarVisionKnown, c.Cfg.SidecarVisionAvailable)+")")
 	}
 }
 

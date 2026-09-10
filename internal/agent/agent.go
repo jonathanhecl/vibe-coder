@@ -43,6 +43,9 @@ type Agent struct {
 	currentGoal string // verbatim text of the user's request for this Run()
 	ctxStore    *contextfiles.Store
 	imgCache    *vision.Cache
+	// descCacheStore memoizes sidecar-generated image descriptions
+	// ("borrowed vision") per file revision.
+	descCacheStore *vision.Cache
 
 	// sysPrompt caches the stable system prompt until disk/registry inputs change.
 	sysPrompt promptCache

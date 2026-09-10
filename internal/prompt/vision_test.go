@@ -7,6 +7,25 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
+func TestBuildVisionBorrowedAndSecondOpinion(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd: t.TempDir(), Model: "text-model", SidecarModel: "moondream",
+		VisionKnown: true, VisionAvailable: false,
+		SidecarVisionKnown: true, SidecarVisionAvailable: true,
+	}
+	got := Build(cfg)
+	if !strings.Contains(got, "Vision: via SIDECAR") || !strings.Contains(got, "DescribeImage") {
+		t.Fatalf("expected borrowed-vision guidance, got:\n%s", got)
+	}
+
+	cfg.VisionAvailable = true
+	got = Build(cfg)
+	if !strings.Contains(got, "Vision: AVAILABLE") || !strings.Contains(got, "second opinion") {
+		t.Fatalf("expected second-opinion guidance, got:\n%s", got)
+	}
+}
+
 func TestBuildVisionSectionStates(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
