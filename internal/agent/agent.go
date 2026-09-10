@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	MaxIterations = 50
-	MaxRetries    = 2
+	MaxIterations    = 50
+	MaxRetries       = 2
+	MaxToolsPerReply = 5
 )
 
 type Agent struct {

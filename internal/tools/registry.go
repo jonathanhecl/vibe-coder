@@ -79,4 +79,7 @@ func (r *Registry) RegisterDefaults() {
 	r.Register(NewInteractiveBashTool())
 	r.Register(NewSendInputTool())
 	r.Register(NewTerminateSessionTool())
+	r.Register(NewGitStatusTool())
+	r.Register(NewGitDiffTool())
+	r.Register(NewGitUndoTool())
 }

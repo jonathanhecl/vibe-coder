@@ -181,7 +181,7 @@ func fileEditCompletionNote(toolName string, params map[string]any) string {
 	if toolName == "Write" {
 		verb = "written"
 	}
-	return fmt.Sprintf("File %s: %s. Treat this step as completed; do not recreate or re-edit this file unless verification shows a real mismatch.", verb, path)
+	return fmt.Sprintf("File %s: %s. Verify the change now: Read the edited region and run the relevant check (tests, build, or lint via Bash). Re-edit only if verification proves it is still wrong; otherwise move on to the next step.", verb, path)
 }
 func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hintsForModel string) {
 	a.mu.RLock()

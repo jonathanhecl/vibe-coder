@@ -26,20 +26,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	a.addRunContext(ctx, userInput)
 	a.resetTodoNoteDedup()
 
-	if tasks, ok := detectParallelTasks(userInput); ok {
-		tool := a.reg.Get("ParallelAgents")
-		if tool != nil {
-			params := map[string]any{"tasks": tasks}
-			if a.perm.Check("ParallelAgents", params, a.ui) {
-				a.ui.ShowToolCall("ParallelAgents", params)
-				result := tool.Execute(ctx, params)
-				a.ui.ShowToolResult("ParallelAgents", result.Output, result.IsError, nil)
-				a.recordToolObservation(ctx, "ParallelAgents", result.Output, result.HintsForModel)
-				return nil
-			}
-		}
-	}
-
+	// ParallelAgents is explicit-only: the model calls it when a task is
+	// genuinely decomposable. Previous auto-detection split any message
+	// containing " and " or numbered lines, hijacking normal requests.
 	toolName, toolParams, wantsTool := inferSingleToolCall(userInput)
 	thinkingOnlyRetries := 0
 	emptyChatErrRetries := 0
@@ -75,10 +64,19 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			return err
 		}
 		emptyChatErrRetries = 0
-		if toolName, toolParams, ok := parseXMLFallback(reply); ok {
+		if calls := parseXMLFallbackAll(reply, MaxToolsPerReply); len(calls) > 0 {
 			thinkingOnlyRetries = 0
-			tool := a.reg.Get(toolName)
-			if tool == nil {
+			// Verify every tool exists before executing any, so a reply
+			// mixing known and unknown envelopes falls back to a final
+			// answer instead of a confusing partial execution.
+			unknown := ""
+			for _, c := range calls {
+				if a.reg.Get(c.Name) == nil {
+					unknown = c.Name
+					break
+				}
+			}
+			if unknown != "" {
 				a.sess.AddAssistant(reply)
 				a.compactBestEffort(ctx)
 				return nil
@@ -87,14 +85,17 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.ui.CollapseAssistantOutput()
 			}
 			a.sess.AddAssistant(reply)
-			_, executed, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
-				showPermissionDeniedResult: true,
-			})
-			if err != nil {
-				return err
-			}
-			if !executed {
-				return nil
+			for _, c := range calls {
+				tool := a.reg.Get(c.Name)
+				_, executed, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
+					showPermissionDeniedResult: true,
+				})
+				if err != nil {
+					return err
+				}
+				if !executed {
+					return nil
+				}
 			}
 			a.compactBestEffort(ctx)
 			continue

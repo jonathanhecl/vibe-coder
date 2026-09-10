@@ -20,10 +20,10 @@ var (
 	safeTools = map[string]struct{}{
 		"read": {}, "glob": {}, "grep": {}, "subagent": {}, "askuserquestion": {},
 		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {}, "todowrite": {},
-		"describeimage": {},
+		"describeimage": {}, "gitstatus": {}, "gitdiff": {},
 	}
 	askTools = map[string]struct{}{
-		"bash": {}, "write": {}, "edit": {},
+		"bash": {}, "write": {}, "edit": {}, "gitundo": {},
 	}
 	networkTools = map[string]struct{}{
 		"webfetch": {}, "websearch": {},

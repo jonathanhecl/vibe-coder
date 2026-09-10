@@ -49,8 +49,8 @@ func TestBuildLoadsProjectInstructionsAndSanitizes(t *testing.T) {
 	if !strings.Contains(got, "root instruction") {
 		t.Fatalf("expected root instructions in prompt: %s", got)
 	}
-	if strings.Contains(strings.ToLower(got), "<invoke>") {
-		t.Fatalf("expected invoke block to be sanitized: %s", got)
+	if strings.Contains(got, "hack") {
+		t.Fatalf("expected injected project instruction to be sanitized: %s", got)
 	}
 	if !strings.Contains(got, "[BLOCKED]") {
 		t.Fatalf("expected blocked marker in sanitized prompt")

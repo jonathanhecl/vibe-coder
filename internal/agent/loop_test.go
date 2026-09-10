@@ -37,8 +37,8 @@ func (c *sequenceClient) Chat(context.Context, ollama.ChatRequest) (<-chan ollam
 
 func TestFileEditCompletionNote(t *testing.T) {
 	note := fileEditCompletionNote("Write", map[string]any{"file_path": "scripts/run_comfyui.bat"})
-	if !strings.Contains(note, "Treat this step as completed") {
-		t.Fatalf("expected completion anchor note, got %q", note)
+	if !strings.Contains(note, "Verify the change") {
+		t.Fatalf("expected verification note, got %q", note)
 	}
 	if !strings.Contains(note, "scripts/run_comfyui.bat") {
 		t.Fatalf("expected file path in note, got %q", note)
@@ -165,6 +165,45 @@ func TestRunStoresAssistantToolRequestBeforeObservation(t *testing.T) {
 	}
 	if msgs[3].Role != "assistant" || msgs[3].Content != "The file prints hello." {
 		t.Fatalf("expected final assistant response at message 4, got %#v", msgs[3])
+	}
+}
+
+func TestRunExecutesMultipleToolsPerReply(t *testing.T) {
+	tmp := t.TempDir()
+	aPath := filepath.Join(tmp, "a.txt")
+	bPath := filepath.Join(tmp, "b.txt")
+	if err := os.WriteFile(aPath, []byte("hello a\n"), 0o644); err != nil {
+		t.Fatalf("write fixture a: %v", err)
+	}
+	if err := os.WriteFile(bPath, []byte("hello b\n"), 0o644); err != nil {
+		t.Fatalf("write fixture b: %v", err)
+	}
+
+	cfg := &config.Config{
+		Model:         "test-model",
+		ContextWindow: 32768,
+		MaxTokens:     128,
+		Temperature:   0.2,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ui := &fakeUI{}
+	client := &sequenceClient{replies: []string{
+		`<invoke name="Read">{"file_path":"` + filepath.ToSlash(aPath) + `"}</invoke>` +
+			`<invoke name="Read">{"file_path":"` + filepath.ToSlash(bPath) + `"}</invoke>`,
+		"Both files read.",
+	}}
+	ag := New(cfg, client, reg, perm, sess, ui)
+
+	if err := ag.Run(context.Background(), "read both files"); err != nil {
+		t.Fatalf("run agent: %v", err)
+	}
+	if ui.calls != 2 {
+		t.Fatalf("expected two tool calls in one reply, got %d", ui.calls)
 	}
 }
 

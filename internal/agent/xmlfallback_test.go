@@ -75,6 +75,25 @@ func TestParseXMLFallbackToolCallEnvelope(t *testing.T) {
 	}
 }
 
+func TestParseXMLFallbackAllMultiple(t *testing.T) {
+	in := `<invoke name="Glob">{"pattern":"*.go"}</invoke> some text <invoke name="Read">{"file_path":"/tmp/a.txt"}</invoke>`
+	calls := parseXMLFallbackAll(in, 5)
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 calls, got %d: %#v", len(calls), calls)
+	}
+	if calls[0].Name != "Glob" || calls[1].Name != "Read" {
+		t.Fatalf("unexpected call order: %#v", calls)
+	}
+}
+
+func TestParseXMLFallbackAllRespectsCap(t *testing.T) {
+	in := `<invoke name="Glob">{"pattern":"a"}</invoke><invoke name="Glob">{"pattern":"b"}</invoke><invoke name="Glob">{"pattern":"c"}</invoke>`
+	calls := parseXMLFallbackAll(in, 2)
+	if len(calls) != 2 {
+		t.Fatalf("expected cap at 2 calls, got %d", len(calls))
+	}
+}
+
 // Surrounding prose around the envelope must not prevent recognition; the
 // loop already streams the reply, but recovery should still succeed.
 func TestParseXMLFallbackInvokeWithSurroundingText(t *testing.T) {

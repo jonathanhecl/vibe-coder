@@ -11,9 +11,10 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 
 - **One-shot prompts** (`-p`) and **interactive REPL** with streaming output.
 - **Multi-turn agent loop** (up to 50 iterations, 2 retries) with tool observation feedback.
+- **Batched tool calls** — up to 5 sequential `<invoke>` blocks per reply for independent calls.
 - **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
 - **XML fallback parser** — handles non-conformant LLMs that emit `<invoke>` blocks instead of native tool calls.
-- **Auto-parallel detection** — recognizes 2-4 conjoined tasks in the user message and routes through `ParallelAgents`.
+- **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.
 
 ### Tools (exposed to the model)
 
@@ -24,7 +25,8 @@ It runs as a single static CLI binary and supports one-shot prompts, interactive
 - **Notebook**: `NotebookEdit` for `.ipynb` JSON round-trip.
 - **Tasks**: `TodoWrite` (live to-do panel), `TaskStart`, `TaskList`, `TaskComplete`, `TaskCancel`.
 - **Questions**: `AskUserQuestion` for interactive multi-choice prompts.
-- **Orchestration**: `SubAgent` (bounded fan-out) and `ParallelAgents`.
+- **Orchestration**: `SubAgent` (bounded ReAct loop over Read/Glob/Grep, opt-in writes) and `ParallelAgents` (explicit model calls only).
+- **Git**: `GitStatus`, `GitDiff`, `GitUndo` (restore the latest vibe-coder checkpoint).
 - **All file-search tools** skip heavy directories (`.git`, `node_modules`, `vendor`, etc.) and respect cancellation.
 
 ### Session management

@@ -12,8 +12,14 @@ var (
 	toolTagOpenRe  = regexp.MustCompile(`(?s)<([A-Z][A-Z0-9_]*)>`)
 )
 
-// parseXMLFallback recovers a tool call from a raw model reply that did not use
-// the native tool-call API. It accepts three envelopes:
+// ToolCall is one parsed XML tool invocation from a model reply.
+type ToolCall struct {
+	Name   string
+	Params map[string]any
+}
+
+// parseXMLFallback recovers the first tool call from a raw model reply.
+// It accepts the same three envelopes as parseXMLFallbackAll:
 //
 //	<invoke name="ToolName">{...}</invoke>
 //	<tool_call name="ToolName">{...}</tool_call>
@@ -24,21 +30,87 @@ var (
 // "**/*.{gd,cs}") and tolerates trailing junk between the closing brace and the
 // closing tag (e.g. an extra quote the model accidentally appended).
 func parseXMLFallback(text string) (string, map[string]any, bool) {
-	clean := strings.TrimSpace(text)
-	if !strings.Contains(clean, "</") {
+	calls := parseXMLFallbackAll(text, 1)
+	if len(calls) == 0 {
 		return "", nil, false
 	}
+	return calls[0].Name, calls[0].Params, true
+}
 
-	if name, params, ok := parseNamedEnvelope(clean, openInvokeRe, "</invoke>"); ok {
-		return name, params, true
+// parseXMLFallbackAll recovers every tool call in reply order, capped by
+// maxXMLFallbackCalls. It accepts the same three envelopes as
+// parseXMLFallback and skips envelopes with invalid JSON.
+func parseXMLFallbackAll(text string, maxCalls int) []ToolCall {
+	if maxCalls <= 0 {
+		return nil
 	}
-	if name, params, ok := parseNamedEnvelope(clean, openToolCallRe, "</tool_call>"); ok {
-		return name, params, true
+	clean := text
+	if !containsFold(clean, "</") {
+		return nil
 	}
-	if name, params, ok := parseToolTagEnvelope(clean); ok {
-		return name, params, true
+	type candidate struct {
+		start int
+		call  ToolCall
 	}
-	return "", nil, false
+	var out []candidate
+	collectNamed := func(openRe *regexp.Regexp, closeTag string) {
+		for _, loc := range openRe.FindAllStringSubmatchIndex(clean, -1) {
+			if len(loc) < 4 {
+				continue
+			}
+			name := strings.TrimSpace(clean[loc[2]:loc[3]])
+			body, end, ok := extractBalancedJSON(clean, loc[1])
+			if !ok {
+				continue
+			}
+			if !containsFold(clean[end:], closeTag) {
+				continue
+			}
+			params, ok := decodeToolJSON(body)
+			if !ok {
+				continue
+			}
+			out = append(out, candidate{start: loc[0], call: ToolCall{Name: name, Params: params}})
+		}
+	}
+	collectNamed(openInvokeRe, "</invoke>")
+	collectNamed(openToolCallRe, "</tool_call>")
+	for _, loc := range toolTagOpenRe.FindAllStringSubmatchIndex(clean, -1) {
+		if len(loc) < 4 {
+			continue
+		}
+		tag := clean[loc[2]:loc[3]]
+		body, end, ok := extractBalancedJSON(clean, loc[1])
+		if !ok {
+			continue
+		}
+		closeTag := "</" + tag + ">"
+		if !strings.Contains(clean[end:], closeTag) {
+			continue
+		}
+		params, ok := decodeToolJSON(body)
+		if !ok {
+			continue
+		}
+		out = append(out, candidate{start: loc[0], call: ToolCall{Name: toToolName(tag), Params: params}})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	// Sort by appearance so batched invokes execute in reply order.
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j].start < out[j-1].start; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	calls := make([]ToolCall, 0, len(out))
+	for _, c := range out {
+		calls = append(calls, c.call)
+		if len(calls) >= maxCalls {
+			break
+		}
+	}
+	return calls
 }
 
 func parseNamedEnvelope(s string, openRe *regexp.Regexp, closeTag string) (string, map[string]any, bool) {
