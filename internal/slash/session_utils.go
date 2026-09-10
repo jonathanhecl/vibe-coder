@@ -8,7 +8,7 @@ import (
 )
 
 func resolveSessionID(c *Ctx, raw string) (string, error) {
-	target := strings.TrimSpace(raw)
+	target := unwrapPasteBlock(strings.TrimSpace(raw))
 	if target == "" {
 		return "", fmt.Errorf("session id is empty")
 	}
@@ -38,6 +38,25 @@ func resolveSessionID(c *Ctx, raw string) (string, error) {
 	default:
 		return "", fmt.Errorf("session prefix %q is ambiguous (%s); provide more characters", target, strings.Join(matches, ", "))
 	}
+}
+
+// unwrapPasteBlock removes the line editor's paste preview markers
+// ([block]...[/block]) when they leak into a submitted line. Pasting a
+// session id can arrive as "/session [block]<id>[/block]" instead of the raw
+// id; without this the lookup fails even though the id is right there.
+func unwrapPasteBlock(s string) string {
+	t := strings.TrimSpace(s)
+	if len(t) < len("[block][/block]") {
+		return s
+	}
+	if !strings.HasPrefix(t, "[block]") || !strings.HasSuffix(t, "[/block]") {
+		return s
+	}
+	inner := strings.TrimSpace(t[len("[block]") : len(t)-len("[/block]")])
+	if inner == "" {
+		return s
+	}
+	return inner
 }
 
 func lastAssistantResponse(msgs []session.Message) string {

@@ -394,10 +394,12 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/clear context` — unpin all persistent context files (same as `/context clear`)
 - `/sessions` — list saved sessions (`*` = current project)
 - `/session <id>` — resume a specific session quickly
+- `/session last` — resume the most recently modified session
 - `/sessions delete <id>` — delete a specific session
 - `/sessions delete --all` — delete every saved session
 - `/resume` — resume the last session for this project path
 - `/resume <id>` — resume a specific session by id (or unique prefix)
+- `/resume last` — resume the most recently modified session
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
 - `/status` — show model, cwd, session, sidecar, vision, thinking and tools status

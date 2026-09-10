@@ -2,9 +2,11 @@ package slash
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -218,6 +220,128 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 	}
 	if live.ID() != prevID {
 		t.Fatalf("/resume <prefix> should resolve to id %s, got %s", prevID, live.ID())
+	}
+}
+
+func TestResumeLastLoadsMostRecent(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+
+	oldSess := session.New(cfg)
+	oldSess.AddUser("old session marker")
+	if err := oldSess.Save(); err != nil {
+		t.Fatalf("save old: %v", err)
+	}
+	newerSess := session.New(cfg)
+	newerSess.AddUser("newer session marker")
+	if err := newerSess.Save(); err != nil {
+		t.Fatalf("save newer: %v", err)
+	}
+	// Force distinct modtimes regardless of filesystem granularity.
+	now := time.Now()
+	_ = os.Chtimes(filepath.Join(cfg.SessionsDir, oldSess.ID()+".jsonl"), now.Add(-2*time.Hour), now.Add(-2*time.Hour))
+	_ = os.Chtimes(filepath.Join(cfg.SessionsDir, newerSess.ID()+".jsonl"), now.Add(-time.Hour), now.Add(-time.Hour))
+
+	live := session.New(cfg)
+	var out bytes.Buffer
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: live,
+		Agent:   &fakePlanAgent{},
+		Out:     &out,
+	}
+
+	handled, shouldExit, err := Dispatch(ctx, "/session last")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /session last result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if live.ID() != newerSess.ID() {
+		t.Fatalf("/session last should load most recent %s, got %s", newerSess.ID(), live.ID())
+	}
+	if !strings.Contains(out.String(), "Resumed session") {
+		t.Fatalf("expected resume confirmation, got %q", out.String())
+	}
+
+	// Now current == newer (just re-saved, so newest on disk); "last" must
+	// skip it and load the older one instead of reloading itself.
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/resume last")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /resume last result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if live.ID() != oldSess.ID() {
+		t.Fatalf("/resume last should skip current and load %s, got %s", oldSess.ID(), live.ID())
+	}
+
+	// Empty store reports no other sessions instead of erroring.
+	emptyCfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "no-sessions-here"),
+	}
+	emptyLive := session.New(emptyCfg)
+	var emptyOut bytes.Buffer
+	emptyCtx := &Ctx{
+		Cfg:     emptyCfg,
+		Session: emptyLive,
+		Agent:   &fakePlanAgent{},
+		Out:     &emptyOut,
+	}
+	handled, shouldExit, err = Dispatch(emptyCtx, "/session last")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected empty /session last result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(emptyOut.String(), "No other saved sessions") {
+		t.Fatalf("expected no-sessions message, got %q", emptyOut.String())
+	}
+}
+
+func TestSessionIDAcceptsPasteBlockMarkers(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+
+	seed := session.New(cfg)
+	seed.AddUser("find me via pasted block id")
+	if err := seed.Save(); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+	seedID := seed.ID()
+
+	live := session.New(cfg)
+	var out bytes.Buffer
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: live,
+		Agent:   &fakePlanAgent{},
+		Out:     &out,
+	}
+
+	// Pasting the id can arrive wrapped in the line editor's paste preview
+	// markers; the lookup must unwrap them instead of failing.
+	handled, shouldExit, err := Dispatch(ctx, "/session [block]"+seedID+"[/block]")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected pasted /session result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if live.ID() != seedID {
+		t.Fatalf("pasted /session should load %s, got %s", seedID, live.ID())
+	}
+
+	if got := unwrapPasteBlock("plain-id"); got != "plain-id" {
+		t.Fatalf("plain ids must pass through untouched, got %q", got)
+	}
+	if got := unwrapPasteBlock("[block][/block]"); got != "[block][/block]" {
+		t.Fatalf("empty blocks must pass through untouched, got %q", got)
 	}
 }
 
