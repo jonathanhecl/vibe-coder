@@ -38,8 +38,8 @@ go.work.sum
 # env file
 .env
 
-# Local end-to-end harnesses (keep on disk for manual runs, not in the repo)
-e2e/
+# End-to-end harnesses live in e2e/; only their disposable work/ dirs are ignored.
+e2e/**/work/
 
 # Editor/IDE
 # .idea/

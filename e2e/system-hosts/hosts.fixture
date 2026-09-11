@@ -1,0 +1,5 @@
+127.0.0.1	localhost
+255.255.255.255	broadcasthost
+::1	localhost
+10.0.0.5	nas.local
+192.168.0.10	printer.lan

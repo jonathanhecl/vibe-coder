@@ -594,6 +594,12 @@ go test ./...
 go test -tags rag ./...
 ```
 
+Hermetic end-to-end scenarios (anti-loop with an in-process fake Ollama, and
+the CLI flows) run inside `go test`. Longer, model/network-driven harnesses for
+autonomous missions, web research, system tasks, and code editing live under
+[`e2e/`](e2e/README.md) and are run manually; see that README for what each one
+covers and how to run it.
+
 ### Helper scripts
 
 | Script | Purpose |
