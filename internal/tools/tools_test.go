@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -61,6 +62,22 @@ func TestBashTool(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(res.Output), "hello") {
 		t.Fatalf("unexpected bash output: %s", res.Output)
+	}
+}
+
+func TestBashTimeoutReportsClearly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep is not a Windows builtin")
+	}
+	t.Setenv("VIBE_BASH_TIMEOUT_MS", "200")
+	res := NewBashTool().Execute(context.Background(), map[string]any{
+		"command": "sleep 5",
+	})
+	if !res.IsError {
+		t.Fatalf("expected timeout error, got %q", res.Output)
+	}
+	if !strings.Contains(res.Output, "timed out") {
+		t.Fatalf("timeout message is unclear: %q", res.Output)
 	}
 }
 

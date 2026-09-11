@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -12,6 +13,25 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/safety"
 )
+
+const (
+	defaultBashTimeoutMS = int64(120000)
+	maxBashTimeoutMS     = int64(600000)
+)
+
+// bashDefaultTimeoutMS is the fallback command timeout. It can be raised for
+// slow machines/large builds with VIBE_BASH_TIMEOUT_MS (still capped at 10m).
+func bashDefaultTimeoutMS() int64 {
+	if raw := strings.TrimSpace(os.Getenv("VIBE_BASH_TIMEOUT_MS")); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
+			if parsed > maxBashTimeoutMS {
+				return maxBashTimeoutMS
+			}
+			return parsed
+		}
+	}
+	return defaultBashTimeoutMS
+}
 
 type BashTool struct{}
 
@@ -31,7 +51,10 @@ func (t *BashTool) Schema() Schema {
 				"type": "object",
 				"properties": map[string]any{
 					"command": map[string]any{"type": "string"},
-					"timeout": map[string]any{"type": "integer"},
+					"timeout": map[string]any{
+						"type":        "integer",
+						"description": "Maximum run time in milliseconds (default 120000, max 600000). Raise it for slow builds or test suites.",
+					},
 				},
 				"required": []string{"command"},
 			},
@@ -54,7 +77,7 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) Result {
 		return errResult("protected config writes are blocked")
 	}
 
-	timeoutMS := int64(120000)
+	timeoutMS := bashDefaultTimeoutMS()
 	switch v := params["timeout"].(type) {
 	case float64:
 		timeoutMS = int64(v)
@@ -66,10 +89,10 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) Result {
 		}
 	}
 	if timeoutMS <= 0 {
-		timeoutMS = 120000
+		timeoutMS = bashDefaultTimeoutMS()
 	}
-	if timeoutMS > 600000 {
-		timeoutMS = 600000
+	if timeoutMS > maxBashTimeoutMS {
+		timeoutMS = maxBashTimeoutMS
 	}
 	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
@@ -96,6 +119,15 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) Result {
 		output = head + "\n... (truncated) ...\n" + tail
 	}
 	if err != nil {
+		if cmdCtx.Err() == context.DeadlineExceeded {
+			seconds := time.Duration(timeoutMS) * time.Millisecond
+			return Result{
+				Output: fmt.Sprintf("%s\n(command timed out after %s; rerun with a larger \"timeout\" in milliseconds, max %d, or use a faster command)",
+					strings.TrimRight(output, "\n"), seconds, maxBashTimeoutMS),
+				HintsForModel: fmt.Sprintf("The command exceeded %s and was killed. If it was a build or test that legitimately needs longer, call Bash again with {\"timeout\": 600000}. Otherwise split the work into smaller commands.", seconds),
+				IsError:       true,
+			}
+		}
 		return Result{
 			Output:  fmt.Sprintf("%s\n(exit error: %v)", strings.TrimRight(output, "\n"), err),
 			IsError: true,
