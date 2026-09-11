@@ -86,7 +86,9 @@ func (a *Agent) addTodoProgressNoteIfChanged() {
 	}
 	a.mu.Unlock()
 	if changed {
-		a.sess.AddSystemNote(note)
+		// User-role so the model treats it as an actionable reminder instead of
+		// its own completed output (which makes some models reply empty).
+		a.sess.AddRuntimeReminder(note)
 	}
 }
 

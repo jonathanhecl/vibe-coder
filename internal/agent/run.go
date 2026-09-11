@@ -127,6 +127,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					if !executed {
 						return nil
 					}
+					if isMissionEndTool(c.Name) {
+						return nil
+					}
 				}
 				a.compactBestEffort(ctx)
 				continue
@@ -164,6 +167,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				if !executed {
 					return nil
 				}
+				if isMissionEndTool(c.Name) {
+					return nil
+				}
 			}
 			a.compactBestEffort(ctx)
 			continue
@@ -175,7 +181,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			}
 			thinkingOnlyRetries = 0
 			if a.hasPendingTodos() {
-				a.sess.AddSystemNote("Model reply was empty while TODO items remain. Continue with the next pending step via a tool call; do not re-investigate completed steps.")
+				a.sess.AddRuntimeReminder("Model reply was empty while TODO items remain. Continue with the next pending step via a tool call; do not re-investigate completed steps.")
 				a.compactBestEffort(ctx)
 				continue
 			}
@@ -186,7 +192,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		thinkingOnlyRetries = 0
 		if a.hasPendingTodos() {
 			a.sess.AddAssistant(reply)
-			a.sess.AddSystemNote("There are still pending TODO items. Continue executing the remaining steps with tool calls — do not finish the turn with plain text.")
+			a.sess.AddRuntimeReminder("There are still pending TODO items. Continue executing the remaining steps with tool calls — do not finish the turn with plain text.")
 			a.compactBestEffort(ctx)
 			continue
 		}

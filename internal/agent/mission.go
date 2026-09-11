@@ -32,6 +32,19 @@ func (a *Agent) PendingTodoCount() int {
 	return n
 }
 
+// isMissionEndTool reports whether a tool call ends the active mission. When
+// the agent calls one of these, the turn should stop immediately: the mission
+// is over and continuing to execute further (often repeated) calls only burns
+// turns.
+func isMissionEndTool(name string) bool {
+	switch name {
+	case "MissionComplete", "MissionBlocked":
+		return true
+	default:
+		return false
+	}
+}
+
 // IsIterationCapErr reports whether err is the agent's per-turn iteration cap
 // error. The mission loop treats it as progress (the turn ran out of its own
 // budget, not a failure) and starts another turn.

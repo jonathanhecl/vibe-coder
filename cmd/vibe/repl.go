@@ -112,7 +112,9 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {
 	err := runAgentWithEmptyRetry(rootCtx, ag, ui, input)
 	saveMissionProgress(ag)
-	if ag.MissionActive() {
+	// Log even when the mission finished inside the first turn (small batches
+	// can complete within the per-turn iteration budget).
+	if ag.MissionSnapshot().Status != "" {
 		ag.LogMissionTurn(err)
 		fmt.Fprintf(os.Stdout, "[mission] run log: %s\n", ag.RunLogPath())
 	}

@@ -262,7 +262,8 @@ func scanSessionMeta(path string) (int, string) {
 			text := strings.TrimSpace(msg.Content)
 			if !strings.HasPrefix(text, "[tool_result") &&
 				!strings.HasPrefix(text, "[Earlier conversation summary]") &&
-				!strings.HasPrefix(text, "[System Note]") {
+				!strings.HasPrefix(text, "[System Note]") &&
+				!strings.HasPrefix(text, RuntimeReminderPrefix) {
 				preview = collapseWhitespace(text)
 				if len(preview) > 80 {
 					preview = preview[:80] + "…"

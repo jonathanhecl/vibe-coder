@@ -46,6 +46,9 @@ func shouldSkipForGoalExtraction(c string) bool {
 	if strings.HasPrefix(c, "[System Note]") {
 		return true
 	}
+	if strings.HasPrefix(c, session.RuntimeReminderPrefix) {
+		return true
+	}
 	if strings.HasPrefix(c, missionPromptPrefix) {
 		return true
 	}

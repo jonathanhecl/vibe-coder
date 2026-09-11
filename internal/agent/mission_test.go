@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
@@ -120,6 +121,35 @@ func TestMissionPromptBlockAdvertisesGoalAndInstructions(t *testing.T) {
 	}
 	if !strings.Contains(block, "MissionComplete") || !strings.Contains(block, "MissionBlocked") {
 		t.Fatalf("mission block should explain how to end, got %q", block)
+	}
+}
+
+func TestMissionEndToolStopsTurn(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model: "test", ContextWindow: 32768, MaxTokens: 128,
+		Cwd: tmp, SessionsDir: filepath.Join(tmp, "sessions"), StateDir: filepath.Join(tmp, "state"),
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ui := &fakeUI{}
+	client := &nativeSequenceClient{turns: []ollama.Chunk{
+		{ToolCalls: []ollama.MessageToolCall{{Function: ollama.MessageToolCallFunction{Name: "MissionStart", Arguments: map[string]any{"goal": "x"}}}}, Done: true},
+		{ToolCalls: []ollama.MessageToolCall{{Function: ollama.MessageToolCallFunction{Name: "MissionComplete", Arguments: map[string]any{"summary": "done"}}}}, Done: true},
+		{ToolCalls: []ollama.MessageToolCall{{Function: ollama.MessageToolCallFunction{Name: "MissionComplete", Arguments: map[string]any{"summary": "again"}}}}, Done: true},
+	}}
+	ag := New(cfg, client, reg, perm, sess, ui)
+
+	if err := ag.Run(context.Background(), "do the mission"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if ui.calls != 2 {
+		t.Fatalf("expected the turn to stop after MissionComplete (2 calls), got %d", ui.calls)
+	}
+	if ag.MissionActive() {
+		t.Fatal("mission should be complete")
 	}
 }
 

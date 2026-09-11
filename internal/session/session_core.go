@@ -113,6 +113,24 @@ func (s *Session) AddSystemNote(text string) {
 	})
 }
 
+// RuntimeReminderPrefix marks user-role runtime reminders so goal extraction
+// and session previews can skip them.
+const RuntimeReminderPrefix = "[runtime_reminder]"
+
+// AddRuntimeReminder records an actionable instruction from the agent runtime
+// as a *user-role* message. Unlike AddSystemNote (assistant role), this keeps
+// the model's turn open: several local models reply with an empty assistant
+// message when the last wire message is an assistant-role note, which stalls
+// long multi-step runs. Use this for "keep working / next step" nudges and the
+// durable TODO progress reminder.
+func (s *Session) AddRuntimeReminder(text string) {
+	s.addMessage(Message{
+		Role:      "user",
+		Content:   RuntimeReminderPrefix + "\n" + strings.TrimSpace(text) + "\n[/runtime_reminder]",
+		Timestamp: time.Now().UTC(),
+	})
+}
+
 // AddToolObservation records a tool's output as a *user-role* message
 // wrapped in an unambiguous envelope. This prevents the model from
 // adopting the file/command output as if it were its own assistant text in
@@ -288,6 +306,9 @@ func (s *Session) firstUserMessageUnlocked() *Message {
 			continue
 		}
 		if strings.HasPrefix(m.Content, "[Earlier conversation summary]") {
+			continue
+		}
+		if strings.HasPrefix(m.Content, RuntimeReminderPrefix) {
 			continue
 		}
 		return m

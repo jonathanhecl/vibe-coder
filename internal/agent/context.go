@@ -37,12 +37,12 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool, error) {
 	if a.hasPendingTodos() && *retries < 2 {
 		*retries++
-		a.sess.AddSystemNote("Model returned an empty response while TODO items remain. Retrying the next pending step.")
+		a.sess.AddRuntimeReminder("Model returned an empty response while TODO items remain. Retrying the next pending step.")
 		a.compactBestEffort(ctx)
 		return false, nil
 	}
 	if a.hasPendingTodos() {
-		a.sess.AddSystemNote("Model returned repeated empty responses while TODO items remain; cannot complete the current run.")
+		a.sess.AddRuntimeReminder("Model returned repeated empty responses while TODO items remain; cannot complete the current run.")
 		a.compactBestEffort(ctx)
 		return true, fmt.Errorf("empty assistant response with pending todos")
 	}
