@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 )
 
@@ -173,7 +172,7 @@ func compactPath(p string) string {
 	if p == "" {
 		return p
 	}
-	normal := filepath.ToSlash(strings.TrimRight(p, "/\\"))
+	normal := strings.ReplaceAll(strings.TrimRight(p, "/\\"), "\\", "/")
 	parts := strings.Split(normal, "/")
 	if len(parts) <= 2 {
 		return normal

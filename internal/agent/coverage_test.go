@@ -276,10 +276,19 @@ func TestRunXMLPermissionDeniedAndParallelAgentsPath(t *testing.T) {
 
 func TestRunXMLWriteExecutesAndDetectParallelAndBranch(t *testing.T) {
 	tmp := t.TempDir()
-	c := &coverageClient{reply: `<invoke name="Write">{"file_path":"` + filepath.Join(tmp, "note.txt") + `","contents":"ok"}</invoke>`}
+	note := filepath.Join(tmp, "note.txt")
+	// First turn asks for the XML write, second turn is a plain final answer;
+	// a client that repeats the envelope forever would just hit the cap.
+	c := &sequenceClient{replies: []string{
+		`<invoke name="Write">{"file_path":"` + note + `","contents":"ok"}</invoke>`,
+		"done",
+	}}
 	ag := newCoverageAgent(t, c, tui.DecisionAllowOnce, true)
 	if err := ag.Run(context.Background(), "chat"); err != nil {
 		t.Fatalf("xml write run failed: %v", err)
+	}
+	if data, err := os.ReadFile(note); err != nil || string(data) != "ok" {
+		t.Fatalf("xml write did not land: data=%q err=%v", data, err)
 	}
 
 	tasks, ok := detectParallelTasks("summarize this and list TODOs")

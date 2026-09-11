@@ -49,11 +49,8 @@ func (c *Checkpoint) Create(label string, paths ...string) error {
 	if len(paths) != 1 || strings.TrimSpace(paths[0]) == "" {
 		return fmt.Errorf("checkpoint requires one file inside the repository")
 	}
-	path := paths[0]
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(c.cwd, path)
-	}
-	rel := relPathsInsideRepo(root, []string{path})
+	path := resolveUnder(c.cwd, strings.TrimSpace(paths[0]))
+	rel := relPathsInsideRepo(realPath(root), []string{path})
 	if len(rel) != 1 {
 		return fmt.Errorf("checkpoint requires one file inside the repository")
 	}
@@ -138,6 +135,47 @@ func (c *Checkpoint) Discard() error {
 	}
 	c.pending, c.pendingPath = nil, ""
 	return nil
+}
+
+// realPath resolves symlinks in the deepest existing ancestor of p and
+// rejoins the remaining tail, so paths to not-yet-created files still map to
+// the physical location Git reports (e.g. macOS /var -> /private/var).
+func realPath(p string) string {
+	clean := filepath.Clean(p)
+	cur := clean
+	var tail []string
+	for {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			for i := len(tail) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, tail[i])
+			}
+			return resolved
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return clean
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+	}
+}
+
+// resolveUnder maps p (absolute, or relative to base) into a physical path by
+// resolving symlinks in the shared base prefix. This lets a logical working
+// directory such as macOS /var/... match the physical path Git reports
+// (/private/var/...), while symlinks inside the repository stay visible to
+// checkpointTarget so they are still rejected.
+func resolveUnder(base, p string) string {
+	abs := p
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(base, abs)
+	}
+	abs = filepath.Clean(abs)
+	rel, err := filepath.Rel(base, abs)
+	if err != nil || !filepath.IsLocal(rel) || rel == "." {
+		return abs
+	}
+	return filepath.Join(realPath(base), rel)
 }
 
 // relPathsInsideRepo converts absolute paths to repository-relative entries,

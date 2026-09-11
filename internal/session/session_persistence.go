@@ -200,12 +200,12 @@ func (s *Session) sessionFilePath(id string) (string, error) {
 		return "", fmt.Errorf("invalid session id: %q", id)
 	}
 
-	sessionsDirAbs, err := filepath.Abs(s.cfg.SessionsDir)
+	sessionsDirAbs, err := absPath(s.cfg.SessionsDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve sessions dir: %w", err)
 	}
 	path := filepath.Join(s.cfg.SessionsDir, sanitized+".jsonl")
-	pathAbs, err := filepath.Abs(path)
+	pathAbs, err := absPath(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve session path: %w", err)
 	}
@@ -302,12 +302,12 @@ func pinnedContextsPath(sessionsDir, id string) (string, error) {
 	if sanitized == "" {
 		return "", fmt.Errorf("invalid session id: %q", id)
 	}
-	sessionsDirAbs, err := filepath.Abs(sessionsDir)
+	sessionsDirAbs, err := absPath(sessionsDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve sessions dir: %w", err)
 	}
 	path := filepath.Join(sessionsDir, sanitized+".ctx.json")
-	pathAbs, err := filepath.Abs(path)
+	pathAbs, err := absPath(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve context sidecar path: %w", err)
 	}
@@ -373,12 +373,12 @@ func workStatePath(sessionsDir, id string) (string, error) {
 	if sanitized == "" {
 		return "", fmt.Errorf("invalid session id: %q", id)
 	}
-	sessionsDirAbs, err := filepath.Abs(sessionsDir)
+	sessionsDirAbs, err := absPath(sessionsDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve sessions dir: %w", err)
 	}
 	path := filepath.Join(sessionsDir, sanitized+".work.json")
-	pathAbs, err := filepath.Abs(path)
+	pathAbs, err := absPath(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve work state path: %w", err)
 	}
@@ -442,10 +442,20 @@ func newSessionID() string {
 }
 
 func cwdHash(cwd string) (string, error) {
-	abs, err := filepath.Abs(cwd)
+	abs, err := absPath(cwd)
 	if err != nil {
 		return "", fmt.Errorf("resolve cwd for index: %w", err)
 	}
 	sum := sha256.Sum256([]byte(abs))
 	return hex.EncodeToString(sum[:])[:16], nil
+}
+
+// absPath rejects paths containing NUL bytes before resolving them. On Unix
+// filepath.Abs accepts such paths silently, which would let a corrupt cwd or
+// sessions dir produce a bogus hash or an unusable session path.
+func absPath(p string) (string, error) {
+	if strings.ContainsRune(p, 0) {
+		return "", fmt.Errorf("path contains NUL byte")
+	}
+	return filepath.Abs(p)
 }

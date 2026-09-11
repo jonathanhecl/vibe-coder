@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -238,6 +239,40 @@ func TestSaveConfigRestrictsPermissions(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm&0o077 != 0 {
 		t.Errorf("expected owner-only permissions after save, got %04o", perm)
+	}
+}
+
+func TestHandleListHidesEnvValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	cwd := filepath.Join(tmpDir, "project")
+	if err := saveConfig(filepath.Join(cwd, ".vibe-coder", "mcp.json"), mcpConfigFile{
+		MCPServers: map[string]ServerConfig{
+			"srv": {Command: "cmd", Env: map[string]string{"API_KEY": "supersecret", "PORT": "8080"}},
+		},
+	}); err != nil {
+		t.Fatalf("failed to seed config: %v", err)
+	}
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	listErr := handleList(configDir, cwd)
+	_ = w.Close()
+	os.Stdout = old
+	if listErr != nil {
+		t.Fatalf("handleList failed: %v", listErr)
+	}
+	out, _ := io.ReadAll(r)
+	got := string(out)
+	if strings.Contains(got, "supersecret") || strings.Contains(got, "8080") {
+		t.Fatalf("mcp list leaked an env value:\n%s", got)
+	}
+	if !strings.Contains(got, "API_KEY=****") || !strings.Contains(got, "PORT=****") {
+		t.Fatalf("expected masked env values, got:\n%s", got)
 	}
 }
 

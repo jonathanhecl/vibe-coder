@@ -120,14 +120,16 @@ func printConfigFile(path string) error {
 		fmt.Printf("  Server: %s\n", name)
 		fmt.Printf("    Command: %s %s\n", srv.Command, strings.Join(srv.Args, " "))
 		if len(srv.Env) > 0 {
-			fmt.Println("    Env:")
+			// Values may hold secrets (API keys, tokens); mcp.json is stored
+			// owner-only for that reason, so never echo the values here.
+			fmt.Println("    Env (values hidden):")
 			keys := make([]string, 0, len(srv.Env))
 			for k := range srv.Env {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				fmt.Printf("      %s=%s\n", k, srv.Env[k])
+				fmt.Printf("      %s=****\n", k)
 			}
 		}
 	}
