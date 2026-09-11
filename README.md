@@ -16,6 +16,27 @@ It ships as a single static CLI binary named `vibe` and supports one-shot prompt
 - **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
 - **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.
+- **Autonomous missions (agent-managed)** — for work that outlasts a single reply, the agent can call `MissionStart` to declare a mission. The runtime then keeps starting turns for it, with **no turn limit**, until the agent itself calls `MissionComplete` (goal done) or `MissionBlocked` (needs the user). The mission is task-agnostic and needs no user command to activate.
+- **Durable work state** — the mission, live TODO checklist, and task store are persisted in a session sidecar and restored on `--resume`/`/session`, so a crash or restart never loses what is done and what remains. The state survives compaction.
+
+### Autonomous missions
+
+Some work does not fit in one reply: a batch of hundreds of items, a migration,
+or an iterative generate-and-check loop that runs for hours. For those, the
+agent itself decides to run a **mission**:
+
+1. It calls `MissionStart` with the user's goal and opens a `TodoWrite`
+   checklist.
+2. The runtime keeps starting new turns for it (`[mission] continuing
+   autonomously`) after each per-turn iteration cap — with **no turn limit**.
+3. The agent ends the mission itself: `MissionComplete` with a summary when the
+   goal is done, or `MissionBlocked` with a reason when it needs the user.
+
+There is no user command to enable this and no arbitrary turn budget; the agent
+owns the lifecycle. If the model only emits empty responses, the loop pauses the
+mission after a few tries instead of spinning. The mission, checklist, and tasks
+are written to disk after every turn, so `--resume` continues an interrupted
+mission exactly where it stopped. `/status` shows the current mission.
 
 ### Tools (exposed to the model)
 
@@ -25,6 +46,7 @@ It ships as a single static CLI binary named `vibe` and supports one-shot prompt
 - **Web**: `WebFetch` and `WebSearch` (DuckDuckGo scrape) with SSRF protection: private hosts are rejected up front, every redirect target is re-validated (max 5 hops), connections are pinned to publicly resolved addresses (DNS-rebinding guard), and requests respect cancellation.
 - **Notebook**: `NotebookEdit` for `.ipynb` JSON round-trip.
 - **Tasks**: `TodoWrite` (live to-do panel), `TaskStart`, `TaskList`, `TaskComplete`, `TaskCancel`.
+- **Missions**: `MissionStart` (declare a long-running goal and hand the runtime control), `MissionComplete` (goal done), `MissionBlocked` (needs the user).
 - **Questions**: `AskUserQuestion` for interactive multi-choice prompts.
 - **Orchestration**: `SubAgent` (bounded ReAct loop over Read/Glob/Grep, opt-in writes) and `ParallelAgents` (explicit model calls only).
 - **Git**: `GitStatus`, `GitDiff`, `GitUndo` (restore the latest vibe-coder checkpoint).
@@ -463,6 +485,11 @@ do not call these directly, but their behavior affects speed and context usage:
 - `WebFetch` and `WebSearch` fetch web content with SSRF protection.
 - `NotebookEdit` edits `.ipynb` cells by JSON round-trip.
 - `TodoWrite` maintains a live task list that the TUI renders as a panel.
+- `MissionStart`/`MissionComplete`/`MissionBlocked` let the agent run a
+  multi-turn mission autonomously. While a mission is active the runtime keeps
+  starting turns after the per-turn iteration cap; only the agent ends it. The
+  mission, checklist, and tasks are persisted with the session, so `--resume`
+  continues an interrupted mission.
 - `AskUserQuestion` pauses the agent to ask the user a multi-choice question.
 - `SubAgent` and `ParallelAgents` spawn child agents with bounded fan-out.
 - `Glob` and `Grep` skip heavy directories such as `.git`, `node_modules`,

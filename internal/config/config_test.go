@@ -482,5 +482,3 @@ func TestSaveModelSettingsHideThink(t *testing.T) {
 		t.Fatalf("expected HIDE_THINK=false, got:\n%s", string(data))
 	}
 }
-
-

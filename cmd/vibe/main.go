@@ -177,6 +177,9 @@ func main() {
 			exitWithError(err)
 		}
 		restoreSessionContexts(sess, ctxStore)
+		// Restore the durable TODO/task state so a resumed autonomous run
+		// knows what is already done.
+		ag.RestoreWorkState(sess.WorkState())
 	}
 	sess.SetPinnedContexts(ctxStore.Paths())
 

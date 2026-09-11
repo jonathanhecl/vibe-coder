@@ -351,6 +351,7 @@ func (a *Agent) buildSystemPrompt() string {
 	goal := strings.TrimSpace(goalRaw)
 
 	key := stableSystemCacheKey(a.cfg, a.reg, a.contextFingerprint())
+	missionKey := a.missionCacheKey()
 
 	a.sysPrompt.mu.Lock()
 	defer a.sysPrompt.mu.Unlock()
@@ -361,7 +362,7 @@ func (a *Agent) buildSystemPrompt() string {
 		a.sysPrompt.stableBody = a.rebuildStableSystemPromptBody()
 	}
 
-	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.full != "" {
+	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.cacheMission == missionKey && a.sysPrompt.full != "" {
 		return a.sysPrompt.full
 	}
 
@@ -376,6 +377,9 @@ func (a *Agent) buildSystemPrompt() string {
 			"another <invoke> block (up to 5 sequential blocks per reply for independent calls). A reply with only plain text and no tool call ends the whole agent " +
 			"run — use that only for the final answer when nothing else remains to do.\n\n" +
 			"<<<USER_GOAL>>>\n" + goal + "\n<<<END_USER_GOAL>>>"
+	}
+	if missionBlock := a.missionPromptBlock(); missionBlock != "" {
+		systemPrompt = systemPrompt + "\n\n" + missionBlock
 	}
 	if inPlanMode {
 		systemPrompt = systemPrompt + "\n\n# Plan Mode (enabled)\n" +
@@ -397,6 +401,7 @@ func (a *Agent) buildSystemPrompt() string {
 	a.sysPrompt.cacheGoal = goal
 	a.sysPrompt.cachePlan = inPlanMode
 	a.sysPrompt.cacheReview = inReviewMode
+	a.sysPrompt.cacheMission = missionKey
 	a.sysPrompt.full = systemPrompt
 	return systemPrompt
 }

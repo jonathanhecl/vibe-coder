@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -133,4 +135,40 @@ func jsonResult(v any) Result {
 
 func intToString(v int) string {
 	return strconv.Itoa(v)
+}
+
+// SnapshotTasks returns a copy of every task, sorted by id for deterministic
+// persistence. Safe to call from the agent runtime and tests.
+func SnapshotTasks() []Task {
+	taskStoreMu.Lock()
+	defer taskStoreMu.Unlock()
+	out := make([]Task, 0, len(taskStore))
+	for _, task := range taskStore {
+		out = append(out, task)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// RestoreTasks replaces the task store with the given tasks and advances the
+// id sequence past any restored "task-N" id so new tasks never collide with
+// historical ones. Used to reload persisted work state on --resume.
+func RestoreTasks(tasks []Task) {
+	taskStoreMu.Lock()
+	defer taskStoreMu.Unlock()
+	cleared := make(map[string]Task, len(tasks))
+	var maxSeq uint64
+	for _, task := range tasks {
+		if strings.TrimSpace(task.ID) == "" {
+			continue
+		}
+		cleared[task.ID] = task
+		if n, err := strconv.ParseUint(strings.TrimPrefix(task.ID, "task-"), 10, 64); err == nil && n > maxSeq {
+			maxSeq = n
+		}
+	}
+	taskStore = cleared
+	if maxSeq > atomic.LoadUint64(&taskSeq) {
+		atomic.StoreUint64(&taskSeq, maxSeq)
+	}
 }

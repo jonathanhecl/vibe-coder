@@ -24,7 +24,8 @@ func EffectOf(tool Tool) Effect {
 	switch tool.(type) {
 	case *ReadTool, *GlobTool, *GrepTool, *WebFetchTool, *WebSearchTool, *DescribeImageTool, *GitStatusTool, *GitDiffTool:
 		return EffectRead
-	case *TodoWriteTool, *TaskCreateTool, *TaskListTool, *TaskGetTool, *TaskUpdateTool, *AskUserQuestionTool:
+	case *TodoWriteTool, *TaskCreateTool, *TaskListTool, *TaskGetTool, *TaskUpdateTool, *AskUserQuestionTool,
+		*MissionStartTool, *MissionCompleteTool, *MissionBlockedTool:
 		return EffectState
 	case *WriteTool, *EditTool, *NotebookEditTool, *GitUndoTool:
 		return EffectWrite

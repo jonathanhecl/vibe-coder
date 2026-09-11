@@ -38,6 +38,7 @@ func (s *Session) Save() error {
 	id := s.id
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
+	workState := append([]byte(nil), s.workState...)
 	rev := s.revision
 	savedRev := s.lastSavedRevision
 	s.mu.RUnlock()
@@ -81,6 +82,9 @@ func (s *Session) Save() error {
 		return err
 	}
 	if err := s.writePinnedContextsFor(id, pinned); err != nil {
+		return err
+	}
+	if err := s.writeWorkStateFor(id, workState); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -145,11 +149,13 @@ func (s *Session) Load(id string) error {
 	}
 	s.mu.RUnlock()
 	pinned := loadPinnedContextsFor(sessionsDir, sanitized)
+	workState := loadWorkStateFor(sessionsDir, sanitized)
 
 	s.mu.Lock()
 	s.id = sanitized
 	s.messages = loaded
 	s.pinnedContexts = pinned
+	s.workState = workState
 	s.recomputeTokenEstimate()
 	s.revision++
 	// Just loaded from disk: memory matches the files, so a subsequent
@@ -357,6 +363,76 @@ func loadPinnedContextsFor(sessionsDir, id string) []string {
 		}
 	}
 	return out
+}
+
+// workStatePath returns the sidecar path holding the opaque durable work
+// state for a session id. Like the pinned-contexts sidecar, the lookup is
+// best-effort: missing or corrupt files mean "no persisted work state".
+func workStatePath(sessionsDir, id string) (string, error) {
+	sanitized := sanitizeSessionID(id)
+	if sanitized == "" {
+		return "", fmt.Errorf("invalid session id: %q", id)
+	}
+	sessionsDirAbs, err := filepath.Abs(sessionsDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve sessions dir: %w", err)
+	}
+	path := filepath.Join(sessionsDir, sanitized+".work.json")
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve work state path: %w", err)
+	}
+	if !strings.HasPrefix(pathAbs, sessionsDirAbs+string(filepath.Separator)) && pathAbs != sessionsDirAbs {
+		return "", fmt.Errorf("invalid work state path outside sessions dir")
+	}
+	return path, nil
+}
+
+// writeWorkStateFor persists the opaque work-state blob. An empty blob
+// removes any stale sidecar so a reset checklist does not resurrect on the
+// next resume.
+func (s *Session) writeWorkStateFor(id string, raw []byte) error {
+	target, err := workStatePath(s.cfg.SessionsDir, id)
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove work state sidecar: %w", err)
+		}
+		return nil
+	}
+	payload, err := json.Marshal(map[string]json.RawMessage{"work_state": json.RawMessage(raw)})
+	if err != nil {
+		return fmt.Errorf("encode work state: %w", err)
+	}
+	if err := writeAtomicBytes(s.cfg.SessionsDir, "*.work.tmp", target, 0o600, payload); err != nil {
+		return fmt.Errorf("replace work state file: %w", err)
+	}
+	return nil
+}
+
+// loadWorkStateFor reads the work-state sidecar for a session id. Missing,
+// unreadable, or corrupt sidecars yield nil so old sessions keep working.
+func loadWorkStateFor(sessionsDir, id string) []byte {
+	target, err := workStatePath(sessionsDir, id)
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil
+	}
+	var decoded struct {
+		WorkState json.RawMessage `json:"work_state"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil
+	}
+	if len(decoded.WorkState) == 0 {
+		return nil
+	}
+	return append([]byte(nil), decoded.WorkState...)
 }
 
 func newSessionID() string {

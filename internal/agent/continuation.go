@@ -46,6 +46,9 @@ func shouldSkipForGoalExtraction(c string) bool {
 	if strings.HasPrefix(c, "[System Note]") {
 		return true
 	}
+	if strings.HasPrefix(c, missionPromptPrefix) {
+		return true
+	}
 	if isContinuationMessage(c) {
 		return true
 	}
@@ -76,7 +79,7 @@ func extractPriorGoal(sess *session.Session) string {
 // message is appended. Continuation shorthands reuse the prior substantive user
 // request when available.
 func resolveGoalForRun(sess *session.Session, userInput string) string {
-	if !isContinuationMessage(userInput) {
+	if !isContinuationMessage(userInput) && !strings.HasPrefix(strings.TrimSpace(userInput), missionPromptPrefix) {
 		return userInput
 	}
 	if g := extractPriorGoal(sess); g != "" {

@@ -39,6 +39,7 @@ func restorePinnedContexts(c *Ctx) {
 	if c == nil || c.Session == nil {
 		return
 	}
+	restoreWorkState(c)
 	paths := c.Session.PinnedContexts()
 	if len(paths) == 0 {
 		return
@@ -54,6 +55,36 @@ func restorePinnedContexts(c *Ctx) {
 	}
 	if loaded > 0 {
 		fmt.Fprintf(c.Out, "Restored %d pinned context file(s).\n", loaded)
+	}
+}
+
+// workStateAgent is the optional slice of the agent runtime needed to reload
+// durable work state after a session switch. Kept as a local interface so the
+// slash package does not depend on the concrete agent and older fakes without
+// the methods keep compiling.
+type workStateAgent interface {
+	RestoreWorkState([]byte)
+	PendingTodoCount() int
+}
+
+// restoreWorkState reloads the persisted TODO/task state into the agent after
+// a session Load, reporting how many steps remain. No-op when the agent does
+// not support it (tests) or the session has no state.
+func restoreWorkState(c *Ctx) {
+	if c == nil || c.Session == nil || c.Agent == nil {
+		return
+	}
+	raw := c.Session.WorkState()
+	if len(raw) == 0 {
+		return
+	}
+	wsa, ok := c.Agent.(workStateAgent)
+	if !ok {
+		return
+	}
+	wsa.RestoreWorkState(raw)
+	if pending := wsa.PendingTodoCount(); pending > 0 {
+		fmt.Fprintf(c.Out, "Restored checklist with %d pending step(s).\n", pending)
 	}
 }
 

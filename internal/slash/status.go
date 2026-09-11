@@ -3,7 +3,15 @@ package slash
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
+
+// missionReporter is the optional slice of the agent runtime that exposes the
+// agent-managed mission. Kept local so older fakes keep compiling.
+type missionReporter interface {
+	MissionSnapshot() tools.Mission
+}
 
 func printStatus(c *Ctx) {
 	ctxPct := 0
@@ -20,6 +28,18 @@ func printStatus(c *Ctx) {
 	fmt.Fprintf(c.Out, "Tools: %s\n", toolsStatus(c))
 	if c.Contexts != nil && c.Contexts.Has() {
 		fmt.Fprintf(c.Out, "Pinned contexts (%d): %s\n", c.Contexts.Count(), strings.Join(c.Contexts.SortedNames(), ", "))
+	}
+	if mr, ok := c.Agent.(missionReporter); ok {
+		if m := mr.MissionSnapshot(); m.Status != "" {
+			line := "Mission: " + m.Status
+			if m.Turns > 0 {
+				line += fmt.Sprintf(" (turn %d)", m.Turns)
+			}
+			if goal := strings.TrimSpace(m.Goal); goal != "" {
+				line += " — " + goal
+			}
+			fmt.Fprintln(c.Out, line)
+		}
 	}
 	fmt.Fprintf(c.Out, "Yes mode: %t\n", c.Cfg.YesMode)
 	fmt.Fprintf(c.Out, "Sidecar model: %s\n", strings.TrimSpace(c.Cfg.SidecarModel))

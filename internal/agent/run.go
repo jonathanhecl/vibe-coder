@@ -40,6 +40,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		return err
 	}
 	defer a.ui.StopESCMonitor()
+	// Persist the checklist/task state at the end of every turn so a crash or
+	// restart never loses what is done and what remains.
+	defer a.PersistWorkState()
 
 	a.addRunContext(ctx, userInput)
 	a.resetTodoNoteDedup()

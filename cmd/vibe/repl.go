@@ -20,7 +20,7 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	// Keep one-shot output aligned with interactive startup context so users
 	// can always see which model/session/host served the answer.
 	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
-	if err := runAgentWithEmptyRetry(rootCtx, ag, ui, cfg.Prompt); err != nil {
+	if err := runPrompt(rootCtx, ag, ui, cfg.Prompt); err != nil {
 		return false, err
 	}
 	if err := sess.Save(); err != nil {
@@ -98,11 +98,58 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 	}
 
 	ui.SetPlanMode(ag.InPlanMode())
-	if err := runAgentWithEmptyRetry(rootCtx, ag, ui, line); err != nil {
+	if err := runPrompt(rootCtx, ag, ui, line); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}
 	_ = slashCtx.Session.Save()
 	return false
+}
+
+// runPrompt runs one user prompt and then honours any mission the agent
+// declared during it. While a mission is active the runtime keeps starting
+// turns until the agent calls MissionComplete or MissionBlocked; there is no
+// turn limit. The agent owns the mission lifecycle.
+func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {
+	err := runAgentWithEmptyRetry(rootCtx, ag, ui, input)
+	saveMissionProgress(ag)
+	emptyStreak := 0
+	for ag.MissionActive() {
+		if ctxErr := rootCtx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil && !agent.IsIterationCapErr(err) && !agent.IsEmptyAssistantResponseErr(err) {
+			// A hard failure (network, permission, cancellation) stops the run.
+			return err
+		}
+		if agent.IsEmptyAssistantResponseErr(err) {
+			emptyStreak++
+		} else {
+			emptyStreak = 0
+		}
+		if emptyStreak >= 3 {
+			ag.BlockActiveMission("The model returned repeated empty responses; mission paused for user input.")
+			fmt.Fprintln(os.Stderr, "Mission paused: repeated empty responses. The agent needs your input.")
+			saveMissionProgress(ag)
+			break
+		}
+		m := ag.MissionSnapshot()
+		fmt.Fprintf(os.Stdout, "[mission] continuing autonomously (turn %d)\n", m.Turns+1)
+		err = runAgentWithEmptyRetry(rootCtx, ag, ui, ag.MissionContinuationPrompt())
+		// Flush each turn so a crash or restart resumes the mission where it left off.
+		saveMissionProgress(ag)
+	}
+	if err != nil && !agent.IsIterationCapErr(err) {
+		return err
+	}
+	return nil
+}
+
+// saveMissionProgress flushes the session (mission, checklist, tasks) to disk.
+// Failures warn but never break the autonomous run.
+func saveMissionProgress(ag *agent.Agent) {
+	if err := ag.SaveSession(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to save mission progress: %v\n", err)
+	}
 }
 
 func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {

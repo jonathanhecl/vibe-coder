@@ -45,6 +45,9 @@ type Agent struct {
 	currentGoal string // verbatim text of the user's request for this Run()
 	ctxStore    *contextfiles.Store
 	imgCache    *vision.Cache
+	// mission is the agent-declared long-running goal. While active, the
+	// runtime keeps starting turns until the agent completes or blocks it.
+	mission *tools.MissionStore
 	// descCacheStore memoizes sidecar-generated image descriptions
 	// ("borrowed vision") per file revision.
 	descCacheStore *vision.Cache
@@ -60,13 +63,14 @@ type Agent struct {
 
 // promptCache holds memoized system prompt fragments between turns.
 type promptCache struct {
-	mu          sync.Mutex
-	stableKey   string
-	stableBody  string
-	cacheGoal   string
-	cachePlan   bool
-	cacheReview bool
-	full        string
+	mu           sync.Mutex
+	stableKey    string
+	stableBody   string
+	cacheGoal    string
+	cachePlan    bool
+	cacheReview  bool
+	cacheMission string
+	full         string
 }
 
 func IsEmptyAssistantResponseErr(err error) bool {
@@ -89,7 +93,7 @@ func New(
 	sess *session.Session,
 	ui tui.UI,
 ) *Agent {
-	return &Agent{
+	a := &Agent{
 		cfg:      cfg,
 		client:   client,
 		reg:      reg,
@@ -100,7 +104,16 @@ func New(
 		autoTest: gitx.NewAutoTest(cfg.Cwd),
 		paths:    newPathMemory(cfg.Cwd),
 		side:     sidecar.New(cfg, client),
+		mission:  tools.NewMissionStore(),
 	}
+	// Mission tools let the agent own the lifecycle of long-running work:
+	// it decides when to start, and only the agent completes or blocks it.
+	if reg != nil {
+		reg.Register(tools.NewMissionStartTool(a.mission))
+		reg.Register(tools.NewMissionCompleteTool(a.mission))
+		reg.Register(tools.NewMissionBlockedTool(a.mission))
+	}
+	return a
 }
 
 // SetSidecar overrides the default sidecar pool. Tests use this to inject

@@ -33,6 +33,11 @@ type Session struct {
 	// (--context / /context). Only the paths are stored here; file
 	// contents are reloaded into the agent system prompt on demand.
 	pinnedContexts []string
+	// workState is an opaque JSON blob owned by the agent runtime that
+	// captures durable work state (the TODO checklist and task store). It is
+	// persisted in a session sidecar so long autonomous runs can resume
+	// without losing what is done and what remains.
+	workState []byte
 	// lastSavedRevision is the revision successfully persisted by Save.
 	// Save skips the rewrite when nothing changed since (0 = never saved).
 	lastSavedRevision uint64
@@ -222,6 +227,51 @@ func (s *Session) PinnedContexts() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]string(nil), s.pinnedContexts...)
+}
+
+// SetWorkState replaces the opaque durable work-state blob. It only bumps
+// the revision when the bytes actually change so unchanged syncs keep Save
+// cheap. Pass nil to clear it.
+func (s *Session) SetWorkState(raw []byte) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if bytesEqual(s.workState, raw) {
+		return
+	}
+	if len(raw) == 0 {
+		s.workState = nil
+	} else {
+		s.workState = append([]byte(nil), raw...)
+	}
+	s.revision++
+}
+
+// WorkState returns a copy of the durable work-state blob (nil when unset).
+func (s *Session) WorkState() []byte {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.workState) == 0 {
+		return nil
+	}
+	return append([]byte(nil), s.workState...)
+}
+
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // firstUserMessageUnlocked returns the first user-role message that is not a

@@ -52,6 +52,15 @@ func (s *TodoStore) Reset() {
 	s.items = nil
 }
 
+// Replace swaps the store contents with the given items in one critical
+// section. Used when restoring a persisted checklist (e.g. after --resume).
+func (s *TodoStore) Replace(items []TodoItem) {
+	if s == nil {
+		return
+	}
+	s.apply(false, items)
+}
+
 // apply replaces or merges the list in one critical section. When merge
 // is true, items with matching IDs are updated in place (preserving
 // position) and unknown IDs are appended. Otherwise the incoming list
