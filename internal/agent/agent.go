@@ -53,6 +53,9 @@ type Agent struct {
 	// loop can detect a turn that did no work at all (a stall) without imposing
 	// an arbitrary turn limit.
 	turnToolCalls atomic.Int32
+	// noProgress stops a run that keeps repeating the same tool call with
+	// identical output, so an active mission cannot spin forever.
+	noProgress noProgressGuard
 	// descCacheStore memoizes sidecar-generated image descriptions
 	// ("borrowed vision") per file revision.
 	descCacheStore *vision.Cache

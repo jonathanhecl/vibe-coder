@@ -125,6 +125,15 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 			return ctxErr
 		}
 		if err != nil && !agent.IsIterationCapErr(err) && !agent.IsEmptyAssistantResponseErr(err) {
+			if agent.IsNoProgressErr(err) {
+				// The model is repeating the same tool call with identical output.
+				// Pause instead of spinning forever (a mission has no turn limit).
+				ag.BlockActiveMission("The agent repeated the same tool call with identical output; mission paused to avoid an infinite loop.")
+				fmt.Fprintln(os.Stderr, "Mission paused: repeated tool call with no progress. The agent needs your input.")
+				saveMissionProgress(ag)
+				ag.LogMissionTurn(err)
+				break
+			}
 			// A hard failure (network, permission, cancellation) stops the run.
 			return err
 		}
@@ -162,7 +171,7 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 		saveMissionProgress(ag)
 		ag.LogMissionTurn(err)
 	}
-	if err != nil && !agent.IsIterationCapErr(err) {
+	if err != nil && !agent.IsIterationCapErr(err) && !agent.IsNoProgressErr(err) {
 		return err
 	}
 	return nil

@@ -110,6 +110,9 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 			}
 		}
 	}
+	if _, loop := a.noProgress.observe(toolCallSignature(toolName, toolParams), toolOutputSignature(result)); loop {
+		return result, true, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
+	}
 	return result, true, nil
 }
 func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map[string]any) {
