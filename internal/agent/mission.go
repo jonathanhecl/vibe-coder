@@ -75,6 +75,23 @@ func (a *Agent) SaveSession() error {
 	return a.sess.Save()
 }
 
+// persistMissionProgress flushes the session after each tool call while a
+// mission exists. A single agent turn can execute many tool calls before Run
+// returns, so saving only at turn boundaries would lose the mission, checklist,
+// and transcript if the process is killed mid-turn (a multi-hour autonomous run
+// being the case that matters). It is a no-op outside missions so ordinary
+// runs keep their cheaper turn-boundary saves.
+func (a *Agent) persistMissionProgress() {
+	if a == nil || a.sess == nil {
+		return
+	}
+	if a.MissionSnapshot().Status == "" {
+		return
+	}
+	a.PersistWorkState()
+	_ = a.SaveSession()
+}
+
 // MissionActive reports whether the agent declared a mission and has not yet
 // completed or blocked it. Only the agent ends a mission; there is no turn cap.
 func (a *Agent) MissionActive() bool {

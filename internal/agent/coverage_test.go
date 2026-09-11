@@ -297,6 +297,32 @@ func TestRunXMLWriteExecutesAndDetectParallelAndBranch(t *testing.T) {
 	}
 }
 
+func TestMissionProgressPersistsDuringRun(t *testing.T) {
+	// A single Run can execute many tool calls before returning, so mission
+	// state must hit disk as soon as MissionStart runs; otherwise a crash
+	// mid-turn leaves --resume unable to find the interrupted session.
+	c := &sequenceClient{replies: []string{`<invoke name="MissionStart">{"goal":"process every item"}</invoke>`}}
+	ag := newCoverageAgent(t, c, tui.DecisionAllowOnce, true)
+	if err := ag.Run(context.Background(), "start a mission"); err == nil {
+		t.Fatal("expected the run to stop when the client is exhausted")
+	}
+	if !ag.MissionActive() {
+		t.Fatal("mission should still be active after the interrupted run")
+	}
+
+	sessionID := ag.sess.ID()
+	if _, err := os.Stat(filepath.Join(ag.cfg.SessionsDir, sessionID+".jsonl")); err != nil {
+		t.Fatalf("session was not persisted mid-run: %v", err)
+	}
+	index, err := os.ReadFile(filepath.Join(ag.cfg.SessionsDir, "project-index.json"))
+	if err != nil {
+		t.Fatalf("project index was not persisted mid-run: %v", err)
+	}
+	if !strings.Contains(string(index), sessionID) {
+		t.Fatalf("project index does not point at the active session: %s", index)
+	}
+}
+
 func TestChatOnceErrorAndTryAutoPullFailure(t *testing.T) {
 	ag := newCoverageAgent(t, errorStreamClient{}, tui.DecisionAllowOnce, true)
 	ag.sess.AddUser("hello")

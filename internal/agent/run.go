@@ -72,6 +72,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			} else if !executed {
 				return nil
 			}
+			a.persistMissionProgress()
 			a.compactBestEffort(ctx)
 			// MVP-11 safety: infer one tool call once only.
 			wantsTool = false
@@ -127,6 +128,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					if !executed {
 						return nil
 					}
+					a.persistMissionProgress()
 					if isMissionEndTool(c.Name) {
 						return nil
 					}
@@ -167,6 +169,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				if !executed {
 					return nil
 				}
+				a.persistMissionProgress()
 				if isMissionEndTool(c.Name) {
 					return nil
 				}
