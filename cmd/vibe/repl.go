@@ -112,7 +112,12 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {
 	err := runAgentWithEmptyRetry(rootCtx, ag, ui, input)
 	saveMissionProgress(ag)
+	if ag.MissionActive() {
+		ag.LogMissionTurn(err)
+		fmt.Fprintf(os.Stdout, "[mission] run log: %s\n", ag.RunLogPath())
+	}
 	emptyStreak := 0
+	idleStreak := 0
 	for ag.MissionActive() {
 		if ctxErr := rootCtx.Err(); ctxErr != nil {
 			return ctxErr
@@ -130,6 +135,22 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 			ag.BlockActiveMission("The model returned repeated empty responses; mission paused for user input.")
 			fmt.Fprintln(os.Stderr, "Mission paused: repeated empty responses. The agent needs your input.")
 			saveMissionProgress(ag)
+			ag.LogMissionTurn(err)
+			break
+		}
+		// Stall guard: a turn that executed no tool at all did no work. This is
+		// progress-based, not a turn budget: a mission doing real work keeps
+		// running indefinitely.
+		if ag.ToolCallsThisTurn() == 0 {
+			idleStreak++
+		} else {
+			idleStreak = 0
+		}
+		if idleStreak >= 3 {
+			ag.BlockActiveMission("Several consecutive turns ran no tools; mission paused so the agent does not spin.")
+			fmt.Fprintln(os.Stderr, "Mission paused: no tool activity for several turns. The agent needs your input.")
+			saveMissionProgress(ag)
+			ag.LogMissionTurn(err)
 			break
 		}
 		m := ag.MissionSnapshot()
@@ -137,6 +158,7 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 		err = runAgentWithEmptyRetry(rootCtx, ag, ui, ag.MissionContinuationPrompt())
 		// Flush each turn so a crash or restart resumes the mission where it left off.
 		saveMissionProgress(ag)
+		ag.LogMissionTurn(err)
 	}
 	if err != nil && !agent.IsIterationCapErr(err) {
 		return err
@@ -167,10 +189,18 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 		if !stdioIsTTY() {
 			return err
 		}
+		// An active mission runs unattended: retry automatically instead of
+		// blocking on a TTY question. The mission loop ends the mission if the
+		// empty responses persist.
+		unattended := ag.MissionActive()
 		retryCount++
 		repeatedState = retryCount > 1
 		if retryCount >= maxExternalEmptyRetries {
 			return fmt.Errorf("empty assistant response persisted after %d retries; pending TODO state may be stuck", retryCount)
+		}
+		if unattended {
+			currentInput = ag.BuildEmptyResponseRetryInput(input, repeatedState)
+			continue
 		}
 		ans, askErr := ui.GetInput("Model returned an empty response. Retry this step? [Y/n]: ")
 		if askErr != nil {

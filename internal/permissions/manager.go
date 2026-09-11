@@ -21,6 +21,13 @@ type Manager struct {
 
 	persistent map[string]string
 
+	// unattended is set while an agent-managed mission is active. It auto-approves
+	// Ask/Network tools so a long unattended run never blocks on a prompt, but it
+	// never bypasses mandatory dangerous-command confirmations: those are denied
+	// outright instead of prompted, so the run continues and the agent can adapt.
+	// It does not change the user's own yes-mode setting.
+	unattended bool
+
 	// permissionCancelled is set when the user picks Cancel in the permission UI.
 	permissionCancelled bool
 }
@@ -41,6 +48,20 @@ func (m *Manager) SetYesMode(on bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.yesMode = on
+}
+
+// SetUnattended toggles unattended auto-approval, used while a mission is active.
+func (m *Manager) SetUnattended(on bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unattended = on
+}
+
+// Unattended reports whether unattended auto-approval is currently on.
+func (m *Manager) Unattended() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.unattended
 }
 
 // AllowSession remembers allow for this process only (not written to disk).
@@ -103,6 +124,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 
 	_, allowed := m.allow[tool]
 	yesMode := m.yesMode
+	unattended := m.unattended
 	pRule := m.persistent[tool]
 	m.mu.Unlock()
 
@@ -114,6 +136,15 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	}
 	command, _ := params["command"].(string)
 	alwaysConfirm := (tool == "bash" || tool == "interactivebash") && needsAlwaysConfirmBash(command)
+	if unattended {
+		// An unattended mission must never block on a prompt. Dangerous commands
+		// are denied (not prompted) so the agent receives a denial and can adapt
+		// or call MissionBlocked instead of hanging forever.
+		if alwaysConfirm {
+			return false
+		}
+		return true
+	}
 	if !alwaysConfirm && (allowed || pRule == "allow" || yesMode) {
 		return true
 	}

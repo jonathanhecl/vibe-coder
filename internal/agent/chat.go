@@ -352,6 +352,7 @@ func (a *Agent) buildSystemPrompt() string {
 
 	key := stableSystemCacheKey(a.cfg, a.reg, a.contextFingerprint())
 	missionKey := a.missionCacheKey()
+	progressKey := a.progressCacheKey()
 
 	a.sysPrompt.mu.Lock()
 	defer a.sysPrompt.mu.Unlock()
@@ -362,7 +363,7 @@ func (a *Agent) buildSystemPrompt() string {
 		a.sysPrompt.stableBody = a.rebuildStableSystemPromptBody()
 	}
 
-	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.cacheMission == missionKey && a.sysPrompt.full != "" {
+	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.cacheMission == missionKey && a.sysPrompt.cacheProgress == progressKey && a.sysPrompt.full != "" {
 		return a.sysPrompt.full
 	}
 
@@ -380,6 +381,9 @@ func (a *Agent) buildSystemPrompt() string {
 	}
 	if missionBlock := a.missionPromptBlock(); missionBlock != "" {
 		systemPrompt = systemPrompt + "\n\n" + missionBlock
+	}
+	if progressBlock := a.progressPromptBlock(); progressBlock != "" {
+		systemPrompt = systemPrompt + "\n\n" + progressBlock
 	}
 	if inPlanMode {
 		systemPrompt = systemPrompt + "\n\n# Plan Mode (enabled)\n" +
@@ -402,6 +406,7 @@ func (a *Agent) buildSystemPrompt() string {
 	a.sysPrompt.cachePlan = inPlanMode
 	a.sysPrompt.cacheReview = inReviewMode
 	a.sysPrompt.cacheMission = missionKey
+	a.sysPrompt.cacheProgress = progressKey
 	a.sysPrompt.full = systemPrompt
 	return systemPrompt
 }

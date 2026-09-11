@@ -29,7 +29,7 @@ func EffectOf(tool Tool) Effect {
 		return EffectState
 	case *WriteTool, *EditTool, *NotebookEditTool, *GitUndoTool:
 		return EffectWrite
-	case *BashTool, *InteractiveBashTool, *SendInputTool, *TerminateSessionTool:
+	case *BashTool, *InteractiveBashTool, *SendInputTool, *TerminateSessionTool, *HTTPRequestTool:
 		return EffectExecute
 	case *SubAgentTool, *ParallelAgentsTool:
 		return EffectDelegate

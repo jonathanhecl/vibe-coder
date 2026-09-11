@@ -23,6 +23,11 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		a.sess.AddSystemNote(blockMsg)
 		return tools.Result{Output: blockMsg, IsError: true}, false, nil
 	}
+	// While a mission is active the run is unattended: auto-approve Ask/Network
+	// tools so it never blocks on a prompt. Dangerous commands are still denied.
+	if a.perm != nil {
+		a.perm.SetUnattended(a.MissionActive())
+	}
 	if !a.perm.Check(toolName, toolParams, a.ui) {
 		deny := permissionDeniedNote(a.perm)
 		logger.Errorf("Tool %s execution denied by permissions", toolName)
@@ -48,6 +53,7 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	}
 
 	logger.Infof("Calling Tool Execute: tool=%s", toolName)
+	a.noteToolExecuted()
 	result := tool.Execute(tools.WithExecutor(ctx, a.executeDelegatedTool), toolParams)
 	if toolName == "Write" || toolName == "Edit" {
 		var checkpointErr error

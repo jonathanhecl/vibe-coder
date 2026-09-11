@@ -44,6 +44,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	// restart never loses what is done and what remains.
 	defer a.PersistWorkState()
 
+	a.resetTurnToolCalls()
+	// Keep permission mode in sync with the mission at the start of every turn
+	// so unattended approval can never leak into a non-mission run.
+	if a.perm != nil {
+		a.perm.SetUnattended(a.MissionActive())
+	}
 	a.addRunContext(ctx, userInput)
 	a.resetTodoNoteDedup()
 

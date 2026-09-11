@@ -61,6 +61,22 @@ func TestRedactArgsDoesNotMutateInput(t *testing.T) {
 	}
 }
 
+func TestRedactTextMasksSecrets(t *testing.T) {
+	got := RedactText("process GITHUB_TOKEN=ghp_secret123 then fetch http://admin:p4ss@host/api")
+	if strings.Contains(got, "ghp_secret123") {
+		t.Errorf("expected assignment secret redacted, got %q", got)
+	}
+	if strings.Contains(got, "p4ss") || strings.Contains(got, "admin") {
+		t.Errorf("expected URL credentials redacted, got %q", got)
+	}
+	if !strings.Contains(got, "host/api") {
+		t.Errorf("expected host preserved, got %q", got)
+	}
+	if RedactText("paint 200 icons") != "paint 200 icons" {
+		t.Error("plain text should be unchanged")
+	}
+}
+
 func TestLogFileIsOwnerOnly(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission bits are not enforced on Windows")

@@ -42,6 +42,16 @@ func IsIterationCapErr(err error) bool {
 	return strings.Contains(err.Error(), "iteration cap reached")
 }
 
+// resetTurnToolCalls starts a fresh tool-activity counter for a Run.
+func (a *Agent) resetTurnToolCalls() { a.turnToolCalls.Store(0) }
+
+// noteToolExecuted records that a tool actually ran during this turn.
+func (a *Agent) noteToolExecuted() { a.turnToolCalls.Add(1) }
+
+// ToolCallsThisTurn reports how many tools executed in the last/current Run.
+// The mission loop uses it to detect a turn that produced no work.
+func (a *Agent) ToolCallsThisTurn() int { return int(a.turnToolCalls.Load()) }
+
 // SaveSession flushes the session to disk. The mission loop calls it after
 // every turn so an interrupted autonomous run resumes with the latest
 // checklist, tasks, and mission state.

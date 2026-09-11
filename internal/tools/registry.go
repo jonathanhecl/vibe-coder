@@ -69,6 +69,7 @@ func (r *Registry) RegisterDefaults() {
 	r.Register(NewGrepTool())
 	r.Register(NewWebFetchTool())
 	r.Register(NewWebSearchTool())
+	r.Register(NewHTTPRequestTool())
 	r.Register(NewNotebookEditTool())
 	r.Register(NewTaskCreateTool())
 	r.Register(NewTaskListTool())

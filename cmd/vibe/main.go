@@ -180,6 +180,14 @@ func main() {
 		// Restore the durable TODO/task state so a resumed autonomous run
 		// knows what is already done.
 		ag.RestoreWorkState(sess.WorkState())
+		if ag.MissionActive() {
+			m := ag.MissionSnapshot()
+			resumeGoal := strings.TrimSpace(m.Goal)
+			if resumeGoal == "" {
+				resumeGoal = "the previous goal"
+			}
+			fmt.Fprintf(os.Stdout, "Active mission restored (%s). Send any message (e.g. \"continue\") to keep working autonomously.\n", resumeGoal)
+		}
 	}
 	sess.SetPinnedContexts(ctxStore.Paths())
 

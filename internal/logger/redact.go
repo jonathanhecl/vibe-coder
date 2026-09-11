@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"regexp"
 	"strings"
 )
 
@@ -59,6 +60,26 @@ func redactSingleArg(arg string) string {
 		}
 	}
 	return arg
+}
+
+var (
+	// sensitiveAssignment finds KEY=VALUE pairs whose key looks secret-bearing,
+	// anywhere in a free-form string (e.g. a mission goal or log message).
+	sensitiveAssignment = regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH|PRIVATE)[A-Z0-9_]*)\s*=\s*\S+`)
+	// urlCredentials finds userinfo in scheme://user:pass@host inside text.
+	urlCredentials = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@`)
+)
+
+// RedactText masks secret-looking KEY=VALUE assignments and URL credentials
+// inside a free-form string. Used for persisted run logs, which must never
+// store secrets.
+func RedactText(s string) string {
+	if s == "" {
+		return s
+	}
+	s = sensitiveAssignment.ReplaceAllString(s, "$1="+redactedValue)
+	s = urlCredentials.ReplaceAllString(s, "$1"+redactedValue+"@")
+	return s
 }
 
 // redactURLCredentials masks userinfo in scheme://user:pass@host arguments.

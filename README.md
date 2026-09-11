@@ -17,7 +17,8 @@ It ships as a single static CLI binary named `vibe` and supports one-shot prompt
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
 - **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.
 - **Autonomous missions (agent-managed)** — for work that outlasts a single reply, the agent can call `MissionStart` to declare a mission. The runtime then keeps starting turns for it, with **no turn limit**, until the agent itself calls `MissionComplete` (goal done) or `MissionBlocked` (needs the user). The mission is task-agnostic and needs no user command to activate.
-- **Durable work state** — the mission, live TODO checklist, and task store are persisted in a session sidecar and restored on `--resume`/`/session`, so a crash or restart never loses what is done and what remains. The state survives compaction.
+- **Durable work state** — the mission, live TODO checklist, and task store are persisted in a session sidecar and restored on `--resume`/`/session`, so a crash or restart never loses what is done and what remains. A compact progress summary derived from that state is injected into the system prompt every turn, so compaction can never make the agent forget what is done or what remains.
+- **Auditable run log** — each autonomous turn appends one redacted JSONL record (turn, mission status, checklist counts, tools used, error) to `<state dir>/runs/<session>.jsonl`, so a multi-hour run can be reviewed after the fact.
 
 ### Autonomous missions
 
@@ -33,10 +34,16 @@ agent itself decides to run a **mission**:
    goal is done, or `MissionBlocked` with a reason when it needs the user.
 
 There is no user command to enable this and no arbitrary turn budget; the agent
-owns the lifecycle. If the model only emits empty responses, the loop pauses the
-mission after a few tries instead of spinning. The mission, checklist, and tasks
+owns the lifecycle. While a mission is active the run is **unattended**: Ask and
+Network tools are auto-approved so nothing blocks waiting for the user, while
+mandatory dangerous-command confirmations are denied (never prompted) so the
+agent gets a denial and can adapt or call `MissionBlocked`. Empty responses are
+retried automatically and, if they persist, or if several turns run no tools at
+all, the mission is paused instead of spinning. The mission, checklist, and tasks
 are written to disk after every turn, so `--resume` continues an interrupted
-mission exactly where it stopped. `/status` shows the current mission.
+mission exactly where it stopped and tells you a mission is waiting. `/status`
+shows the current mission, and every turn is appended to the redacted run log at
+`<state dir>/runs/<session>.jsonl` for auditing.
 
 ### Tools (exposed to the model)
 
@@ -44,6 +51,7 @@ mission exactly where it stopped. `/status` shows the current mission.
 - **Search**: `Glob`, `Grep` (multiline, context lines, output modes).
 - **Shell**: `Bash` and `InteractiveBash` with dangerous-command blocklists and protected-path guards.
 - **Web**: `WebFetch` and `WebSearch` (DuckDuckGo scrape) with SSRF protection: private hosts are rejected up front, every redirect target is re-validated (max 5 hops), connections are pinned to publicly resolved addresses (DNS-rebinding guard), and requests respect cancellation.
+- **HTTP**: `HTTPRequest` — a generic `method`/`url`/`headers`/`body` request tool for REST/JSON APIs, including local services (it allows localhost, unlike `WebFetch`). Network-tier, domain-agnostic, and the reliable alternative to shelling out to `curl`.
 - **Notebook**: `NotebookEdit` for `.ipynb` JSON round-trip.
 - **Tasks**: `TodoWrite` (live to-do panel), `TaskStart`, `TaskList`, `TaskComplete`, `TaskCancel`.
 - **Missions**: `MissionStart` (declare a long-running goal and hand the runtime control), `MissionComplete` (goal done), `MissionBlocked` (needs the user).
@@ -255,6 +263,7 @@ Model keys and overrides:
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
 - Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
+- Config file key / environment: `CHAT_TIMEOUT` / `VIBE_CODER_CHAT_TIMEOUT` (Go duration, e.g. `30m`; default `15m`) — deadline for a single `/api/chat` turn, useful for slow local models in long missions
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 - CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
@@ -483,6 +492,9 @@ do not call these directly, but their behavior affects speed and context usage:
   guards. `InteractiveBash` starts a persistent terminal session for
   multi-step CLI workflows.
 - `WebFetch` and `WebSearch` fetch web content with SSRF protection.
+- `HTTPRequest` performs a generic HTTP request (default `GET`) with optional
+  headers/body and a bounded response size. It is what a mission should use to
+  talk to an API such as ComfyUI instead of fragile `curl` shelling.
 - `NotebookEdit` edits `.ipynb` cells by JSON round-trip.
 - `TodoWrite` maintains a live task list that the TUI renders as a panel.
 - `MissionStart`/`MissionComplete`/`MissionBlocked` let the agent run a

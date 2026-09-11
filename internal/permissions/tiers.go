@@ -20,13 +20,14 @@ var (
 	safeTools = map[string]struct{}{
 		"read": {}, "glob": {}, "grep": {}, "subagent": {}, "askuserquestion": {},
 		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {}, "todowrite": {},
+		"missionstart": {}, "missioncomplete": {}, "missionblocked": {},
 		"describeimage": {}, "gitstatus": {}, "gitdiff": {},
 	}
 	askTools = map[string]struct{}{
 		"bash": {}, "write": {}, "edit": {}, "gitundo": {},
 	}
 	networkTools = map[string]struct{}{
-		"webfetch": {}, "websearch": {},
+		"webfetch": {}, "websearch": {}, "httprequest": {},
 	}
 	alwaysConfirmBash = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)\brm\s+-rf\s+/`),

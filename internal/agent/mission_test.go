@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +17,14 @@ import (
 func newMissionAgent(t *testing.T) *Agent {
 	t.Helper()
 	tmp := t.TempDir()
-	cfg := &config.Config{Model: "test", ContextWindow: 32768, MaxTokens: 128, Cwd: tmp, SessionsDir: filepath.Join(tmp, "sessions")}
+	cfg := &config.Config{
+		Model:         "test",
+		ContextWindow: 32768,
+		MaxTokens:     128,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+		StateDir:      filepath.Join(tmp, "state"),
+	}
 	sess := session.New(cfg)
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()
@@ -112,6 +120,38 @@ func TestMissionPromptBlockAdvertisesGoalAndInstructions(t *testing.T) {
 	}
 	if !strings.Contains(block, "MissionComplete") || !strings.Contains(block, "MissionBlocked") {
 		t.Fatalf("mission block should explain how to end, got %q", block)
+	}
+}
+
+func TestTurnToolCallsCounter(t *testing.T) {
+	ag := newMissionAgent(t)
+	ag.resetTurnToolCalls()
+	if ag.ToolCallsThisTurn() != 0 {
+		t.Fatalf("expected 0 tool calls after reset, got %d", ag.ToolCallsThisTurn())
+	}
+	ag.noteToolExecuted()
+	ag.noteToolExecuted()
+	if got := ag.ToolCallsThisTurn(); got != 2 {
+		t.Fatalf("expected 2 tool calls, got %d", got)
+	}
+}
+
+func TestMissionMakesPermissionsUnattended(t *testing.T) {
+	ag := newMissionAgent(t)
+	if ag.perm.Unattended() {
+		t.Fatal("permissions should not be unattended before a mission")
+	}
+	ag.reg.Get("MissionStart").Execute(context.Background(), map[string]any{"goal": "run unattended"})
+
+	file := filepath.Join(t.TempDir(), "a.txt")
+	if err := os.WriteFile(file, []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ag.executeTool(context.Background(), ag.reg.Get("Read"), "Read", map[string]any{"file_path": file}, toolExecutionMode{}); err != nil {
+		t.Fatalf("executeTool: %v", err)
+	}
+	if !ag.perm.Unattended() {
+		t.Fatal("expected unattended permissions while a mission is active")
 	}
 }
 

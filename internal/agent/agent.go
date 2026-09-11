@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
@@ -48,6 +49,10 @@ type Agent struct {
 	// mission is the agent-declared long-running goal. While active, the
 	// runtime keeps starting turns until the agent completes or blocks it.
 	mission *tools.MissionStore
+	// turnToolCalls counts tool executions in the current Run so the mission
+	// loop can detect a turn that did no work at all (a stall) without imposing
+	// an arbitrary turn limit.
+	turnToolCalls atomic.Int32
 	// descCacheStore memoizes sidecar-generated image descriptions
 	// ("borrowed vision") per file revision.
 	descCacheStore *vision.Cache
@@ -63,14 +68,15 @@ type Agent struct {
 
 // promptCache holds memoized system prompt fragments between turns.
 type promptCache struct {
-	mu           sync.Mutex
-	stableKey    string
-	stableBody   string
-	cacheGoal    string
-	cachePlan    bool
-	cacheReview  bool
-	cacheMission string
-	full         string
+	mu            sync.Mutex
+	stableKey     string
+	stableBody    string
+	cacheGoal     string
+	cachePlan     bool
+	cacheReview   bool
+	cacheMission  string
+	cacheProgress string
+	full          string
 }
 
 func IsEmptyAssistantResponseErr(err error) bool {
