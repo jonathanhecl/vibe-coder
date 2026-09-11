@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -117,6 +118,11 @@ func (t *WebFetchTool) Execute(ctx context.Context, params map[string]any) Resul
 	if err != nil {
 		return errResult(fmt.Sprintf("build request: %v", err))
 	}
+	// A browser-like UA and Accept set: many sites (e.g. Wikipedia) answer the
+	// Go default client with HTTP 403, which would make pages unfetchable.
+	req.Header.Set("User-Agent", ddgUserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	resp, err := newWebFetchClient().Do(req)
 	if err != nil {
 		return errResult(fmt.Sprintf("fetch url: %v", err))
@@ -136,13 +142,21 @@ func (t *WebFetchTool) Execute(ctx context.Context, params map[string]any) Resul
 	return Result{Output: strings.TrimSpace(text)}
 }
 
-func htmlToText(html string) string {
-	reScript := regexp.MustCompile(`(?is)<script.*?>.*?</script>`)
-	reStyle := regexp.MustCompile(`(?is)<style.*?>.*?</style>`)
+func htmlToText(htmlDoc string) string {
+	// Strip script/style/noscript blocks (with their contents) and HTML
+	// comments before removing the remaining tags. Script content must go:
+	// leaving it in floods the model context with JavaScript instead of prose.
+	reScript := regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`)
+	reStyle := regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
+	reNoscript := regexp.MustCompile(`(?is)<noscript\b[^>]*>.*?</noscript\s*>`)
+	reComment := regexp.MustCompile(`(?s)<!--.*?-->`)
 	reTag := regexp.MustCompile(`(?s)<[^>]+>`)
-	text := reScript.ReplaceAllString(html, " ")
-	text = reStyle.ReplaceAllString(html, " ")
+	text := reScript.ReplaceAllString(htmlDoc, " ")
+	text = reStyle.ReplaceAllString(text, " ")
+	text = reNoscript.ReplaceAllString(text, " ")
+	text = reComment.ReplaceAllString(text, " ")
 	text = reTag.ReplaceAllString(text, " ")
+	text = html.UnescapeString(text)
 	text = strings.ReplaceAll(text, "\t", " ")
 	text = strings.ReplaceAll(text, "\r", " ")
 	reSpaces := regexp.MustCompile(`\s+`)

@@ -164,6 +164,25 @@ func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
 	return "", false, false
 }
 
+// ResolveTarget resolves a path for a tool that may create the file (Write).
+// Unlike Resolve, it does not require the path to exist: an absolute path is
+// returned as-is and a relative path is anchored to the working directory.
+// rescued reports whether the path was rewritten.
+func (m *pathMemory) ResolveTarget(p string) (string, bool) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", false
+	}
+	if filepath.IsAbs(p) {
+		return p, false
+	}
+	abs, err := filepath.Abs(filepath.Join(m.cwd, p))
+	if err != nil {
+		return "", false
+	}
+	return abs, true
+}
+
 // rescueUniqueBasename returns the only indexed absolute path for filepath.Base(p).
 func (m *pathMemory) rescueUniqueBasename(p string) (string, bool) {
 	base := filepath.Base(p)

@@ -64,6 +64,24 @@ func TestPathMemoryResolvesAgainstCwd(t *testing.T) {
 	}
 }
 
+func TestPathMemoryResolveTargetForWrite(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	mem := newPathMemory(tmp)
+
+	abs, rescued := mem.ResolveTarget("report.md")
+	if want := filepath.Join(tmp, "report.md"); abs != want || !rescued {
+		t.Fatalf("ResolveTarget(relative) = %q rescued=%v, want %q", abs, rescued, want)
+	}
+	abs, rescued = mem.ResolveTarget(filepath.Join(tmp, "src", "new.go"))
+	if want := filepath.Join(tmp, "src", "new.go"); abs != want || rescued {
+		t.Fatalf("ResolveTarget(absolute) = %q rescued=%v, want %q", abs, rescued, want)
+	}
+	if abs, _ := mem.ResolveTarget("  "); abs != "" {
+		t.Fatalf("ResolveTarget(empty) = %q, want empty", abs)
+	}
+}
+
 func TestPathMemoryRescuesByBasename(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()

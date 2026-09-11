@@ -297,6 +297,23 @@ func TestRunXMLWriteExecutesAndDetectParallelAndBranch(t *testing.T) {
 	}
 }
 
+func TestRunXMLWriteRelativePathAnchorsToCwd(t *testing.T) {
+	// Models routinely write a bare relative name; it must land in the session
+	// cwd instead of failing with a "must be absolute" path error.
+	c := &sequenceClient{replies: []string{
+		`<invoke name="Write">{"file_path":"note.txt","contents":"ok"}</invoke>`,
+		"done",
+	}}
+	ag := newCoverageAgent(t, c, tui.DecisionAllowOnce, true)
+	if err := ag.Run(context.Background(), "write note.txt"); err != nil {
+		t.Fatalf("relative write run failed: %v", err)
+	}
+	note := filepath.Join(ag.cfg.Cwd, "note.txt")
+	if data, err := os.ReadFile(note); err != nil || string(data) != "ok" {
+		t.Fatalf("relative write did not land in cwd: data=%q err=%v", data, err)
+	}
+}
+
 func TestMissionProgressPersistsDuringRun(t *testing.T) {
 	// A single Run can execute many tool calls before returning, so mission
 	// state must hit disk as soon as MissionStart runs; otherwise a crash

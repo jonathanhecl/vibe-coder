@@ -130,6 +130,18 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 		}
 		return
 	}
+	// A Write target usually does not exist yet, so Resolve declines it; still
+	// anchor a relative path to the working directory instead of rejecting it
+	// outright (models routinely write "report.md" or "src/new.go").
+	if toolName == "Write" {
+		if abs, rescued := a.paths.ResolveTarget(raw); abs != "" {
+			params[key] = abs
+			if rescued {
+				a.ui.ShowToolResult(toolName, fmt.Sprintf("rescued path %q → %s", raw, abs), false, nil)
+			}
+			return
+		}
+	}
 	// Resolve declined: try sidecar disambiguation across remembered
 	// candidates. This only kicks in when there are 2+ matches under the
 	// same basename, which is exactly the case where the deterministic
