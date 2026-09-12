@@ -276,7 +276,9 @@ func TestRunXMLPermissionDeniedAndParallelAgentsPath(t *testing.T) {
 
 func TestRunXMLWriteExecutesAndDetectParallelAndBranch(t *testing.T) {
 	tmp := t.TempDir()
-	note := filepath.Join(tmp, "note.txt")
+	// ToSlash keeps the injected JSON valid on Windows: raw backslashes in a
+	// JSON string are invalid escapes (\U, \T, ...) or corrupt the path (\n).
+	note := filepath.ToSlash(filepath.Join(tmp, "note.txt"))
 	// First turn asks for the XML write, second turn is a plain final answer;
 	// a client that repeats the envelope forever would just hit the cap.
 	c := &sequenceClient{replies: []string{

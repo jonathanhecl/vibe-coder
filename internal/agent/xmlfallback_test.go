@@ -94,6 +94,20 @@ func TestParseXMLFallbackAllRespectsCap(t *testing.T) {
 	}
 }
 
+// Regression: models on Windows emit unescaped paths like "C:\Users\..."
+// inside tool JSON. \U-style sequences are invalid JSON escapes; a strict
+// parse used to drop the whole tool call silently.
+func TestParseXMLFallbackWindowsPathEscapes(t *testing.T) {
+	in := `<invoke name="Write">{"file_path":"C:\Users\me\dir\note.txt","contents":"ok"}</invoke>`
+	name, params, ok := parseXMLFallback(in)
+	if !ok || name != "Write" {
+		t.Fatalf("expected invoke parse with Windows path, got ok=%t name=%q", ok, name)
+	}
+	if params["file_path"] != `C:\Users\me\dir`+"\n"+`ote.txt` {
+		t.Fatalf("unexpected file_path: %#v", params["file_path"])
+	}
+}
+
 // Surrounding prose around the envelope must not prevent recognition; the
 // loop already streams the reply, but recovery should still succeed.
 func TestParseXMLFallbackInvokeWithSurroundingText(t *testing.T) {

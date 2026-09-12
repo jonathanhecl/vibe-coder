@@ -208,7 +208,65 @@ func decodeToolJSON(raw string) (map[string]any, bool) {
 	if err := json.Unmarshal([]byte(fixed), &params); err == nil {
 		return params, true
 	}
+	// Models routinely emit unescaped Windows paths ("C:\Users\...") inside
+	// tool arguments; strict JSON rejects \U-style sequences and the whole
+	// tool call would be silently dropped.
+	escaped := escapeInvalidJSONEscapes(fixed)
+	if escaped != fixed {
+		if err := json.Unmarshal([]byte(escaped), &params); err == nil {
+			return params, true
+		}
+	}
 	return nil, false
+}
+
+// escapeInvalidJSONEscapes rewrites backslash sequences that are not valid
+// JSON escapes (e.g. the \U in "C:\Users") as literal backslashes, leaving
+// valid escapes and content outside strings untouched.
+func escapeInvalidJSONEscapes(raw string) string {
+	var b strings.Builder
+	b.Grow(len(raw) + 8)
+	inString := false
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if c == '"' {
+			inString = !inString
+			b.WriteByte(c)
+			continue
+		}
+		if !inString || c != '\\' {
+			b.WriteByte(c)
+			continue
+		}
+		if i+1 >= len(raw) {
+			b.WriteString(`\\`)
+			continue
+		}
+		n := raw[i+1]
+		if strings.IndexByte(`"\\/bfnrt`, n) >= 0 {
+			b.WriteByte(c)
+			b.WriteByte(n)
+			i++
+			continue
+		}
+		if n == 'u' && i+5 < len(raw) && isHex4(raw[i+2:i+6]) {
+			b.WriteString(raw[i : i+6])
+			i += 5
+			continue
+		}
+		b.WriteString(`\\`)
+	}
+	return b.String()
+}
+
+func isHex4(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func toToolName(raw string) string {
