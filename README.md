@@ -198,14 +198,28 @@ go build -o vibe.exe ./cmd/vibe
 
 Helper scripts:
 
-```powershell
-.\run.ps1        # build + run with forwarded flags
-.\release.ps1    # cross-compile archives, create a Git tag, and publish a GitHub Release
+```bash
+./run.sh          # build + run with forwarded flags
+./release.sh      # cross-compile archives, create a Git tag, and publish a GitHub Release
 ```
 
-```bash
-./run.sh
+```powershell
+.\run.ps1
+.\release.ps1
 ```
+
+On Linux/macOS, publish a release with:
+
+```bash
+GITHUB_TOKEN=<token> ./release.sh v1.0.5
+```
+
+`release.sh` runs the test suite (unless `--skip-tests`), builds all platform
+archives into `dist/`, writes `dist/checksums.txt`, then creates the Git tag and
+the GitHub Release and uploads the assets. `--yes` skips the confirmation prompt
+for non-interactive use. It needs a token with `repo` scope in `GITHUB_TOKEN`
+(or `GH_TOKEN`, or an authenticated `gh` CLI); a zip tool (`zip`, 7z, bsdtar, or
+python3) is used for packaging.
 
 The release workflow produces platform archives in `dist/`, then uploads them as assets to the GitHub Release for the requested tag.
 
@@ -606,7 +620,7 @@ covers and how to run it.
 |--------|---------|
 | `install-dev.ps1` / `install-dev.sh` | Dev build + install with timestamp + short Git hash |
 | `run.ps1` / `run.sh` | Build + run with forwarded CLI flags |
-| `release.ps1` | Cross-compile for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64; produces archives + `checksums.txt` |
+| `release.ps1` / `release.sh` | Cross-compile for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64; produces archives + `checksums.txt` |
 
 ### Project layout
 
