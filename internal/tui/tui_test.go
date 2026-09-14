@@ -234,6 +234,34 @@ func TestInteractiveInputCtrlUKillsToStart(t *testing.T) {
 	}
 }
 
+// TestInteractiveInputCtrlCReturnsEmptyNotEOF verifies that Ctrl+C clears the
+// current line and returns an empty string with no error, so the REPL shows a
+// fresh prompt instead of exiting.
+func TestInteractiveInputCtrlCReturnsEmptyNotEOF(t *testing.T) {
+	var out bytes.Buffer
+	// Type "hello" then Ctrl-C: should return "", nil (not io.EOF).
+	got, err := readInteractiveInputStream(strings.NewReader("hello\x03"), &out)
+	if err != nil {
+		t.Fatalf("Ctrl-C should not return an error, got: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("Ctrl-C should return empty string, got %q", got)
+	}
+	if !strings.Contains(out.String(), "^C") {
+		t.Fatalf("expected ^C to be echoed, got %q", out.String())
+	}
+}
+
+// TestInteractiveInputCtrlDOnEmptyReturnsEOF verifies that Ctrl+D on an empty
+// line still returns io.EOF (the normal way to quit the REPL).
+func TestInteractiveInputCtrlDOnEmptyReturnsEOF(t *testing.T) {
+	var out bytes.Buffer
+	_, err := readInteractiveInputStream(strings.NewReader("\x04"), &out)
+	if err == nil {
+		t.Fatal("Ctrl-D on empty line should return io.EOF, got nil")
+	}
+}
+
 // TestInteractiveInputHistoryRecall verifies that Up recalls the previous
 // submitted entry when a history is provided.
 func TestInteractiveInputHistoryRecall(t *testing.T) {

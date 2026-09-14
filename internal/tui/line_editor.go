@@ -238,8 +238,9 @@ func normalizePaste(s string) string {
 
 // readInteractiveInputStreamWithStyle is the interactive input loop. It reads
 // from reader byte-by-byte, decodes UTF-8 and escape sequences, and drives the
-// line editor. Enter submits the line (recording it to history); Ctrl-C and
-// Ctrl-D on an empty line return io.EOF.
+// line editor. Enter submits the line (recording it to history); Ctrl-D on an
+// empty line returns io.EOF. Ctrl-C clears the current line and returns an
+// empty string so the REPL shows a fresh prompt without exiting.
 func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style Style, history *inputHistory, prompt string) (string, error) {
 	e := newLineEditor(out, style, history, prompt)
 	for {
@@ -255,8 +256,9 @@ func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style 
 				history.add(result)
 			}
 			return result, nil
-		case b == 0x03: // Ctrl-C
-			return "", io.EOF
+		case b == 0x03: // Ctrl-C: clear line and return empty (does not exit)
+			_, _ = io.WriteString(out, "^C\r\n")
+			return "", nil
 		case b == 0x04: // Ctrl-D: EOF on empty line, else forward delete
 			if len(e.buf) == 0 {
 				return "", io.EOF

@@ -59,7 +59,7 @@ func printHelp(c *Ctx) {
 		}},
 		{"Misc", [][2]string{
 			{"/help, /commands", "show this help"},
-			{"/exit, /quit, /q", "save and exit"},
+			{"/exit, /quit, /q, bye", "save and exit (Ctrl+D also exits)"},
 		}},
 	}
 	maxCmd := 0

@@ -41,7 +41,8 @@ type UI interface {
 // PlainUI uses raw mode only while reading interactive input so bracketed paste
 // can be rendered as a compact block instead of being echoed in full. The
 // reader restores the terminal immediately after Enter, paste completion, or
-// Ctrl+C; the rest of the UI continues to use buffered stdin reads.
+// Ctrl+C (which clears the current line without exiting); the rest of the UI
+// continues to use buffered stdin reads.
 type PlainUI struct {
 	in  *os.File
 	out io.Writer
@@ -151,15 +152,16 @@ func (u *PlainUI) SetPlanMode(enabled bool) {
 // StartESCMonitor is a no-op kept for backwards compatibility with the
 // agent's uiPort interface. We intentionally do not enter raw mode anymore;
 // see the type comment for why. Cancellation is now driven by the OS signal
-// handler in main, which cancels the root context on Ctrl+C.
+// handler in main, which cancels the in-flight operation context on Ctrl+C
+// (the REPL itself stays running).
 func (u *PlainUI) StartESCMonitor(interrupt func()) error { return nil }
 
 // StopESCMonitor is a no-op kept for backwards compatibility.
 func (u *PlainUI) StopESCMonitor() {}
 
 // Stop performs a one-time shutdown of the UI. Idempotent so signal handlers
-// can call it safely. It also halts the spinner so a Ctrl+C doesn't leave a
-// half-painted Braille frame on the user's terminal.
+// can call it safely. It also halts the spinner so a forced exit doesn't
+// leave a half-painted Braille frame on the user's terminal.
 func (u *PlainUI) Stop() {
 	u.stopSpinner()
 	u.stopOnce.Do(func() {

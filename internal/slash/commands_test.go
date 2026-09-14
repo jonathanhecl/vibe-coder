@@ -486,3 +486,39 @@ func TestReviewCommand(t *testing.T) {
 		t.Fatalf("expected usage message, got %q", out.String())
 	}
 }
+
+func TestByeExitsAndIgnoresCase(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   tmp,
+	}
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: session.New(cfg),
+		Agent:   &fakePlanAgent{},
+		Out:     &bytes.Buffer{},
+	}
+
+	for _, input := range []string{"bye", "Bye", "BYE", "  bye  ", "/bye"} {
+		var out bytes.Buffer
+		ctx.Out = &out
+		handled, shouldExit, err := Dispatch(ctx, input)
+		if err != nil || !handled || !shouldExit {
+			t.Fatalf("unexpected %q result: handled=%t exit=%t err=%v", input, handled, shouldExit, err)
+		}
+		if !strings.Contains(out.String(), "Session saved") {
+			t.Fatalf("expected %q to save session, got %q", input, out.String())
+		}
+	}
+
+	// "bye" embedded in a longer message must NOT be treated as exit.
+	var out bytes.Buffer
+	ctx.Out = &out
+	handled, shouldExit, err := Dispatch(ctx, "bye please help me")
+	if err != nil || handled || shouldExit {
+		t.Fatalf("unexpected embedded bye result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+}

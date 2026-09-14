@@ -48,6 +48,16 @@ type commitClient interface {
 
 func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	trimmed := strings.TrimSpace(line)
+
+	// "bye" (case-insensitive) is a non-slash alias for /exit.
+	if strings.EqualFold(trimmed, "bye") {
+		if err := c.Session.Save(); err != nil {
+			return true, false, err
+		}
+		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
+		return true, true, nil
+	}
+
 	if !strings.HasPrefix(trimmed, "/") {
 		return false, false, nil
 	}
@@ -56,7 +66,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	cmd := fields[0]
 
 	switch cmd {
-	case "/exit", "/quit", "/q":
+	case "/exit", "/quit", "/q", "/bye":
 		if err := c.Session.Save(); err != nil {
 			return true, false, err
 		}

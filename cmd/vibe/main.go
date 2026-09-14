@@ -148,7 +148,7 @@ func main() {
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
-	installSignalHandler(ui, sess, rootCancel)
+	installSignalHandler(ui, sess, globalInterrupter)
 
 	logger.Infof("Configuring RAG...")
 	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, client, ag)

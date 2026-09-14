@@ -190,7 +190,14 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 	repeatedState := false
 	currentInput := strings.TrimSpace(input)
 	for {
-		err := ag.Run(rootCtx, currentInput)
+		// Wrap each ag.Run in a child context that the signal handler can
+		// cancel without killing the root context, so a Ctrl+C interrupts
+		// only the current operation and the REPL stays alive.
+		opCtx, opCancel := context.WithCancel(rootCtx)
+		globalInterrupter.arm(opCancel)
+		err := ag.Run(opCtx, currentInput)
+		opCancel()
+		globalInterrupter.disarm()
 		if err == nil {
 			return nil
 		}
