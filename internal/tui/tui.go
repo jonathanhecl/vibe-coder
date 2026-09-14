@@ -78,6 +78,15 @@ type PlainUI struct {
 	// frames, so callers must never hold mu when manipulating spinner.
 	spinnerMu sync.Mutex
 	spinner   *spinner
+
+	// ESC monitor: watches for double-ESC during agent execution to cancel
+	// the in-flight operation. escMu coordinates stdin reads between the ESC
+	// monitor goroutine and readSingleChar (used by AskPermission).
+	escMu      sync.Mutex
+	escCancel  func()
+	escStop    chan struct{}
+	escDone    chan struct{}
+	escRestore func()
 }
 
 type Decision int
@@ -149,15 +158,8 @@ func (u *PlainUI) SetPlanMode(enabled bool) {
 	u.planMode = enabled
 }
 
-// StartESCMonitor is a no-op kept for backwards compatibility with the
-// agent's uiPort interface. We intentionally do not enter raw mode anymore;
-// see the type comment for why. Cancellation is now driven by the OS signal
-// handler in main, which cancels the in-flight operation context on Ctrl+C
-// (the REPL itself stays running).
-func (u *PlainUI) StartESCMonitor(interrupt func()) error { return nil }
-
-// StopESCMonitor is a no-op kept for backwards compatibility.
-func (u *PlainUI) StopESCMonitor() {}
+// StartESCMonitor and StopESCMonitor are implemented in esc_monitor.go and
+// the platform-specific esc_monitor_other.go / esc_monitor_windows.go files.
 
 // Stop performs a one-time shutdown of the UI. Idempotent so signal handlers
 // can call it safely. It also halts the spinner so a forced exit doesn't

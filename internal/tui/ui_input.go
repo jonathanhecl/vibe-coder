@@ -287,11 +287,15 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 
 // readSingleChar puts stdin in raw mode for one keypress and returns it.
 // It returns false if stdin is not a TTY or raw mode cannot be entered.
+// The escMu lock coordinates with the ESC monitor goroutine so only one
+// reader accesses stdin at a time.
 func (u *PlainUI) readSingleChar() (byte, bool) {
 	if u.in == nil || u.reader == nil {
 		return 0, false
 	}
 	fd := int(u.in.Fd())
+	u.escMu.Lock()
+	defer u.escMu.Unlock()
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return 0, false

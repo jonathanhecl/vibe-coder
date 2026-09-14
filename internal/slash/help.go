@@ -60,6 +60,7 @@ func printHelp(c *Ctx) {
 		{"Misc", [][2]string{
 			{"/help, /commands", "show this help"},
 			{"/exit, /quit, /q, bye", "save and exit (Ctrl+D also exits)"},
+			{"ESC ESC (double-tap)", "stop the running agent and return to prompt"},
 		}},
 	}
 	maxCmd := 0

@@ -86,7 +86,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **Inline diff renderer** — `Edit` tool shows colored unified-diff (red/green/cyan) with 50-line truncation.
 - **Type-ahead** — keystrokes pressed mid-generation are captured and prefilled into the next prompt.
 - **Multiline input** — dedicated keybinding starts multi-line mode; plain Enter submits.
-- **Terminal restoration** — signal handler ensures raw mode is never left behind on Ctrl+C or panic.
+- **Terminal restoration** — signal handler ensures raw mode is never left behind on Ctrl+C, ESC, or panic.
 
 ### Integrations
 
@@ -483,7 +483,9 @@ Pinned context files are injected into the system prompt on every turn, so they 
 ### Misc
 
 - `/help` — show the command reference
-- `/exit`, `/quit`, `/q` — save and exit
+- `/exit`, `/quit`, `/q`, `/bye` — save and exit (Ctrl+D also exits)
+- Double-tap **ESC** — stop the running agent and return to the prompt
+- **Ctrl+C** — cancel the current operation (press twice quickly to force-exit)
 
 ## Built-in Tool Notes
 
@@ -520,7 +522,7 @@ do not call these directly, but their behavior affects speed and context usage:
 - `SubAgent` and `ParallelAgents` spawn child agents with bounded fan-out.
 - `Glob` and `Grep` skip heavy directories such as `.git`, `node_modules`,
   `vendor`, `dist`, `build`, `target`, and `.vibe-coder`.
-- `Read`, `Glob`, and `Grep` respect cancellation, so ESC/Ctrl-C can stop
+- `Read`, `Glob`, and `Grep` respect cancellation, so ESC ESC or Ctrl+C can stop
   long file operations cleanly.
 
 ### File checkpoints and undo

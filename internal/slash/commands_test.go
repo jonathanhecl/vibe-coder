@@ -428,7 +428,7 @@ func TestHelpListsGroupedCommands(t *testing.T) {
 		t.Fatalf("unexpected /help result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 	got := out.String()
-	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/session <id>", "/resume", "/sessions delete --all", "/code", "/review"} {
+	for _, want := range []string{"Session", "Model", "Mode", "Git", "Misc", "/sessions", "/session <id>", "/resume", "/sessions delete --all", "/code", "/review", "ESC ESC"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected /help output to contain %q, got %q", want, got)
 		}
