@@ -19,12 +19,12 @@ func (w *wizard) selectHostAndModels(ctx context.Context, currentHost string) (s
 		w.section("Host setup")
 		w.option("Enter", fmt.Sprintf("Use local Ollama (%s) [default]", defaultOllamaHost))
 		w.option("c", "Enter host URL manually")
-		choice, err := w.prompt(ctx, "Host choice [Enter/c]: ")
+		choice, err := w.prompt(ctx, "Host choice [Enter/c or URL]: ")
 		if err != nil {
 			return "", nil, nil, err
 		}
-		choice = strings.TrimSpace(strings.ToLower(choice))
-		switch choice {
+		raw := strings.TrimSpace(choice)
+		switch strings.ToLower(raw) {
 		case "":
 			host = defaultOllamaHost
 		case "c":
@@ -36,10 +36,10 @@ func (w *wizard) selectHostAndModels(ctx context.Context, currentHost string) (s
 			if value == "" {
 				return "", nil, nil, fmt.Errorf("host URL cannot be empty")
 			}
-			host = value
+			host = normalizeHost(value)
 		default:
-			w.warn("Invalid choice. Press Enter for local host, or c for custom URL.")
-			continue
+			// Accept a URL or host:port pasted directly at the choice prompt.
+			host = normalizeHost(raw)
 		}
 
 		client := ollama.NewHTTP(host)
@@ -73,6 +73,19 @@ func (w *wizard) selectHostAndModels(ctx context.Context, currentHost string) (s
 		w.good(fmt.Sprintf("Connected to Ollama %s at %s", versionValue, host))
 		return host, client, models, nil
 	}
+}
+
+// normalizeHost trims a user-entered host and adds the http:// scheme when it
+// is missing, so "mac-mini.local:11434" works as well as a full URL.
+func normalizeHost(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	if !strings.Contains(value, "://") {
+		value = "http://" + value
+	}
+	return value
 }
 
 func (w *wizard) retryHostPrompt(ctx context.Context) (bool, error) {

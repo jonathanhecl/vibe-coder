@@ -104,6 +104,66 @@ func TestRunFirstRunDefaultPathUsesInstalledRecommendedWithoutPull(t *testing.T)
 	}
 }
 
+func TestNormalizeHost(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"http://mac-mini.local:11434": "http://mac-mini.local:11434",
+		"https://ollama.example":      "https://ollama.example",
+		"mac-mini.local:11434":        "http://mac-mini.local:11434",
+		"192.168.1.50:11434":          "http://192.168.1.50:11434",
+		"  mac-mini.local  ":          "http://mac-mini.local",
+		"":                            "",
+	}
+	for in, want := range cases {
+		if got := normalizeHost(in); got != want {
+			t.Fatalf("normalizeHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRunFirstRunAcceptsHostURLAtChoice(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/version":
+			_, _ = w.Write([]byte(`{"version":"0.8.0"}`))
+		case "/api/tags":
+			_, _ = w.Write([]byte(`{"models":[{"name":"qwen3.5:4b"}]}`))
+		case "/api/show":
+			_, _ = w.Write([]byte(`{"model":"qwen3.5:4b","capabilities":["tools"]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		ConfigDir:  tmp,
+		ConfigFile: filepath.Join(tmp, "vibe-coder.env"),
+	}
+
+	// Paste the URL directly at the host choice prompt (no "c" needed),
+	// then accept the recommended model and disable the sidecar.
+	in := bytes.NewBufferString(strings.Join([]string{
+		srv.URL,
+		"",
+		"",
+	}, "\n") + "\n")
+	out := &bytes.Buffer{}
+
+	if err := RunFirstRun(context.Background(), cfg, "test", in, out); err != nil {
+		t.Fatalf("RunFirstRun: %v", err)
+	}
+	if cfg.OllamaHost != srv.URL {
+		t.Fatalf("host mismatch: got %q", cfg.OllamaHost)
+	}
+	if cfg.Model != defaultModel {
+		t.Fatalf("model mismatch: got %q", cfg.Model)
+	}
+}
+
 func TestRunFirstRunCustomModelAndCustomSidecarPullsBoth(t *testing.T) {
 	t.Parallel()
 
