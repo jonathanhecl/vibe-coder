@@ -62,7 +62,6 @@ func HasPotentialToolStart(s string) (int, bool) {
 	return -1, false
 }
 
-
 // asciiPrefixFold reports whether p starts with prefixLower (ASCII letters,
 // all lowercase in prefixLower) under ASCII case folding.
 func asciiPrefixFold(p, prefixLower string) bool {

@@ -1,9 +1,48 @@
-# vibe-coder
+<p align="center">
+  <img src="assets/logo-mark.svg" alt="vibe-coder logo" width="88">
+</p>
 
-`vibe-coder` is a local-first coding agent for Ollama, built in Go.
-It ships as a single static CLI binary named `vibe` and supports one-shot prompts, interactive REPL sessions, a rich tool system, session persistence with compaction, and optional RAG — all without leaving your machine.
+<h1 align="center">vibe-coder</h1>
 
-![vibe-coder demo](demo.png)
+<p align="center">
+  <strong>A local-first coding agent for <a href="https://ollama.com">Ollama</a>, written in Go.</strong>
+</p>
+
+<p align="center">
+  Ships as a single static binary named <code>vibe</code> — one-shot prompts, an interactive REPL,
+  a rich tool system, session persistence with compaction, and optional RAG, all without leaving your machine.
+</p>
+
+<p align="center">
+  <a href="https://github.com/jonathanhecl/vibe-coder/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jonathanhecl/vibe-coder?style=flat-square&color=818cf8"></a>
+  <a href="https://github.com/jonathanhecl/vibe-coder/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/jonathanhecl/vibe-coder/ci.yml?branch=main&style=flat-square&label=CI"></a>
+  <img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/jonathanhecl/vibe-coder?style=flat-square&color=22d3ee">
+  <img alt="Platforms" src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-64748b?style=flat-square">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/jonathanhecl/vibe-coder?style=flat-square&color=34d399"></a>
+  <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-34d399?style=flat-square">
+</p>
+
+<p align="center">
+  <img src="demo.png" alt="vibe-coder interactive session" width="820">
+</p>
+
+## Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Model Configuration](#model-configuration)
+- [CLI Flags](#cli-flags)
+- [MCP & Skills Management CLI](#mcp--skills-management-cli)
+- [Slash Commands](#slash-commands)
+- [Vision](#vision)
+- [RAG Usage](#rag-usage)
+- [Development](#development)
+- [Architecture Overview](#architecture-overview)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
 ## Features
 
@@ -672,6 +711,28 @@ packages:
 6. **Ollama client** (`internal/ollama`) handles streaming NDJSON chat,
    model tags, version, and pull progress.
 
+## Contributing
+
+Contributions are welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md)
+for the development setup, coding conventions, and the pull-request
+checklist. In short:
+
+1. Fork the repository and create a topic branch.
+2. Keep changes small, focused, and covered by tests.
+3. Run `gofmt -l .`, `go vet ./...`, and `go test ./...` before opening a PR.
+4. Describe the motivation and the behavior change in the PR body.
+
+Bug reports and feature requests use the
+[issue templates](https://github.com/jonathanhecl/vibe-coder/issues/new/choose).
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md) code of
+conduct.
+
+## Security
+
+Please do not open public issues for security problems. See
+[`SECURITY.md`](SECURITY.md) for supported versions and the private
+reporting process.
+
 ## License
 
-MIT
+Released under the [MIT License](LICENSE).

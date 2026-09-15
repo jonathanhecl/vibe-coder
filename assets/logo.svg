@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160" width="560" height="160" role="img" aria-label="vibe-coder">
+  <defs>
+    <linearGradient id="vcMarkWide" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="0.5" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="vcBgWide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="vcWord" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e2e8f0"/>
+      <stop offset="1" stop-color="#94a3b8"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="128" height="128" rx="28" fill="url(#vcBgWide)"/>
+  <rect x="16" y="16" width="128" height="128" rx="28" fill="none" stroke="url(#vcMarkWide)" stroke-opacity="0.55" stroke-width="2"/>
+  <path d="M48 60l20 20-20 20" fill="none" stroke="url(#vcMarkWide)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M78 100h30" fill="none" stroke="url(#vcMarkWide)" stroke-width="11" stroke-linecap="round" stroke-opacity="0.85"/>
+  <circle cx="109" cy="56" r="7" fill="#34d399"/>
+  <circle cx="109" cy="56" r="13" fill="none" stroke="#34d399" stroke-opacity="0.35" stroke-width="2"/>
+  <text x="184" y="82" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="52" font-weight="700" letter-spacing="-1" fill="url(#vcWord)">vibe-coder</text>
+  <text x="186" y="114" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="19" letter-spacing="0.4" fill="#64748b">local-first coding agent for Ollama</text>
+</svg>

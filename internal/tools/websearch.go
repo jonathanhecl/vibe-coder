@@ -17,8 +17,10 @@ type WebSearchTool struct{}
 
 func NewWebSearchTool() *WebSearchTool { return &WebSearchTool{} }
 
-func (t *WebSearchTool) Name() string        { return "WebSearch" }
-func (t *WebSearchTool) Description() string { return "Search the web using DuckDuckGo HTML with a Bing HTML fallback." }
+func (t *WebSearchTool) Name() string { return "WebSearch" }
+func (t *WebSearchTool) Description() string {
+	return "Search the web using DuckDuckGo HTML with a Bing HTML fallback."
+}
 func (t *WebSearchTool) Schema() Schema {
 	return Schema{
 		Type: "function",

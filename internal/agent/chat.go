@@ -178,6 +178,7 @@ func nativeCallNames(calls []ToolCall) string {
 	}
 	return strings.Join(names, ", ")
 }
+
 // streamIdleProgressInterval controls how often a silent stream re-shows the
 // waiting spinner. The spinner stops once the first tokens arrive, so a model
 // that goes quiet mid-turn would otherwise look frozen with no elapsed time
@@ -267,59 +268,59 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			}
 			resetIdle()
 			if chunk.Err != nil {
-			if isCancelledByUser(rootCtx, chunk.Err) {
-				finishAssistant()
-				return "[Cancelled by user]", nil, nil
+				if isCancelledByUser(rootCtx, chunk.Err) {
+					finishAssistant()
+					return "[Cancelled by user]", nil, nil
+				}
+				a.ui.StopWaiting()
+				endThinking()
+				a.ui.EndAssistant()
+				return "", nil, chunk.Err
 			}
-			a.ui.StopWaiting()
-			endThinking()
-			a.ui.EndAssistant()
-			return "", nil, chunk.Err
-		}
-		// Tool calls may arrive split across chunks (or repeated in the final
-		// one): accumulate them instead of keeping only the last chunk.
-		toolCalls = ollama.MergeToolCalls(toolCalls, chunk.ToolCalls)
-		if chunk.Thinking != "" {
-			thinkingSeen = true
-			a.ui.StreamThinking(chunk.Thinking)
-		}
-		if chunk.Delta != "" {
-			endThinking()
-			a.ui.StopWaiting()
-			buf = append(buf, chunk.Delta...)
+			// Tool calls may arrive split across chunks (or repeated in the final
+			// one): accumulate them instead of keeping only the last chunk.
+			toolCalls = ollama.MergeToolCalls(toolCalls, chunk.ToolCalls)
+			if chunk.Thinking != "" {
+				thinkingSeen = true
+				a.ui.StreamThinking(chunk.Thinking)
+			}
+			if chunk.Delta != "" {
+				endThinking()
+				a.ui.StopWaiting()
+				buf = append(buf, chunk.Delta...)
 
-			// Tool XML is parsed after the stream completes. Until then, show
-			// only the natural-language prefix so users do not see raw envelopes.
-			rel := toolEnvelopeByteIndex(string(buf))
-			end := len(buf)
-			if rel >= 0 {
-				end = rel
-			} else {
-				if idx, ok := HasPotentialToolStart(string(buf)); ok {
-					end = idx
+				// Tool XML is parsed after the stream completes. Until then, show
+				// only the natural-language prefix so users do not see raw envelopes.
+				rel := toolEnvelopeByteIndex(string(buf))
+				end := len(buf)
+				if rel >= 0 {
+					end = rel
+				} else {
+					if idx, ok := HasPotentialToolStart(string(buf)); ok {
+						end = idx
+					}
+				}
+				if end > lastShown {
+					segment := string(buf[lastShown:end])
+					if strings.TrimSpace(segment) != "" {
+						a.ui.StreamAssistant(segment)
+					}
+					lastShown = end
 				}
 			}
-			if end > lastShown {
-				segment := string(buf[lastShown:end])
-				if strings.TrimSpace(segment) != "" {
-					a.ui.StreamAssistant(segment)
+			if chunk.Done {
+				full := string(buf)
+				flushUnprinted(full)
+				flushTailAfterTool(full)
+				finishAssistant()
+				native := nativeCallsToToolCalls(toolCalls)
+				// Native thinking often arrives only in chunk.Thinking; delta can be empty.
+				// A native-only tool turn is valid work, not an empty response.
+				// Treat that as retryable instead of ending the run with no visible work.
+				if strings.TrimSpace(full) == "" && len(native) == 0 {
+					return "", nil, fmt.Errorf("empty assistant response (no assistant text or tool call; model may have only emitted thinking)")
 				}
-				lastShown = end
-			}
-		}
-		if chunk.Done {
-			full := string(buf)
-			flushUnprinted(full)
-			flushTailAfterTool(full)
-			finishAssistant()
-			native := nativeCallsToToolCalls(toolCalls)
-			// Native thinking often arrives only in chunk.Thinking; delta can be empty.
-			// A native-only tool turn is valid work, not an empty response.
-			// Treat that as retryable instead of ending the run with no visible work.
-			if strings.TrimSpace(full) == "" && len(native) == 0 {
-				return "", nil, fmt.Errorf("empty assistant response (no assistant text or tool call; model may have only emitted thinking)")
-			}
-			return full, native, nil
+				return full, native, nil
 			}
 		}
 	}

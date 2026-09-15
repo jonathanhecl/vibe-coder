@@ -36,7 +36,7 @@ func (t *AskUserQuestionTool) Schema() Schema {
 						"description": "Optional heading printed before the questions.",
 					},
 					"questions": map[string]any{
-						"type": "array",
+						"type":        "array",
 						"description": `Required. Each item is an object: {"id":"q1","prompt":"...","options":["A","B"]} or options as [{"label":"A","id":"a"},...].`,
 						"items": map[string]any{
 							"type": "object",

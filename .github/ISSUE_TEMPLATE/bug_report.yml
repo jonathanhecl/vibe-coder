@@ -1,0 +1,83 @@
+name: Bug report
+description: Report a reproducible problem with vibe
+title: "[Bug]: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in as much detail as you can so it can be reproduced quickly.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I am running the latest release (or `main`).
+          required: true
+        - label: This is not a security vulnerability (see `SECURITY.md`).
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: vibe version
+      description: Output of `vibe --version`.
+      placeholder: v1.0.4
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: Linux amd64 / macOS arm64 / Windows amd64
+    validations:
+      required: true
+  - type: input
+    id: ollama
+    attributes:
+      label: Ollama version and model
+      description: Output of `ollama --version` plus the model you were using.
+      placeholder: "ollama 0.x.y — llama3.2:3b"
+    validations:
+      required: true
+  - type: dropdown
+    id: ui
+    attributes:
+      label: UI mode
+      options:
+        - plain
+        - rich
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `vibe ...`
+        2. Send the prompt `...`
+        3. Observe `...`
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Paste the output (re-run with `--debug` when possible). Redact secrets, tokens, and private paths.
+      render: text
+    validations:
+      required: false

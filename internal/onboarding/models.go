@@ -13,17 +13,22 @@ func (w *wizard) chooseMainModel(ctx context.Context, client ollama.Client, mode
 	for {
 		models = w.resolveModelCapabilities(ctx, client, models)
 		toolCapable := ollama.FilterToolCapableModels(models)
-		w.section("Primary model selection")
+		w.section(2, 3, "Primary model selection")
 		if len(toolCapable) == 0 {
 			w.warn("No tool-capable installed models were reported by /api/tags.")
 		} else {
 			w.label(fmt.Sprintf("Selectable tool-capable models (%d)", len(toolCapable)))
 			for i, model := range toolCapable {
-				w.option(fmt.Sprintf("%d", i+1), model.Name)
+				var tags []string
+				if strings.EqualFold(model.Name, defaultModel) {
+					tags = append(tags, "recommended")
+				}
+				w.option(fmt.Sprintf("%d", i+1), model.Name, tags...)
 			}
 		}
-		w.option("Enter", "Use recommended "+defaultModel)
-		w.option("c", "Pull and use another model now (no tools validation)")
+		w.option("Enter", "Use recommended "+defaultModel, "if installed")
+		w.option("c", "Pull and use another model now", "no tools validation")
+		w.hint("Enter a number, or press Enter for the default.")
 
 		choice, err := w.prompt(ctx, "Primary model choice: ")
 		if err != nil {
@@ -33,8 +38,7 @@ func (w *wizard) chooseMainModel(ctx context.Context, client ollama.Client, mode
 		switch {
 		case choice == "":
 			if hasModel(models, defaultModel) {
-				w.good("Using installed recommended model: " + defaultModel)
-				w.selected("Model selected: " + defaultModel)
+				w.selected("Using installed recommended model: " + defaultModel)
 				return defaultModel, nil
 			}
 			if err := w.pullModel(ctx, client, defaultModel); err != nil {
@@ -78,7 +82,7 @@ func (w *wizard) chooseSidecarModel(ctx context.Context, client ollama.Client, m
 	for {
 		models = w.resolveModelCapabilities(ctx, client, models)
 		toolCapable := ollama.FilterToolCapableModels(models)
-		w.section("Sidecar (optional)")
+		w.section(3, 3, "Sidecar (optional)")
 		w.subtle("The sidecar helps summarize long tool outputs and keep context compact.")
 		if len(toolCapable) > 0 {
 			w.label(fmt.Sprintf("Selectable tool-capable sidecar models (%d)", len(toolCapable)))
@@ -88,8 +92,9 @@ func (w *wizard) chooseSidecarModel(ctx context.Context, client ollama.Client, m
 		} else {
 			w.warn("No tool-capable installed models were reported by /api/tags.")
 		}
-		w.option("Enter", "Disable sidecar [default]")
-		w.option("c", "Pull and use another sidecar model now (no tools validation)")
+		w.option("Enter", "Disable sidecar", "default")
+		w.option("c", "Pull and use another sidecar model now", "no tools validation")
+		w.hint("Enter a number, or press Enter to skip.")
 
 		choice, err := w.prompt(ctx, "Sidecar choice: ")
 		if err != nil {
@@ -143,9 +148,17 @@ func (w *wizard) refreshModels(ctx context.Context, client ollama.Client, fallba
 func (w *wizard) pullModel(ctx context.Context, client ollama.Client, model string) error {
 	w.label("Pulling " + model + " ...")
 	lastStatus := ""
+	interactive := w.style.Enabled()
 	pullCtx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 	err := client.Pull(pullCtx, model, func(ev ollama.PullEvent) {
+		if ev.Error != "" {
+			return
+		}
+		if interactive && ev.Total > 0 {
+			w.pullProgress(model, ev)
+			return
+		}
 		status := strings.TrimSpace(ev.Status)
 		if status == "" || status == lastStatus {
 			return
@@ -155,6 +168,9 @@ func (w *wizard) pullModel(ctx context.Context, client ollama.Client, model stri
 	})
 	if err != nil {
 		return err
+	}
+	if interactive {
+		fmt.Fprint(w.out, w.style.ClearPendingLine())
 	}
 	w.good("Pull complete: " + model)
 	return nil

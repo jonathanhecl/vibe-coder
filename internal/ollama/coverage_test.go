@@ -138,4 +138,3 @@ func TestPullHTTPErrorAndTagsVersionErrors(t *testing.T) {
 		t.Fatal("expected version status error")
 	}
 }
-

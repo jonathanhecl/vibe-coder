@@ -9,26 +9,65 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/version"
 )
 
+// bannerWordmark is the styled startup logo. It is only emitted when ANSI
+// styling is available, so piped or NO_COLOR output stays plain and greppable.
+const bannerWordmark = `██╗   ██╗██╗██████╗ ███████╗
+██║   ██║██║██╔══██╗██╔════╝
+██║   ██║██║██████╔╝█████╗
+╚██╗ ██╔╝██║██╔══██╗██╔══╝
+ ╚████╔╝ ██║██████╔╝███████╗
+  ╚═══╝  ╚═╝╚═════╝ ╚══════╝`
+
+// bannerField is one label/value pair shown under the startup logo.
+type bannerField struct {
+	Label string
+	Value string
+}
+
+// bannerFields returns the runtime facts surfaced at startup. Keeping them as
+// data makes the layout testable without depending on ANSI escape codes.
+func bannerFields(cfg *config.Config, sessionID string) []bannerField {
+	model := ""
+	host := ""
+	if cfg != nil {
+		model = cfg.Model
+		host = cfg.OllamaHost
+	}
+	return []bannerField{
+		{Label: "Session", Value: sessionID},
+		{Label: "Model", Value: model},
+		{Label: "Sidecar", Value: formatSidecarBanner(cfg)},
+		{Label: "Ollama", Value: host},
+	}
+}
+
 func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {
-	sidecar := formatSidecarBanner(cfg)
 	if !style.Enabled() {
 		return fmt.Sprintf(
 			"vibe %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
-			version.Value, sessionID, cfg.Model, sidecar, cfg.OllamaHost,
+			version.Value, sessionID, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
 		)
 	}
-	label := func(k, v string) string {
-		return fmt.Sprintf("%s %s\n", style.BoldGreen(k+":"), style.BrightGreen(v))
+
+	var b strings.Builder
+	b.WriteString(style.Cyan(bannerWordmark))
+	b.WriteString("\n\n")
+	b.WriteString("  ")
+	b.WriteString(style.DimGreen("local-first coding agent for Ollama"))
+	b.WriteString("  ")
+	b.WriteString(style.Gray("· " + version.Value))
+	b.WriteString("\n  ")
+	b.WriteString(style.Gray(strings.Repeat("─", 46)))
+	b.WriteString("\n")
+	for _, f := range bannerFields(cfg, sessionID) {
+		b.WriteString("  ")
+		b.WriteString(style.BoldCyan(fmt.Sprintf("%-8s", f.Label)))
+		b.WriteString(" ")
+		b.WriteString(style.BrightWhite(f.Value))
+		b.WriteString("\n")
 	}
-	header := fmt.Sprintf("%s %s\n",
-		style.BoldGreen("vibe"),
-		style.DimGreen(version.Value),
-	)
-	return header +
-		label("Session started", sessionID) +
-		label("Model", cfg.Model) +
-		label("Sidecar", sidecar) +
-		label("Ollama host", cfg.OllamaHost)
+	b.WriteString("\n")
+	return b.String()
 }
 
 func formatSidecarBanner(cfg *config.Config) string {

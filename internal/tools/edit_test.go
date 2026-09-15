@@ -267,4 +267,3 @@ func TestEditCRLFMultipleMatchesRequiresReplaceAll(t *testing.T) {
 		t.Fatalf("unexpected content: %q", string(data))
 	}
 }
-

@@ -60,4 +60,3 @@ func TestDecisionBranches(t *testing.T) {
 		t.Fatal("yes-mode should be enabled after DecisionYesMode")
 	}
 }
-
