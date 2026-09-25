@@ -593,6 +593,8 @@ func TestDispatchTemporalSession(t *testing.T) {
 		Cwd:         filepath.Join(tmp, "project"),
 		SessionsDir: sessionsDir,
 		Temporal:    true,
+		ConfigDir:   tmp,
+		ConfigFile:  filepath.Join(tmp, "vibe-coder.env"),
 	}
 	s := session.New(cfg)
 	s.AddUser("hello world")
@@ -647,7 +649,7 @@ func TestDispatchTemporalSession(t *testing.T) {
 		t.Fatal("expected cfg.Temporal to remain true after /new")
 	}
 
-	// 4. /save promotes temporal session to permanent and saves to disk.
+	// 4. /save persists settings but does NOT promote the temporal session.
 	s.AddUser("durable message")
 	s.AddAssistant("durable reply")
 	out.Reset()
@@ -655,8 +657,28 @@ func TestDispatchTemporalSession(t *testing.T) {
 	if err != nil || !handled || shouldExit {
 		t.Fatalf("unexpected /save result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
-	if !strings.Contains(out.String(), "Session promoted to permanent and saved") {
-		t.Fatalf("expected 'Session promoted to permanent and saved', got %q", out.String())
+	if !strings.Contains(out.String(), "Temporal session not saved") {
+		t.Fatalf("expected /save to warn about the temporal session, got %q", out.String())
+	}
+	if !cfg.Temporal {
+		t.Fatal("expected cfg.Temporal to stay true after /save")
+	}
+	files, err = os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected no session files after /save in temporal mode, found %d", len(files))
+	}
+
+	// 5. /promote keeps the temporal session: promotes it and saves to disk.
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/promote")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /promote result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(out.String(), "Temporal session promoted to permanent and saved") {
+		t.Fatalf("expected 'Temporal session promoted to permanent and saved', got %q", out.String())
 	}
 	if cfg.Temporal {
 		t.Fatal("expected cfg.Temporal to be false after promotion")
@@ -666,7 +688,7 @@ func TestDispatchTemporalSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(files) == 0 {
-		t.Fatal("expected session files to be written after /save promotion")
+		t.Fatal("expected session files to be written after /promote")
 	}
 }
 
@@ -685,6 +707,8 @@ func TestDispatchIsolatedSession(t *testing.T) {
 		Cwd:         projectDir,
 		SessionsDir: sessionsDir,
 		Isolated:    true,
+		ConfigDir:   tmp,
+		ConfigFile:  filepath.Join(tmp, "vibe-coder.env"),
 	}
 	s := session.New(cfg)
 	s.AddUser("isolated prompt")
@@ -745,5 +769,3 @@ func TestDispatchIsolatedSession(t *testing.T) {
 		t.Fatalf("expected 'Isolated session active in', got %q", out.String())
 	}
 }
-
-

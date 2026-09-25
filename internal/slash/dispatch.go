@@ -21,10 +21,19 @@ type Ctx struct {
 	Client   commitClient
 	Out      io.Writer
 	Contexts *contextfiles.Store
+	// Models lists the models installed on the host so /model, /sidecar, and
+	// /jevstyle can offer a numbered picker. Optional: when nil the pickers
+	// fall back to the capability maps cached at startup.
+	Models ModelLister
 	// Prompter asks interactive questions (e.g. Append vs Replace for
 	// /context). It is optional: when nil, commands print the
 	// non-interactive guidance instead. tui.UI satisfies it.
 	Prompter InputPrompter
+}
+
+// ModelLister lists the installed models. ollama.Client satisfies it.
+type ModelLister interface {
+	Tags(ctx context.Context) ([]ollama.Model, error)
 }
 
 // InputPrompter reads one line of user input. It mirrors tui.UI.GetInput
@@ -137,38 +146,9 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	case "/jevstyle":
 		return true, false, runJevstyleCommand(c, fields[1:])
 	case "/save":
-		if c.Cfg != nil && c.Cfg.Temporal {
-			c.Cfg.Temporal = false
-			if c.Session != nil && c.Session.MessageCount() > 0 {
-				if err := c.Session.Save(); err != nil {
-					return true, false, err
-				}
-				fmt.Fprintf(c.Out, "Session promoted to permanent and saved (%s)\n", c.Session.ID())
-			} else {
-				fmt.Fprintln(c.Out, "Session promoted to permanent (no messages to save yet)")
-			}
-			_ = config.SaveModelSettings(c.Cfg)
-			return true, false, nil
-		}
-		hasMessages := c.Session != nil && c.Session.MessageCount() > 0
-		if hasMessages {
-			if err := c.Session.Save(); err != nil {
-				return true, false, err
-			}
-		}
-		if err := config.SaveModelSettings(c.Cfg); err != nil {
-			return true, false, err
-		}
-		if hasMessages {
-			if c.Cfg != nil && c.Cfg.Isolated {
-				fmt.Fprintf(c.Out, "Saved isolated session (%s) and settings\n", c.Session.ID())
-			} else {
-				fmt.Fprintf(c.Out, "Saved session (%s) and settings\n", c.Session.ID())
-			}
-		} else {
-			fmt.Fprintln(c.Out, "Saved settings")
-		}
-		return true, false, nil
+		return true, false, runSaveCommand(c)
+	case "/promote", "/keep":
+		return true, false, runPromoteCommand(c)
 	case "/hide-think":
 		c.Cfg.OllamaHideThink = true
 		fmt.Fprintln(c.Out, "Thinking blocks will be hidden from CLI output. Run /save to persist.")

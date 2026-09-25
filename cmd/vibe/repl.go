@@ -42,6 +42,7 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 		Perm:     perm,
 		Agent:    ag,
 		Client:   client,
+		Models:   client,
 		Out:      os.Stdout,
 		Contexts: ctxStore,
 		Prompter: ui,

@@ -103,7 +103,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 
 - **Atomic persistence** — append-only JSONL with temp-file + rename (`0o600`).
 - **Project-aware indexing & auto-resume** — sessions are keyed by `sha256(cwd)[:16]` so running `vibe` automatically resumes where you left off in that directory (tagged as `(resumed)` in the banner). Use `/new` or `-n`/`--new` to start fresh.
-- **Temporal (ephemeral) sessions** — run with `-t`, `--temporal`, or `--temp`. Chat transcript and session indexes are completely discarded on exit, while files and code modifications made by the agent remain intact (tagged as `(temporal)` in red in the banner). Running `/save` within a temporal session promotes it to permanent.
+- **Temporal (ephemeral) sessions** — run with `-t`, `--temporal`, or `--temp`. Chat transcript and session indexes are completely discarded on exit, while files and code modifications made by the agent remain intact (tagged as `(temporal)` in red in the banner). Running `/promote` within a temporal session keeps it by promoting it to permanent.
 - **Isolated sessions** — run with `--isolated` or `--isolate` (or configured via `VIBE_CODER_ISOLATED=true` or `ISOLATED=true`). Saves a single `.vibe-isolated.jsonl` file strictly inside the current folder without registering in global state or indexes. Other directories cannot access it. Running `vibe` in a directory containing an isolated session automatically detects and loads it (tagged as `(isolated)` in yellow in the banner). Running `/new` resets and truncates the isolated session file to start fresh.
 - **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model summarizes the oldest messages while keeping the last 30 verbatim.
 - **Token estimate** — maintained incrementally so compaction checks are O(1).
@@ -524,7 +524,8 @@ Slash commands are entered at the `>` prompt during an interactive session.
 
 ### Session
 
-- `/save` — persist the current session to disk
+- `/save` — persist model/thinking settings to disk (and the current session when it is permanent)
+- `/promote` — keep a temporal session by promoting it to permanent and saving the transcript
 - `/new` — save the current session and start a brand new one
 - `/clear` — show clear options (session, sessions, context)
 - `/clear session` — discard the current session without saving it and start fresh
@@ -550,15 +551,16 @@ Pinned context files are injected into the system prompt on every turn, so they 
 
 ### Model
 
-- `/model` — show the active model
-- `/model <name>` — switch the active model for this run (vision, thinking and native-tools support are re-checked and reported)
+- `/model` — list installed models (numbered, with capability tags) and switch the active one
+- `/model <name|number>` — switch the active model for this run (vision, thinking and native-tools support are re-checked and reported)
 - `/think` — show the thinking level and model capability
 - `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it)
+- `/sidecar` — list installed models and choose one; `[0]` disables it for the session
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/sidecar status` — show current sidecar state
-- `/jevstyle` — show current JEV Style decision model
-- `/jevstyle <name>` — switch JEV Style model for this session
+- `/jevstyle` — list installed models and choose one; `[0]` disables it for the session
+- `/jevstyle <name|number>` — switch JEV Style model for this session
 - `/jevstyle off` — disable JEV Style model for this session
 - `/jevstyle test` — run an interactive decision test turn
 - `/jevstyle assisted on|off` — toggle assisted command execution mode

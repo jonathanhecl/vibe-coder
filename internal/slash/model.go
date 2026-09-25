@@ -1,6 +1,7 @@
 package slash
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,10 +13,28 @@ import (
 var modelNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.:\-/]+$`)
 
 func runSidecarCommand(c *Ctx, args []string) error {
-	sub := "status"
-	if len(args) > 0 {
-		sub = strings.ToLower(strings.TrimSpace(args[0]))
+	if len(args) == 0 {
+		printSidecarStatus(c)
+		chosen, changed, err := c.pickModel(context.Background(), "sidecar", "Sidecar", c.Cfg.SidecarModel, true)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return nil
+		}
+		if chosen == "" {
+			c.Cfg.SidecarSkipSession = true
+			fmt.Fprintln(c.Out, "Sidecar disabled for this session. Run /sidecar perm-off to disable it permanently.")
+			return nil
+		}
+		c.Cfg.SidecarModel = chosen
+		c.Cfg.SidecarDisabled = false
+		c.Cfg.SidecarSkipSession = false
+		fmt.Fprintf(c.Out, "Sidecar model set to: %s. Run /save to persist.\n", chosen)
+		return nil
 	}
+	raw := strings.TrimSpace(args[0])
+	sub := strings.ToLower(raw)
 	switch sub {
 	case "off", "disable":
 		c.Cfg.SidecarSkipSession = true
@@ -42,7 +61,19 @@ func runSidecarCommand(c *Ctx, args []string) error {
 	case "status", "":
 		printSidecarStatus(c)
 	default:
-		fmt.Fprintln(c.Out, "Usage: /sidecar on|off|status|perm-on|perm-off")
+		resolved, ok := c.resolveModelArg(context.Background(), raw)
+		if !ok {
+			fmt.Fprintf(c.Out, "No model number %s in the installed list.\n", raw)
+			return nil
+		}
+		if !modelNameRe.MatchString(resolved) {
+			fmt.Fprintln(c.Out, "Usage: /sidecar [model] | on|off|status|perm-on|perm-off")
+			return nil
+		}
+		c.Cfg.SidecarModel = resolved
+		c.Cfg.SidecarDisabled = false
+		c.Cfg.SidecarSkipSession = false
+		fmt.Fprintf(c.Out, "Sidecar model set to: %s. Run /save to persist.\n", resolved)
 	}
 	return nil
 }
@@ -62,13 +93,32 @@ func printSidecarStatus(c *Ctx) {
 func runModelCommand(c *Ctx, args []string) error {
 	if len(args) == 0 {
 		fmt.Fprintf(c.Out, "Current model: %s\n", c.Cfg.Model)
+		chosen, changed, err := c.pickModel(context.Background(), "model", "Model", c.Cfg.Model, false)
+		if err != nil {
+			return err
+		}
+		if changed {
+			applyModelSwitch(c, chosen)
+		}
 		return nil
 	}
 	next := strings.TrimSpace(args[0])
-	if !modelNameRe.MatchString(next) {
+	resolved, ok := c.resolveModelArg(context.Background(), next)
+	if !ok {
+		fmt.Fprintf(c.Out, "No model number %s in the installed list.\n", next)
+		return nil
+	}
+	if !modelNameRe.MatchString(resolved) {
 		fmt.Fprintln(c.Out, "Invalid model name format.")
 		return nil
 	}
+	applyModelSwitch(c, resolved)
+	return nil
+}
+
+// applyModelSwitch activates a model and refreshes the vision, thinking, and
+// tool-calling flags for the session.
+func applyModelSwitch(c *Ctx, next string) {
 	c.Cfg.Model = next
 	// Refresh vision support from the cached Tags map so the system prompt
 	// and /status stay honest after a switch. Unknown models report unknown.
@@ -76,9 +126,8 @@ func runModelCommand(c *Ctx, args []string) error {
 	c.Cfg.VisionAvailable, c.Cfg.VisionKnown = available, known
 	refreshThinkingFlags(c)
 	refreshToolsFlags(c)
-	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s, thinking: %s, tools: %s)\n",
+	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s, thinking: %s, tools: %s). Run /save to persist.\n",
 		c.Cfg.Model, visionWord(known, available), thinkingWord(c), toolsWord(c))
-	return nil
 }
 
 func refreshToolsFlags(c *Ctx) {

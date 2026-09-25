@@ -15,7 +15,8 @@ func printHelp(c *Ctx) {
 		items [][2]string
 	}{
 		{"Session", [][2]string{
-			{"/save", "persist the current session to disk"},
+			{"/save", "persist model/thinking settings (and the session when permanent)"},
+			{"/promote", "keep a temporal session (promote to permanent)"},
 			{"/new", "save the current session and start a brand new one"},
 			{"/clear", "show clear options (session, sessions, context)"},
 			{"/clear session", "discard the current session without saving and start fresh"},
@@ -34,15 +35,16 @@ func printHelp(c *Ctx) {
 			{"/context list", "show pinned context files"},
 		}},
 		{"Model", [][2]string{
-			{"/model", "show the active model"},
-			{"/model <name>", "switch the active model for this run"},
+			{"/model", "list installed models and switch the active one"},
+			{"/model <name|number>", "switch the active model for this run"},
 			{"/think", "show the thinking level and model capability"},
 			{"/think off|low|medium|high|max|on", "set thinking effort for this session"},
+			{"/sidecar", "list models to pick, or on|off|status|perm-on|perm-off"},
 			{"/sidecar on|off", "toggle the sidecar for this session"},
 			{"/sidecar perm-on|perm-off", "persist sidecar state to vibe-coder.env"},
 			{"/sidecar status", "show current sidecar state"},
-			{"/jevstyle", "show or set JEV Style decision model"},
-			{"/jevstyle <name>", "set JEV Style model for this session"},
+			{"/jevstyle", "list models to pick, or off|test|assisted"},
+			{"/jevstyle <name|number>", "set JEV Style model for this session"},
 			{"/jevstyle off", "disable JEV Style for this session"},
 			{"/jevstyle test", "test JEV Style model on a sample decision prompt"},
 			{"/hide-think", "hide model thinking blocks in CLI output"},

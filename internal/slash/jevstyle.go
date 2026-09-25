@@ -13,6 +13,27 @@ import (
 func runJevstyleCommand(c *Ctx, args []string) error {
 	if len(args) == 0 {
 		printJevstyleStatus(c)
+		chosen, changed, err := c.pickModel(context.Background(), "jevstyle", "JEV Style", c.Cfg.JevstyleModel, true)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return nil
+		}
+		if chosen == "" {
+			c.Cfg.JevstyleModel = ""
+			c.Cfg.AssistedYes = false
+			if c.Perm != nil {
+				c.Perm.SetAssistedMode(false)
+			}
+			fmt.Fprintln(c.Out, "JEV Style disabled for this session. Run /save to persist.")
+			return nil
+		}
+		c.Cfg.JevstyleModel = chosen
+		fmt.Fprintf(c.Out, "JEV Style model set to: %s. Run /save to persist.\n", chosen)
+		if !c.Cfg.AssistedYes {
+			fmt.Fprintln(c.Out, "Tip: Enable assisted execution mode with /yes assisted or /jevstyle assisted on (auto-approves safe commands, prompts for dangerous ones).")
+		}
 		return nil
 	}
 	sub := strings.TrimSpace(args[0])
@@ -60,11 +81,16 @@ func runJevstyleCommand(c *Ctx, args []string) error {
 			fmt.Fprintln(c.Out, "Invalid model name format.")
 			return nil
 		}
-		if !modelNameRe.MatchString(sub) {
+		resolved, ok := c.resolveModelArg(context.Background(), sub)
+		if !ok {
+			fmt.Fprintf(c.Out, "No model number %s in the installed list.\n", sub)
+			return nil
+		}
+		if !modelNameRe.MatchString(resolved) {
 			fmt.Fprintln(c.Out, "Invalid model name format.")
 			return nil
 		}
-		c.Cfg.JevstyleModel = sub
+		c.Cfg.JevstyleModel = resolved
 		fmt.Fprintf(c.Out, "JEV Style model set to: %s (run /save to persist)\n", c.Cfg.JevstyleModel)
 		if !c.Cfg.AssistedYes {
 			fmt.Fprintln(c.Out, "Tip: Enable assisted execution mode with /yes assisted or /jevstyle assisted on (auto-approves safe commands, prompts for dangerous ones).")
