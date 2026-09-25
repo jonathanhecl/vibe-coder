@@ -59,6 +59,21 @@ func TestBannerFieldsTemporal(t *testing.T) {
 	}
 }
 
+func TestBannerFieldsIsolated(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:      "llama3.2:3b",
+		OllamaHost: "http://localhost:11434",
+		Isolated:   true,
+	}
+	fields := bannerFields(cfg, "session-iso", false)
+	if fields[0].Value != "session-iso    (isolated)" {
+		t.Fatalf("expected session value to indicate isolated, got %q", fields[0].Value)
+	}
+}
+
+
 func TestBannerFieldsWithJevstyle(t *testing.T) {
 	t.Parallel()
 

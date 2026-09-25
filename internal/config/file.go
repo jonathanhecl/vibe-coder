@@ -112,6 +112,14 @@ func applyConfigFile(cfg *Config, path string) error {
 			if b, ok := parseBoolish(value); ok {
 				cfg.OllamaHideThink = b
 			}
+		case "TEMPORAL":
+			if b, ok := parseBoolish(value); ok {
+				cfg.Temporal = b
+			}
+		case "ISOLATED":
+			if b, ok := parseBoolish(value); ok {
+				cfg.Isolated = b
+			}
 		case "CONTEXT":
 			cfg.ContextFiles = append(cfg.ContextFiles, splitPathList(value)...)
 		}

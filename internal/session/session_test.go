@@ -517,3 +517,90 @@ func TestSaveTemporalDoesNotPersist(t *testing.T) {
 		t.Fatalf("expected 0 files in sessionsDir, found %d", len(files))
 	}
 }
+
+func TestIsolatedSessionLifecycle(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	projectDir := filepath.Join(tmp, "project")
+	sessionsDir := filepath.Join(tmp, "sessions")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Cwd:         projectDir,
+		SessionsDir: sessionsDir,
+		Isolated:    true,
+	}
+
+	// 1. Initially no isolated session
+	if HasIsolatedSession(projectDir) {
+		t.Fatal("expected HasIsolatedSession to be false initially")
+	}
+
+	// 2. Create and save isolated session
+	s := New(cfg)
+	initialID := s.ID()
+	s.AddUser("first isolated message")
+	s.AddAssistant("isolated reply")
+
+	if err := s.Save(); err != nil {
+		t.Fatalf("save isolated session: %v", err)
+	}
+
+	// Verify .vibe-isolated.jsonl exists in projectDir
+	isoPath := filepath.Join(projectDir, IsolatedSessionFileName)
+	if !HasIsolatedSession(projectDir) {
+		t.Fatal("expected HasIsolatedSession to be true after save")
+	}
+
+	// Verify nothing was written to global sessionsDir
+	globalFiles, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(globalFiles) != 0 {
+		t.Fatalf("expected 0 files in global sessionsDir, found %d", len(globalFiles))
+	}
+
+	// 3. LoadIsolated into fresh session
+	s2 := New(cfg)
+	ok, err := s2.LoadIsolated()
+	if err != nil {
+		t.Fatalf("load isolated: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected LoadIsolated to return true")
+	}
+	if s2.ID() != initialID {
+		t.Fatalf("expected preserved session id %s, got %s", initialID, s2.ID())
+	}
+	if s2.MessageCount() != 2 {
+		t.Fatalf("expected 2 messages, got %d", s2.MessageCount())
+	}
+
+	// 4. ClearIsolated truncates file and resets memory
+	if err := s2.ClearIsolated(); err != nil {
+		t.Fatalf("clear isolated: %v", err)
+	}
+	if s2.MessageCount() != 0 {
+		t.Fatalf("expected 0 messages after clear, got %d", s2.MessageCount())
+	}
+	if s2.ID() == initialID {
+		t.Fatalf("expected new session id after clear")
+	}
+	info, err := os.Stat(isoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != 0 {
+		t.Fatalf("expected 0 bytes after clear, got %d", info.Size())
+	}
+	if HasIsolatedSession(projectDir) {
+		t.Fatal("expected HasIsolatedSession to be false after file truncated")
+	}
+}
+

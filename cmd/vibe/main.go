@@ -270,6 +270,29 @@ func resolveSession(cfg *config.Config, sess *session.Session) (bool, error) {
 		}
 		return true, nil
 	}
+	// Explicit isolated session requested (--isolated)
+	if cfg.Isolated {
+		if !cfg.NewSession {
+			ok, err := sess.LoadIsolated()
+			if err != nil {
+				return false, fmt.Errorf("failed to load isolated session: %w", err)
+			}
+			if ok {
+				return true, nil
+			}
+		} else {
+			_ = sess.ClearIsolated()
+		}
+		return false, nil
+	}
+	// Auto-detect isolated session in current directory
+	if !cfg.NewSession && session.HasIsolatedSession(cfg.Cwd) {
+		ok, err := sess.LoadIsolated()
+		if err == nil && ok {
+			cfg.Isolated = true
+			return true, nil
+		}
+	}
 	if cfg.Resume {
 		ok, err := sess.LoadByProject()
 		if err != nil {

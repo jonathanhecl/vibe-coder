@@ -104,6 +104,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **Atomic persistence** — append-only JSONL with temp-file + rename (`0o600`).
 - **Project-aware indexing & auto-resume** — sessions are keyed by `sha256(cwd)[:16]` so running `vibe` automatically resumes where you left off in that directory (tagged as `(resumed)` in the banner). Use `/new` or `-n`/`--new` to start fresh.
 - **Temporal (ephemeral) sessions** — run with `-t`, `--temporal`, or `--temp`. Chat transcript and session indexes are completely discarded on exit, while files and code modifications made by the agent remain intact. Running `/save` within a temporal session promotes it to permanent.
+- **Isolated sessions** — run with `--isolated` or `--isolate` (or configured via `VIBE_CODER_ISOLATED=true` or `ISOLATED=true`). Saves a single `.vibe-isolated.jsonl` file strictly inside the current folder without registering in global state or indexes. Other directories cannot access it. Running `vibe` in a directory containing an isolated session automatically detects and loads it (tagged as `(isolated)` in magenta in the banner). Running `/new` resets and truncates the isolated session file to start fresh.
 - **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model summarizes the oldest messages while keeping the last 30 verbatim.
 - **Token estimate** — maintained incrementally so compaction checks are O(1).
 
@@ -322,6 +323,7 @@ Model keys and overrides:
 - Environment: `VIBE_CODER_ASSISTED_YES=true|false`
 - Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_TEMPORAL=true|false` (aliases: `VIBEGO_TEMPORAL`, `TEMPORAL`)
+- Environment: `VIBE_CODER_ISOLATED=true|false` (aliases: `VIBEGO_ISOLATED`, `ISOLATED`)
 - Config file key / environment: `CHAT_TIMEOUT` / `VIBE_CODER_CHAT_TIMEOUT` (Go duration, e.g. `30m`; default `15m`) — deadline for a single `/api/chat` turn, useful for slow local models in long missions
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
@@ -451,6 +453,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--debug` — enable debug logs
 - `-n, --new` — start a new session (bypass automatic session resume for current directory)
 - `-t, --temporal, --temp` — start a temporal session (discards chat transcript on exit; keeps agent code changes)
+- `--isolated, --isolate` — run an isolated session saved exclusively in `<cwd>/.vibe-isolated.jsonl` (detected automatically when present in the directory)
 - `--resume` — resume the last session for this project
 - `--session-id <id>` — resume a specific session
 - `--list-sessions` — list known sessions

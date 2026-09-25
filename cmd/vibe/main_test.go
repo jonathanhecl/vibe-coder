@@ -349,6 +349,37 @@ func TestResolveSessionAutoResume(t *testing.T) {
 	if resumed {
 		t.Fatal("expected resumed to be false when Temporal is true")
 	}
+
+	// 6. Isolated session in directory: auto-detects and loads isolated session
+	cfgIso := &config.Config{
+		Cwd:         dir,
+		SessionsDir: sessionsDir,
+		Isolated:    true,
+	}
+	sIso := session.New(cfgIso)
+	sIso.AddUser("isolated question")
+	if err := sIso.Save(); err != nil {
+		t.Fatalf("save isolated: %v", err)
+	}
+
+	cfgDetect := &config.Config{
+		Cwd:         dir,
+		SessionsDir: sessionsDir,
+	}
+	sDetect := session.New(cfgDetect)
+	resumed, err = resolveSession(cfgDetect, sDetect)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resumed {
+		t.Fatal("expected auto-detected isolated session to be resumed")
+	}
+	if !cfgDetect.Isolated {
+		t.Fatal("expected cfgDetect.Isolated to be set to true")
+	}
+	if sDetect.ID() != sIso.ID() {
+		t.Fatalf("expected isolated session id %s, got %s", sIso.ID(), sDetect.ID())
+	}
 }
 
 func TestStartupBannerTemporal(t *testing.T) {
@@ -370,3 +401,24 @@ func TestStartupBannerTemporal(t *testing.T) {
 		t.Fatalf("expected plain banner to contain '(temporal)', got:\n%s", bannerPlain)
 	}
 }
+
+func TestStartupBannerIsolated(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:      "llama3.2:3b",
+		OllamaHost: "http://localhost:11434",
+		Isolated:   true,
+	}
+	// With ANSI (color terminal)
+	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	if !strings.Contains(banner, "(isolated)") {
+		t.Fatalf("expected banner to contain '(isolated)', got:\n%s", banner)
+	}
+	// Without ANSI (plain terminal)
+	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{})
+	if !strings.Contains(bannerPlain, "(isolated)") {
+		t.Fatalf("expected plain banner to contain '(isolated)', got:\n%s", bannerPlain)
+	}
+}
+

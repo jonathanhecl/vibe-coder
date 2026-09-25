@@ -670,3 +670,80 @@ func TestDispatchTemporalSession(t *testing.T) {
 	}
 }
 
+func TestDispatchIsolatedSession(t *testing.T) {
+	tmp := t.TempDir()
+	projectDir := filepath.Join(tmp, "project")
+	sessionsDir := filepath.Join(tmp, "sessions")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Cwd:         projectDir,
+		SessionsDir: sessionsDir,
+		Isolated:    true,
+	}
+	s := session.New(cfg)
+	s.AddUser("isolated prompt")
+	s.AddAssistant("isolated answer")
+
+	var out bytes.Buffer
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: s,
+		Agent:   &fakePlanAgent{},
+		Out:     &out,
+	}
+
+	// 1. /save saves to .vibe-isolated.jsonl and announces saved isolated session
+	handled, shouldExit, err := Dispatch(ctx, "/save")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /save result: %v", err)
+	}
+	if !strings.Contains(out.String(), "Saved isolated session") {
+		t.Fatalf("expected 'Saved isolated session', got %q", out.String())
+	}
+	if !session.HasIsolatedSession(projectDir) {
+		t.Fatal("expected .vibe-isolated.jsonl to exist after /save")
+	}
+
+	// 2. /new clears the in-memory session and truncates .vibe-isolated.jsonl
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/new")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /new result: %v", err)
+	}
+	if !strings.Contains(out.String(), "Started a new isolated session") {
+		t.Fatalf("expected 'Started a new isolated session', got %q", out.String())
+	}
+	if s.MessageCount() != 0 {
+		t.Fatalf("expected 0 messages after /new, got %d", s.MessageCount())
+	}
+	info, err := os.Stat(filepath.Join(projectDir, session.IsolatedSessionFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != 0 {
+		t.Fatalf("expected file to be truncated to 0 bytes, got %d", info.Size())
+	}
+
+	// 3. /sessions lists notice that isolated session is active in current directory
+	s.AddUser("post-new message")
+	s.AddAssistant("post-new reply")
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/sessions")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /sessions result: %v", err)
+	}
+	if !strings.Contains(out.String(), "Isolated session active in") {
+		t.Fatalf("expected 'Isolated session active in', got %q", out.String())
+	}
+}
+
+

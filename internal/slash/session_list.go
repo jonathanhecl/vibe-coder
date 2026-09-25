@@ -47,6 +47,12 @@ func runSessionsList(c *Ctx) error {
 		return err
 	}
 	st := tui.NewStyle(c.Out)
+	if c.Cfg != nil && session.HasIsolatedSession(c.Cfg.Cwd) {
+		fmt.Fprintf(c.Out, "%s %s\n\n",
+			st.Magenta("Isolated session active in"),
+			st.Dim(c.Cfg.Cwd),
+		)
+	}
 	if len(infos) == 0 {
 		fmt.Fprintf(c.Out, "%s %s\n",
 			st.Yellow("No sessions found in"),

@@ -616,3 +616,61 @@ func TestTemporalConfigPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestIsolatedConfigPrecedence(t *testing.T) {
+	// 1. Default is false
+	cfg, err := Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Isolated {
+		t.Fatal("expected Isolated to be false by default")
+	}
+
+	// 2. Env var VIBE_CODER_ISOLATED=true
+	t.Setenv("VIBE_CODER_ISOLATED", "1")
+	cfg, err = Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Isolated {
+		t.Fatal("expected Isolated to be true from VIBE_CODER_ISOLATED")
+	}
+
+	// 3. CLI override --isolated=false
+	cfg, err = Load([]string{"--isolated=false"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Isolated {
+		t.Fatal("expected Isolated to be false when overridden by CLI")
+	}
+
+	// 4. CLI flags: --isolated, --isolate
+	for _, flag := range []string{"--isolated", "--isolate"} {
+		cfg, err = Load([]string{flag})
+		if err != nil {
+			t.Fatalf("load config with %s: %v", flag, err)
+		}
+		if !cfg.Isolated {
+			t.Fatalf("expected Isolated to be true for flag %s", flag)
+		}
+	}
+
+	// 5. Config file ISOLATED=true
+	tmp := t.TempDir()
+	envPath := filepath.Join(tmp, "vibe-coder.env")
+	if err := os.WriteFile(envPath, []byte("ISOLATED=true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VIBE_CODER_ISOLATED", "")
+	t.Setenv("VIBE_CODER_CONFIG", envPath)
+	cfg, err = Load([]string{})
+	if err != nil {
+		t.Fatalf("load config with custom file: %v", err)
+	}
+	if !cfg.Isolated {
+		t.Fatal("expected Isolated to be true from config file")
+	}
+}
+

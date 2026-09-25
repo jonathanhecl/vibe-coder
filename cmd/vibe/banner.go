@@ -36,6 +36,8 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 	sessVal := sessionID
 	if cfg != nil && cfg.Temporal {
 		sessVal = fmt.Sprintf("%s    (temporal)", sessionID)
+	} else if cfg != nil && cfg.Isolated {
+		sessVal = fmt.Sprintf("%s    (isolated)", sessionID)
 	} else if resumed {
 		sessVal = fmt.Sprintf("%s    (resumed)", sessionID)
 	}
@@ -56,6 +58,8 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 		sessionLine := "Session started: " + sessionID
 		if cfg != nil && cfg.Temporal {
 			sessionLine += " (temporal)"
+		} else if cfg != nil && cfg.Isolated {
+			sessionLine += " (isolated)"
 		} else if resumed {
 			sessionLine += " (resumed)"
 		}
@@ -89,6 +93,10 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 				b.WriteString(style.BrightWhite(sessionID))
 				b.WriteString("    ")
 				b.WriteString(style.Yellow("(temporal)"))
+			} else if cfg != nil && cfg.Isolated {
+				b.WriteString(style.BrightWhite(sessionID))
+				b.WriteString("    ")
+				b.WriteString(style.Magenta("(isolated)"))
 			} else if resumed {
 				b.WriteString(style.BrightWhite(sessionID))
 				b.WriteString("    ")

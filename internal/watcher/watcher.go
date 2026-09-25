@@ -149,6 +149,9 @@ func (w *Watcher) scan() map[string]fileState {
 			}
 			return nil
 		}
+		if d.Name() == ".vibe-isolated.jsonl" || strings.HasSuffix(d.Name(), ".isolated.tmp") {
+			return nil
+		}
 		fileCount++
 		if fileCount > 5000 {
 			return filepath.SkipAll

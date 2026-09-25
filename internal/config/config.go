@@ -45,6 +45,9 @@ type Config struct {
 	// Temporal runs an ephemeral session without persisting session history
 	// or updating project session indexes on exit.
 	Temporal           bool
+	// Isolated runs a folder-local session stored exclusively in <cwd>/.vibe-isolated.jsonl
+	// rather than in the global state sessions directory.
+	Isolated           bool
 	SessionID          string
 	ListSessions       bool
 	Cwd                string

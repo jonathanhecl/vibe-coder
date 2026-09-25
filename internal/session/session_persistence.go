@@ -23,6 +23,24 @@ const maxSessionLineBytes = 16 * 1024 * 1024
 
 var invalidSessionIDChars = regexp.MustCompile(`[^A-Za-z0-9_\-]`)
 
+// IsolatedSessionFileName is the single file used to store an isolated session
+// in the project directory.
+const IsolatedSessionFileName = ".vibe-isolated.jsonl"
+
+// HasIsolatedSession reports whether an isolated session file exists in cwd
+// and contains non-empty content.
+func HasIsolatedSession(cwd string) bool {
+	if strings.TrimSpace(cwd) == "" {
+		return false
+	}
+	path := filepath.Join(cwd, IsolatedSessionFileName)
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() == 0 {
+		return false
+	}
+	return true
+}
+
 func (s *Session) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -57,6 +75,10 @@ func (s *Session) Save() error {
 	// on exit while workspace changes made by the agent remain.
 	if cfg.Temporal {
 		return nil
+	}
+	// Isolated sessions are stored exclusively in the current working directory.
+	if cfg.Isolated {
+		return s.saveIsolated()
 	}
 	// Nothing changed since the last successful save: skip the full
 	// rewrite (transcript + index + sidecar). The REPL saves after every
@@ -216,6 +238,168 @@ func (s *Session) LoadByProject() (bool, error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+// LoadIsolated loads the isolated session stored in the current working directory.
+// It returns (true, nil) if a valid isolated session with messages was loaded.
+func (s *Session) LoadIsolated() (bool, error) {
+	s.mu.RLock()
+	cwd := ""
+	if s.cfg != nil {
+		cwd = s.cfg.Cwd
+	}
+	s.mu.RUnlock()
+	if cwd == "" {
+		return false, nil
+	}
+	path := filepath.Join(cwd, IsolatedSessionFileName)
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat isolated session file: %w", err)
+	}
+	if info.Size() == 0 {
+		return false, nil
+	}
+	if info.Size() > maxSessionFileBytes {
+		return false, fmt.Errorf("isolated session file too large: %d bytes", info.Size())
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return false, fmt.Errorf("open isolated session file: %w", err)
+	}
+	defer file.Close()
+
+	loaded := make([]Message, 0, 64)
+	var loadedID string
+	var pinned []string
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionLineBytes)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, `{"_meta":`) {
+			var wrapper struct {
+				Meta struct {
+					SessionID string   `json:"session_id"`
+					Pinned    []string `json:"pinned_contexts"`
+				} `json:"_meta"`
+			}
+			if err := json.Unmarshal([]byte(line), &wrapper); err == nil {
+				if wrapper.Meta.SessionID != "" {
+					loadedID = sanitizeSessionID(wrapper.Meta.SessionID)
+				}
+				pinned = wrapper.Meta.Pinned
+			}
+			continue
+		}
+		var msg Message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil || msg.Role == "" {
+			continue
+		}
+		loaded = append(loaded, msg)
+	}
+	if err := scanner.Err(); err != nil {
+		return false, fmt.Errorf("scan isolated session file: %w", err)
+	}
+	if len(loaded) == 0 {
+		return false, nil
+	}
+
+	s.mu.Lock()
+	if loadedID != "" {
+		s.id = loadedID
+	}
+	s.messages = loaded
+	s.pinnedContexts = pinned
+	s.projectPath = cwd
+	s.recomputeTokenEstimate()
+	s.revision++
+	s.lastSavedRevision = s.revision
+	s.mu.Unlock()
+	return true, nil
+}
+
+// ClearIsolated empties the isolated session file on disk and resets
+// the in-memory session.
+func (s *Session) ClearIsolated() error {
+	s.mu.RLock()
+	cwd := ""
+	if s.cfg != nil {
+		cwd = s.cfg.Cwd
+	}
+	s.mu.RUnlock()
+	s.Clear()
+	if cwd != "" {
+		path := filepath.Join(cwd, IsolatedSessionFileName)
+		if err := os.WriteFile(path, []byte{}, 0o600); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("clear isolated session file: %w", err)
+		}
+	}
+	s.mu.Lock()
+	s.lastSavedRevision = s.revision
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Session) saveIsolated() error {
+	s.mu.RLock()
+	cfg := s.cfg
+	id := s.id
+	messages := cloneMessages(s.messages)
+	pinned := append([]string(nil), s.pinnedContexts...)
+	rev := s.revision
+	savedRev := s.lastSavedRevision
+	s.mu.RUnlock()
+
+	if cfg == nil || cfg.Cwd == "" {
+		return fmt.Errorf("isolated session cwd is empty")
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	if savedRev != 0 && rev == savedRev {
+		return nil
+	}
+
+	target := filepath.Join(cfg.Cwd, IsolatedSessionFileName)
+	if err := writeAtomicFile(cfg.Cwd, "*.isolated.tmp", target, 0o600, func(w io.Writer) error {
+		writer := bufio.NewWriter(w)
+		enc := json.NewEncoder(writer)
+		meta := map[string]any{
+			"_meta": map[string]any{
+				"session_id":      id,
+				"project_path":    cfg.Cwd,
+				"pinned_contexts": pinned,
+			},
+		}
+		if err := enc.Encode(meta); err != nil {
+			return fmt.Errorf("encode isolated metadata: %w", err)
+		}
+		for _, msg := range messages {
+			if err := enc.Encode(msg); err != nil {
+				return fmt.Errorf("encode message: %w", err)
+			}
+		}
+		if err := writer.Flush(); err != nil {
+			return fmt.Errorf("flush isolated session file: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("atomic isolated session replace: %w", err)
+	}
+
+	s.mu.Lock()
+	if s.revision == rev {
+		s.lastSavedRevision = rev
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *Session) sessionFilePath(id string) (string, error) {

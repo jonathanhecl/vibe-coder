@@ -46,3 +46,7 @@ e2e/**/work/
 # .vscode/
 
 doc/
+
+# Isolated sessions
+.vibe-isolated.jsonl
+*.isolated.tmp

@@ -105,6 +105,15 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 			fmt.Fprintf(c.Out, "Started a new temporal session (%s)\n", c.Session.ID())
 			return true, false, nil
 		}
+		if c.Cfg != nil && c.Cfg.Isolated {
+			if c.Session != nil {
+				if err := c.Session.ClearIsolated(); err != nil {
+					return true, false, err
+				}
+			}
+			fmt.Fprintf(c.Out, "Started a new isolated session (%s)\n", c.Session.ID())
+			return true, false, nil
+		}
 		if c.Session != nil && c.Session.MessageCount() > 0 {
 			if err := c.Session.Save(); err != nil {
 				return true, false, err
@@ -151,7 +160,11 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 			return true, false, err
 		}
 		if hasMessages {
-			fmt.Fprintf(c.Out, "Saved session (%s) and settings\n", c.Session.ID())
+			if c.Cfg != nil && c.Cfg.Isolated {
+				fmt.Fprintf(c.Out, "Saved isolated session (%s) and settings\n", c.Session.ID())
+			} else {
+				fmt.Fprintf(c.Out, "Saved session (%s) and settings\n", c.Session.ID())
+			}
 		} else {
 			fmt.Fprintln(c.Out, "Saved settings")
 		}
