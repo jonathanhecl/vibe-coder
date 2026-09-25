@@ -101,14 +101,14 @@ func (u *PlainUI) EndAssistant() {
 	if u.streamingAssistant && u.assistantHadVisible && !start.IsZero() {
 		elapsed := formatElapsed(time.Since(start))
 		if u.style.Enabled() {
-			fmt.Fprintf(u.out, "\n%s %s\n",
+			fmt.Fprintf(u.out, "%s %s\n",
 				u.style.Dim(iconRule),
 				u.style.Dim("responded in "+elapsed),
 			)
 		} else {
-			fmt.Fprintf(u.out, "\nresponded in %s\n", elapsed)
+			fmt.Fprintf(u.out, "responded in %s\n", elapsed)
 		}
-		u.assistantLines += 2
+		u.assistantLines++
 	}
 	// If the turn produced no visible prose (only a tool call), erase the
 	// assistant label line so the user sees the tool card directly.
@@ -163,17 +163,7 @@ func (u *PlainUI) StreamThinking(text string) {
 
 	u.flushPendingToolLocked()
 	u.endAssistantLineLocked()
-	if !u.thinkingActive {
-		// No "thinking" header on purpose: the streamed bullets prefixed
-		// with `│` already convey the panel, and EndThinking will close
-		// it with a single `┄ thought for Xs` footer. Two lines bracketing
-		// every reasoning panel was visual noise.
-		fmt.Fprintf(u.out, "%s ", u.style.Dim(iconBar))
-		u.thinkingActive = true
-		u.thinkingStart = time.Now()
-	}
-	indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
-	fmt.Fprint(u.out, u.style.Dim(indented))
+	u.streamThinkingChunkLocked(text)
 }
 
 // EndThinking closes the dim thinking panel if one is open, printing a

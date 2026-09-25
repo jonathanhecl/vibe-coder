@@ -63,9 +63,10 @@ type PlainUI struct {
 	pendingHeader string
 	pendingActive bool
 
-	streamingAssistant  bool
-	thinkingActive      bool
-	thinkingStart       time.Time
+	streamingAssistant     bool
+	thinkingActive         bool
+	thinkingPendingNewline bool
+	thinkingStart          time.Time
 	assistantReplyStart time.Time
 	turnStart           time.Time
 	assistantHadVisible bool
@@ -226,25 +227,46 @@ func (u *PlainUI) closeThinkingLocked(withElapsed bool) {
 		fmt.Fprintln(u.out)
 	}
 	u.thinkingActive = false
+	u.thinkingPendingNewline = false
+}
+
+func (u *PlainUI) streamThinkingChunkLocked(text string) {
+	if text == "" {
+		return
+	}
+	if !u.thinkingActive {
+		fmt.Fprintf(u.out, "%s ", u.style.Dim(iconBar))
+		u.thinkingActive = true
+		u.thinkingStart = time.Now()
+		u.thinkingPendingNewline = false
+	}
+	if u.thinkingPendingNewline {
+		fmt.Fprintf(u.out, "\n%s ", u.style.Dim(iconBar))
+		u.thinkingPendingNewline = false
+	}
+
+	numTrailing := 0
+	for strings.HasSuffix(text, "\n") {
+		numTrailing++
+		text = strings.TrimSuffix(text, "\n")
+	}
+	if text != "" {
+		indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
+		fmt.Fprint(u.out, u.style.Dim(indented))
+	}
+	if numTrailing > 0 {
+		u.thinkingPendingNewline = true
+	}
 }
 
 // writeThinkingChunkLocked handles in-band <thinking>...</thinking> sections that
 // some models emit inside the assistant stream (e.g. when the native Ollama
-// "thinking" field is unavailable). It uses the same `│` bar prefix as
-// StreamThinking so the user sees a consistent reasoning panel regardless
-// of how the model surfaces its reasoning, and so EndAssistant's "thought
-// for Xs" footer reads as the natural close of either source.
+// "thinking" field is unavailable).
 func (u *PlainUI) writeThinkingChunkLocked(text string) {
 	if u.cfg != nil && u.cfg.OllamaHideThink {
 		return
 	}
-	if !u.thinkingActive {
-		fmt.Fprintf(u.out, "\n%s ", u.style.Dim(iconBar))
-		u.thinkingActive = true
-		u.thinkingStart = time.Now()
-	}
-	indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
-	fmt.Fprint(u.out, u.style.Dim(indented))
+	u.streamThinkingChunkLocked(text)
 }
 
 // ensureMarkdownLocked lazily wires a MarkdownRenderer to the TUI. Called

@@ -142,3 +142,35 @@ func TestStyleDisabledWhenNotTTY(t *testing.T) {
 		t.Fatalf("expected raw text when disabled, got %q", got)
 	}
 }
+
+func TestStreamThinkingTrailingNewlineNoOrphanBar(t *testing.T) {
+	var buf bytes.Buffer
+	u := &PlainUI{out: &buf, style: Style{}}
+	u.StreamThinking("thinking paragraph with trailing newline.\n")
+	u.EndThinking()
+
+	out := buf.String()
+	if strings.Contains(out, "💭 \n") {
+		t.Fatalf("did not expect orphan thinking bar, got:\n%s", out)
+	}
+	expected := "💭 thinking paragraph with trailing newline.\n"
+	if !strings.HasPrefix(out, expected) {
+		t.Fatalf("expected prefix %q, got:\n%s", expected, out)
+	}
+}
+
+func TestAssistantRespondedInNoExtraBlankLine(t *testing.T) {
+	var buf bytes.Buffer
+	u := &PlainUI{out: &buf, style: Style{}}
+	u.StreamAssistant("Hello user!")
+	u.EndAssistant()
+
+	out := buf.String()
+	if strings.Contains(out, "\n\nresponded in") {
+		t.Fatalf("expected no blank line before 'responded in', got:\n%s", out)
+	}
+	if !strings.Contains(out, "Hello user!\nresponded in") {
+		t.Fatalf("expected 'Hello user!\\nresponded in', got:\n%s", out)
+	}
+}
+

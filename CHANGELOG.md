@@ -36,6 +36,7 @@ Release archives and generated notes are available on the
 ### Fixed
 
 - Applied `gofmt` to files that had drifted from the canonical format.
+- Removed superfluous blank lines and orphan prefix bars in thinking blocks and assistant turn completion footers (`thought for Xs` and `responded in Xs`).
 
 ## [1.0.4] - 2026-09-14
 
