@@ -2,10 +2,12 @@ package slash
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
@@ -52,6 +54,64 @@ func TestStatusStyledUsesBannerLayout(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected %q in styled status, got %q", want, rendered)
 		}
+	}
+}
+
+func TestStatusAssistedReflectsEffectiveMode(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		JevstyleModel: "jev-decision:v1",
+		AssistedYes:   true,
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   tmp,
+		PermFile:      filepath.Join(tmp, "permissions.json"),
+	}
+	s := session.New(cfg)
+	perm := permissions.NewManager(cfg)
+
+	// The manager starts assisted because the config enables it...
+	if !perm.AssistedMode() {
+		t.Fatal("expected the manager to start in assisted mode")
+	}
+	// ...but a JEV failure can disable it at runtime while cfg keeps ASSISTED_YES.
+	perm.SetAssistedMode(false)
+	out := &bytes.Buffer{}
+	ctx := &Ctx{Cfg: cfg, Session: s, Perm: perm, Agent: &fakePlanAgent{}, Out: out}
+	writeStatus(ctx, tui.NewStyleForTest(false))
+	if !strings.Contains(out.String(), "Assisted: off") {
+		t.Fatalf("expected effective assisted off, got %q", out.String())
+	}
+	if strings.Contains(out.String(), "Assisted: on") {
+		t.Fatalf("expected assisted not marked on, got %q", out.String())
+	}
+
+	perm.SetAssistedMode(true)
+	out.Reset()
+	writeStatus(ctx, tui.NewStyleForTest(false))
+	if !strings.Contains(out.String(), "Assisted: on (JEV Style)") {
+		t.Fatalf("expected effective assisted on, got %q", out.String())
+	}
+}
+
+func TestStatusAssistedFallsBackToConfigWithoutManager(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		JevstyleModel: "jev-decision:v1",
+		AssistedYes:   true,
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   tmp,
+	}
+	s := session.New(cfg)
+	out := &bytes.Buffer{}
+	ctx := &Ctx{Cfg: cfg, Session: s, Agent: &fakePlanAgent{}, Out: out}
+
+	writeStatus(ctx, tui.NewStyleForTest(false))
+	if !strings.Contains(out.String(), "Assisted: on (JEV Style)") {
+		t.Fatalf("expected assisted on from config, got %q", out.String())
 	}
 }
 

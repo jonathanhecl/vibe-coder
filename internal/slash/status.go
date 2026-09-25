@@ -117,25 +117,22 @@ func statusRows(c *Ctx) []statusRow {
 	rows = append(rows, statusRow{Label: "Tools", Plain: toolsStatus(c)})
 	rows = append(rows, statusRow{Label: "Sidecar", Plain: sidecarStatusValue(c)})
 	if strings.TrimSpace(c.Cfg.JevstyleModel) != "" {
-		model := strings.TrimSpace(c.Cfg.JevstyleModel)
-		plain := model
-		if c.Cfg.AssistedYes {
-			plain += " (assisted enabled)"
-		} else {
-			plain += " (run '/yes assisted' to enable)"
-		}
 		rows = append(rows, statusRow{
 			Label: "JEV Style model",
 			Short: "Jevstyle",
-			Plain: plain,
-			Render: func(st tui.Style) string {
-				if c.Cfg.AssistedYes {
-					return st.BrightWhite(model) + " " + st.Green("(assisted enabled)")
-				}
-				return st.BrightWhite(model) + " " + st.Gray("(run '/yes assisted' to enable)")
-			},
+			Plain: strings.TrimSpace(c.Cfg.JevstyleModel),
 		})
 	}
+	rows = append(rows, statusRow{
+		Label: "Assisted",
+		Plain: assistedStatusValue(c),
+		Render: func(st tui.Style) string {
+			if assistedActive(c) {
+				return st.Green(assistedStatusValue(c))
+			}
+			return st.Gray(assistedStatusValue(c))
+		},
+	})
 
 	rows = append(rows, statusRow{Label: "Context", Plain: fmt.Sprintf("%d%%", contextUsagePct(c))})
 	messages := 0
@@ -147,7 +144,7 @@ func statusRows(c *Ctx) []statusRow {
 		Label: "Yes mode",
 		Plain: yesModeValue(c),
 		Render: func(st tui.Style) string {
-			if c.Cfg.YesMode || c.Cfg.AssistedYes {
+			if c.Cfg.YesMode {
 				return st.Green(yesModeValue(c))
 			}
 			return st.Gray(yesModeValue(c))
@@ -201,13 +198,30 @@ func contextUsagePct(c *Ctx) int {
 }
 
 func yesModeValue(c *Ctx) string {
-	switch {
-	case c.Cfg.AssistedYes:
-		return "on (assisted)"
-	case c.Cfg.YesMode:
+	if c.Cfg.YesMode {
 		return "on"
+	}
+	return "off"
+}
+
+// assistedActive reports the effective JEV Style assisted state. It prefers the
+// permissions manager, which can auto-disable assisted mode when a decision
+// model is missing or errors, over the configured ASSISTED_YES value.
+func assistedActive(c *Ctx) bool {
+	if c.Perm != nil {
+		return c.Perm.AssistedMode()
+	}
+	return c.Cfg.AssistedYes && c.Cfg.JevstyleInUse()
+}
+
+func assistedStatusValue(c *Ctx) string {
+	switch {
+	case assistedActive(c):
+		return "on (JEV Style)"
+	case c.Cfg.JevstyleInUse():
+		return "off (run '/yes assisted' to enable)"
 	default:
-		return "off"
+		return "off (no JEV Style model)"
 	}
 }
 
