@@ -30,7 +30,7 @@ func printHelp(c *Ctx) {
 			{"/resume", "resume the last session for this project path"},
 			{"/compact", "force a sidecar-summarized compaction"},
 			{"/tokens", "show token usage vs the context window"},
-			{"/status", "model, cwd, session and sidecar status"},
+			{"/status, /info, /stats", "show the current configuration (banner-style)"},
 			{"/context <file>", "pin a .md/.txt guide as persistent session instruction"},
 			{"/context list", "show pinned context files"},
 		}},

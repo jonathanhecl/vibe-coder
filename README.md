@@ -539,7 +539,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/resume` — resume the last session for this project path
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status` — show model, cwd, session, sidecar, vision, thinking and tools status
+- `/status`, `/info`, `/stats` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, context usage)
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
 - `/context replace <file...>` — drop all pinned files and pin these instead

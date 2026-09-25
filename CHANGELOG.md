@@ -31,6 +31,7 @@ Release archives and generated notes are available on the
 
 ### Changed
 
+- `/status` (aliases `/info` and `/stats`) now renders a colored, banner-style summary of the current configuration — session, model, sidecar, JEV Style, Ollama host, UI, vision/thinking/tools, whether thinking output is hidden, yes/plan mode, and context usage. Plain output stays line-based for logs and pipes.
 - `/save` now persists model/thinking settings and no longer promotes a temporal session automatically; use `/promote` to keep a temporal session. Settings changed by `/model`, `/sidecar`, `/jevstyle`, `/think`, and `/hide-think` are still persisted with `/save`.
 - First-run onboarding lists the installed models only once and reuses the same numbering for the primary, optional sidecar, and optional JEV Style prompts (previously the tool-capable list was printed again for each role). Entries are tagged `recommended`/`tools`/`vision`/`thinking`, and the primary selection rejects models that do not report tool support.
 - Empty sessions with 0 messages are no longer persisted to disk, preventing clutter from aborted or empty CLI/REPL runs. `/sessions` and `ListSessions` automatically skip and clean up stale 0-message session files.

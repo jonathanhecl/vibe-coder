@@ -138,7 +138,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/clear":
 		return true, false, runClearCommand(c, fields[1:])
-	case "/status":
+	case "/status", "/info", "/stats":
 		printStatus(c)
 		return true, false, nil
 	case "/sidecar":
