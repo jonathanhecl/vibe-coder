@@ -20,6 +20,7 @@ Release archives and generated notes are available on the
 - JEV Style assisted command execution mode (`--assisted-yes`, `/yes assisted`, `/jevstyle assisted on`) allowing automatic approval of safe commands while prompting for dangerous actions. Includes config file persistence (`ASSISTED_YES`), auto-deactivation and graceful fallback to manual approval if the model is absent or errors, and setup suggestion tips when configuring JEV Style models.
 - Agent tool `JevDecide` exposed to the primary coding model and sidecars to query the JEV Style decision model for second opinions, safety validations, and discrete choices.
 - Automatic session resume: starting `vibe` in a directory automatically loads the most recent session for that directory, displaying `(resumed)` next to the session ID in the startup banner. Added `-n`/`--new` CLI flag to bypass auto-resuming and start fresh.
+- Session origin project path tracking: saved sessions persist the directory where they were initialized (`project_path` in `<id>.ctx.json` sidecar and `session-projects.json` fast index), and `/sessions` displays a formatted `PATH` column with home-relative (`~`) shorthand and directory hierarchy preservation.
 - Decision workflows powered by JEV Style: workspace path disambiguation, autonomous mission goal completion verification, tool failure root-cause diagnosis hints, and conventional commit type classification.
 
 ### Changed

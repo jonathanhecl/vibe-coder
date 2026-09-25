@@ -169,6 +169,13 @@ func TestSessionsAndResumeCommands(t *testing.T) {
 	if !strings.Contains(out.String(), idPrefix) {
 		t.Fatalf("expected /sessions output to mention seeded id prefix %s, got %q", idPrefix, out.String())
 	}
+	if !strings.Contains(out.String(), "PATH") {
+		t.Fatalf("expected PATH column header in /sessions output, got %q", out.String())
+	}
+	shortProj := shortenProjectPath(cfg.Cwd, 28)
+	if !strings.Contains(out.String(), shortProj) {
+		t.Fatalf("expected /sessions output to mention project path %s, got %q", shortProj, out.String())
+	}
 	if !strings.Contains(out.String(), "*") {
 		t.Fatalf("expected current-project marker (*) in /sessions output, got %q", out.String())
 	}
@@ -522,3 +529,40 @@ func TestByeExitsAndIgnoresCase(t *testing.T) {
 		t.Fatalf("unexpected embedded bye result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
 }
+
+func TestShortenProjectPath(t *testing.T) {
+	// Empty path returns "-"
+	if got := shortenProjectPath("", 28); got != "-" {
+		t.Fatalf("expected \"-\" for empty path, got %q", got)
+	}
+	if got := shortenProjectPath("   ", 28); got != "-" {
+		t.Fatalf("expected \"-\" for whitespace path, got %q", got)
+	}
+
+	// Short path returns unchanged
+	short := "/tmp/proj"
+	if got := shortenProjectPath(short, 28); got != short {
+		t.Fatalf("expected %q, got %q", short, got)
+	}
+
+	// Long path gets shortened and stays within maxLen
+	long := "/mnt/cloud/Clouds/Github/vibe-coder"
+	got := shortenProjectPath(long, 28)
+	if len(got) > 28 {
+		t.Fatalf("expected len <= 28, got %d (%q)", len(got), got)
+	}
+	if !strings.HasPrefix(got, "...") {
+		t.Fatalf("expected prefix \"...\", got %q", got)
+	}
+	if !strings.HasSuffix(got, "vibe-coder") {
+		t.Fatalf("expected suffix \"vibe-coder\", got %q", got)
+	}
+
+	// Single very long segment
+	huge := "/verylongdirectorynamethatexceedstwentycightcharacters"
+	gotHuge := shortenProjectPath(huge, 20)
+	if len(gotHuge) > 20 {
+		t.Fatalf("expected len <= 20, got %d (%q)", len(gotHuge), gotHuge)
+	}
+}
+

@@ -30,6 +30,9 @@ func (s *Session) Clear() {
 	s.messages = s.messages[:0]
 	s.tokenEstimate = 0
 	s.revision++
+	if s.cfg != nil && s.cfg.Cwd != "" {
+		s.projectPath = s.cfg.Cwd
+	}
 }
 
 func (s *Session) Save() error {
@@ -79,6 +82,9 @@ func (s *Session) Save() error {
 	}
 
 	if err := s.writeProjectIndexFor(id); err != nil {
+		return err
+	}
+	if err := s.writeSessionProjectFor(id); err != nil {
 		return err
 	}
 	if err := s.writePinnedContextsFor(id, pinned); err != nil {
@@ -150,12 +156,18 @@ func (s *Session) Load(id string) error {
 	s.mu.RUnlock()
 	pinned := loadPinnedContextsFor(sessionsDir, sanitized)
 	workState := loadWorkStateFor(sessionsDir, sanitized)
+	loadedProject := loadProjectPathFor(sessionsDir, sanitized)
 
 	s.mu.Lock()
 	s.id = sanitized
 	s.messages = loaded
 	s.pinnedContexts = pinned
 	s.workState = workState
+	if loadedProject != "" {
+		s.projectPath = loadedProject
+	} else if s.cfg != nil && s.cfg.Cwd != "" {
+		s.projectPath = s.cfg.Cwd
+	}
 	s.recomputeTokenEstimate()
 	s.revision++
 	// Just loaded from disk: memory matches the files, so a subsequent
@@ -317,6 +329,11 @@ func pinnedContextsPath(sessionsDir, id string) (string, error) {
 	return path, nil
 }
 
+type contextSidecar struct {
+	ProjectPath    string   `json:"project_path,omitempty"`
+	PinnedContexts []string `json:"pinned_contexts"`
+}
+
 func (s *Session) writePinnedContextsFor(id string, pinned []string) error {
 	target, err := pinnedContextsPath(s.cfg.SessionsDir, id)
 	if err != nil {
@@ -328,7 +345,17 @@ func (s *Session) writePinnedContextsFor(id string, pinned []string) error {
 			clean = append(clean, trimmed)
 		}
 	}
-	raw, err := json.MarshalIndent(map[string][]string{"pinned_contexts": clean}, "", "  ")
+	s.mu.RLock()
+	proj := s.projectPath
+	s.mu.RUnlock()
+	if proj == "" && s.cfg != nil {
+		proj = s.cfg.Cwd
+	}
+	payload := contextSidecar{
+		ProjectPath:    proj,
+		PinnedContexts: clean,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode pinned contexts: %w", err)
 	}
@@ -350,9 +377,7 @@ func loadPinnedContextsFor(sessionsDir, id string) []string {
 	if err != nil {
 		return nil
 	}
-	var decoded struct {
-		PinnedContexts []string `json:"pinned_contexts"`
-	}
+	var decoded contextSidecar
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return nil
 	}
@@ -363,6 +388,67 @@ func loadPinnedContextsFor(sessionsDir, id string) []string {
 		}
 	}
 	return out
+}
+
+// loadProjectPathFor reads the sidecar for a session id. Missing,
+// unreadable, or corrupt sidecars yield an empty string.
+func loadProjectPathFor(sessionsDir, id string) string {
+	target, err := pinnedContextsPath(sessionsDir, id)
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return ""
+	}
+	var decoded contextSidecar
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(decoded.ProjectPath)
+}
+
+func (s *Session) writeSessionProjectFor(id string) error {
+	s.mu.RLock()
+	proj := s.projectPath
+	s.mu.RUnlock()
+	if proj == "" && s.cfg != nil {
+		proj = s.cfg.Cwd
+	}
+	if proj == "" {
+		return nil
+	}
+	return writeSessionProjectPath(s.cfg.SessionsDir, id, proj)
+}
+
+func writeSessionProjectPath(sessionsDir, id, projectPath string) error {
+	indexPath := filepath.Join(sessionsDir, "session-projects.json")
+	index := map[string]string{}
+	if existing, err := os.ReadFile(indexPath); err == nil {
+		_ = json.Unmarshal(existing, &index)
+	}
+	index[id] = projectPath
+	raw, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode session projects: %w", err)
+	}
+	if err := writeAtomicBytes(sessionsDir, "*.projects.tmp", indexPath, 0o600, raw); err != nil {
+		return fmt.Errorf("replace session projects file: %w", err)
+	}
+	return nil
+}
+
+func loadSessionProjects(sessionsDir string) map[string]string {
+	indexPath := filepath.Join(sessionsDir, "session-projects.json")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		return map[string]string{}
+	}
+	var index map[string]string
+	if err := json.Unmarshal(raw, &index); err != nil {
+		return map[string]string{}
+	}
+	return index
 }
 
 // workStatePath returns the sidecar path holding the opaque durable work

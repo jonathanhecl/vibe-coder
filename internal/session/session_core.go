@@ -38,16 +38,24 @@ type Session struct {
 	// persisted in a session sidecar so long autonomous runs can resume
 	// without losing what is done and what remains.
 	workState []byte
+	// projectPath stores the filesystem path where the session was initialized
+	// or saved, allowing session listings to display the project origin.
+	projectPath string
 	// lastSavedRevision is the revision successfully persisted by Save.
 	// Save skips the rewrite when nothing changed since (0 = never saved).
 	lastSavedRevision uint64
 }
 
 func New(cfg *config.Config) *Session {
+	var projectPath string
+	if cfg != nil {
+		projectPath = cfg.Cwd
+	}
 	return &Session{
-		cfg:      cfg,
-		id:       newSessionID(),
-		messages: make([]Message, 0, 32),
+		cfg:         cfg,
+		id:          newSessionID(),
+		projectPath: projectPath,
+		messages:    make([]Message, 0, 32),
 	}
 }
 
@@ -55,6 +63,18 @@ func (s *Session) ID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.id
+}
+
+func (s *Session) ProjectPath() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.projectPath
+}
+
+func (s *Session) SetProjectPath(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.projectPath = path
 }
 
 // Messages returns a copy of the in-memory transcript. Safe to mutate; the

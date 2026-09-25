@@ -18,6 +18,7 @@ import (
 type SessionInfo struct {
 	ID               string
 	Path             string
+	ProjectPath      string
 	ModTime          time.Time
 	Size             int64
 	MessageCount     int
@@ -67,6 +68,9 @@ func DeleteSession(cfg *config.Config, id string) error {
 		}
 	}
 	if err := pruneProjectIndex(dir, sanitized); err != nil {
+		return err
+	}
+	if err := pruneSessionProject(dir, sanitized); err != nil {
 		return err
 	}
 	return nil
@@ -119,6 +123,10 @@ func DeleteAllSessions(cfg *config.Config) (int, error) {
 	if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
 		return removed, fmt.Errorf("remove project index: %w", err)
 	}
+	projectsPath := filepath.Join(dir, "session-projects.json")
+	if err := os.Remove(projectsPath); err != nil && !os.IsNotExist(err) {
+		return removed, fmt.Errorf("remove session projects: %w", err)
+	}
 	return removed, nil
 }
 
@@ -167,6 +175,40 @@ func pruneProjectIndex(dir, id string) error {
 	return nil
 }
 
+// pruneSessionProject removes the id entry from session-projects.json.
+func pruneSessionProject(dir, id string) error {
+	indexPath := filepath.Join(dir, "session-projects.json")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read session projects: %w", err)
+	}
+	index := map[string]string{}
+	if err := json.Unmarshal(raw, &index); err != nil {
+		return nil
+	}
+	if _, ok := index[id]; !ok {
+		return nil
+	}
+	delete(index, id)
+	if len(index) == 0 {
+		if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove empty session projects: %w", err)
+		}
+		return nil
+	}
+	out, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode pruned session projects: %w", err)
+	}
+	if err := writeAtomicBytes(dir, "*.projects.tmp", indexPath, 0o600, out); err != nil {
+		return fmt.Errorf("replace session projects file: %w", err)
+	}
+	return nil
+}
+
 // ListSessions enumerates persisted sessions in cfg.SessionsDir, returning
 // metadata sorted by most recent first. The IsCurrentProject flag is true
 // for the session id mapped to the current cwd in project-index.json.
@@ -197,6 +239,8 @@ func ListSessions(cfg *config.Config) ([]SessionInfo, error) {
 		}
 	}
 
+	sessionProjects := loadSessionProjects(dir)
+
 	out := make([]SessionInfo, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -216,9 +260,19 @@ func ListSessions(cfg *config.Config) ([]SessionInfo, error) {
 		}
 		full := filepath.Join(dir, name)
 		count, preview := scanSessionMeta(full)
+
+		projectPath := sessionProjects[id]
+		if projectPath == "" {
+			projectPath = loadProjectPathFor(dir, id)
+		}
+		if projectPath == "" && id == currentProjectID && cfg != nil {
+			projectPath = cfg.Cwd
+		}
+
 		out = append(out, SessionInfo{
 			ID:               id,
 			Path:             full,
+			ProjectPath:      projectPath,
 			ModTime:          info.ModTime(),
 			Size:             info.Size(),
 			MessageCount:     count,

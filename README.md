@@ -523,7 +523,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/clear session` — discard the current session without saving it and start fresh
 - `/clear sessions` — delete ALL saved sessions (asks Y/n; `--yes` confirms non-interactively)
 - `/clear context` — unpin all persistent context files (same as `/context clear`)
-- `/sessions` — list saved sessions (`*` = current project)
+- `/sessions` — list saved sessions with origin project path, modification time, and message preview (`*` = current project)
 - `/session <id>` — resume a specific session quickly
 - `/session last` — resume the most recently modified session
 - `/sessions delete <id>` — delete a specific session

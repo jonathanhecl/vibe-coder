@@ -78,6 +78,9 @@ func TestSaveLoadAndProjectIndex(t *testing.T) {
 	if loaded.MessageCount() != 2 {
 		t.Fatalf("unexpected message count after load: %d", loaded.MessageCount())
 	}
+	if loaded.ProjectPath() != cfg.Cwd {
+		t.Fatalf("unexpected project path on loaded: got %q want %q", loaded.ProjectPath(), cfg.Cwd)
+	}
 
 	byProject := New(cfg)
 	ok, err := byProject.LoadByProject()
@@ -89,6 +92,9 @@ func TestSaveLoadAndProjectIndex(t *testing.T) {
 	}
 	if byProject.ID() != s.ID() {
 		t.Fatalf("unexpected project session id: got %s want %s", byProject.ID(), s.ID())
+	}
+	if byProject.ProjectPath() != cfg.Cwd {
+		t.Fatalf("unexpected project path on byProject: got %q want %q", byProject.ProjectPath(), cfg.Cwd)
 	}
 }
 
@@ -173,14 +179,22 @@ func TestListSessionsReturnsMetadataAndProjectFlag(t *testing.T) {
 			if !info.IsCurrentProject {
 				t.Fatalf("expected current session to be flagged as current project")
 			}
+			if info.ProjectPath != cfg.Cwd {
+				t.Fatalf("expected current session ProjectPath to be %q, got %q", cfg.Cwd, info.ProjectPath)
+			}
 			if info.MessageCount != 2 {
 				t.Fatalf("expected 2 messages, got %d", info.MessageCount)
 			}
 			if !strings.Contains(info.Preview, "first message please") {
 				t.Fatalf("expected preview to contain first user message, got %q", info.Preview)
 			}
-		} else if info.IsCurrentProject {
-			t.Fatalf("non-current session should not be flagged as current project: %s", info.ID)
+		} else {
+			if info.IsCurrentProject {
+				t.Fatalf("non-current session should not be flagged as current project: %s", info.ID)
+			}
+			if info.ProjectPath != otherCfg.Cwd {
+				t.Fatalf("expected other session ProjectPath to be %q, got %q", otherCfg.Cwd, info.ProjectPath)
+			}
 		}
 	}
 	if !foundCurrent {
@@ -224,6 +238,10 @@ func TestDeleteSessionRemovesFileAndProjectIndexEntry(t *testing.T) {
 	if _, err := os.Stat(indexPath); err != nil {
 		t.Fatalf("expected project index to exist before delete: %v", err)
 	}
+	projectsPath := filepath.Join(cfg.SessionsDir, "session-projects.json")
+	if _, err := os.Stat(projectsPath); err != nil {
+		t.Fatalf("expected session projects index to exist before delete: %v", err)
+	}
 
 	if err := DeleteSession(cfg, s.ID()); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -231,9 +249,12 @@ func TestDeleteSessionRemovesFileAndProjectIndexEntry(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cfg.SessionsDir, s.ID()+".jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("expected session file removed, got %v", err)
 	}
-	// Index had only this entry → file should be gone too.
+	// Index had only this entry → files should be gone too.
 	if _, err := os.Stat(indexPath); !os.IsNotExist(err) {
 		t.Fatalf("expected empty project index removed, got %v", err)
+	}
+	if _, err := os.Stat(projectsPath); !os.IsNotExist(err) {
+		t.Fatalf("expected empty session projects removed, got %v", err)
 	}
 }
 
