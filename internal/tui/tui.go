@@ -87,6 +87,11 @@ type PlainUI struct {
 	escStop    chan struct{}
 	escDone    chan struct{}
 	escRestore func()
+
+	// rawRestore tracks interactive raw mode during input reading so Stop()
+	// can restore the terminal cleanly on signal termination.
+	rawMu      sync.Mutex
+	rawRestore func()
 }
 
 type Decision int
@@ -166,6 +171,7 @@ func (u *PlainUI) SetPlanMode(enabled bool) {
 // leave a half-painted Braille frame on the user's terminal.
 func (u *PlainUI) Stop() {
 	u.stopSpinner()
+	u.StopESCMonitor()
 	u.stopOnce.Do(func() {
 		if u.bracketedPaste {
 			fmt.Fprint(u.out, disableBracketedPaste)
@@ -173,6 +179,12 @@ func (u *PlainUI) Stop() {
 		if u.restoreTerminalMode != nil {
 			u.restoreTerminalMode()
 		}
+		u.rawMu.Lock()
+		if u.rawRestore != nil {
+			u.rawRestore()
+			u.rawRestore = nil
+		}
+		u.rawMu.Unlock()
 		close(u.stopCh)
 	})
 }

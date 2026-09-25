@@ -78,7 +78,15 @@ func (u *PlainUI) readInteractiveInput(renderedPrompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer term.Restore(fd, oldState)
+	u.rawMu.Lock()
+	u.rawRestore = func() { _ = term.Restore(fd, oldState) }
+	u.rawMu.Unlock()
+	defer func() {
+		u.rawMu.Lock()
+		u.rawRestore = nil
+		u.rawMu.Unlock()
+		_ = term.Restore(fd, oldState)
+	}()
 	// Re-enable bracketed paste for this read so the terminal wraps pasted
 	// content with markers even if a previous read disabled it. The matching
 	// disable is deferred so paste mode only covers input, not assistant output.

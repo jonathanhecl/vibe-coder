@@ -25,13 +25,15 @@ func (u *PlainUI) StartESCMonitor(interrupt func()) error {
 		return nil
 	}
 	u.escMu.Lock()
+	stop := make(chan struct{})
+	done := make(chan struct{})
 	u.escCancel = interrupt
-	u.escStop = make(chan struct{})
-	u.escDone = make(chan struct{})
+	u.escStop = stop
+	u.escDone = done
 	u.escRestore = restore
 	u.escMu.Unlock()
 
-	go u.escMonitorLoop()
+	go u.escMonitorLoop(stop, done)
 	return nil
 }
 
@@ -62,15 +64,15 @@ func (u *PlainUI) StopESCMonitor() {
 // (0x1b) bytes within 500 ms. It uses unix.Poll with a short timeout so it can
 // check the stop channel between reads. The escMu mutex coordinates with
 // readSingleChar (AskPermission) so only one reader accesses stdin at a time.
-func (u *PlainUI) escMonitorLoop() {
-	defer close(u.escDone)
+func (u *PlainUI) escMonitorLoop(stop <-chan struct{}, done chan struct{}) {
+	defer close(done)
 	fd := int(u.in.Fd())
 	var lastEsc time.Time
 	buf := make([]byte, 1)
 
 	for {
 		select {
-		case <-u.escStop:
+		case <-stop:
 			return
 		default:
 		}
@@ -84,10 +86,11 @@ func (u *PlainUI) escMonitorLoop() {
 				now := time.Now()
 				if now.Sub(lastEsc) < 500*time.Millisecond {
 					fmt.Fprintln(u.out, "\n⏹  Agent stopped (press ESC twice).")
-					if u.escCancel != nil {
-						u.escCancel()
-					}
+					cancelFn := u.escCancel
 					u.escMu.Unlock()
+					if cancelFn != nil {
+						cancelFn()
+					}
 					return
 				}
 				lastEsc = now
