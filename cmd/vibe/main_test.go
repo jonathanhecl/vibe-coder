@@ -182,9 +182,16 @@ func TestStartupBannerResumed(t *testing.T) {
 		Model:      "llama3.2:3b",
 		OllamaHost: "http://localhost:11434",
 	}
+	// Plain/unstyled output
 	out := startupBanner(cfg, "session-123", true, tui.Style{})
 	if !strings.Contains(out, "Session started: session-123 (resumed)") {
 		t.Fatalf("expected (resumed) in session line, got %q", out)
+	}
+
+	// Styled output: (resumed) should be colored in cyan/celeste (\x1b[36m)
+	styled := startupBanner(cfg, "session-123", true, tui.NewStyleForTest(true))
+	if !strings.Contains(styled, "\x1b[36m(resumed)\x1b[0m") {
+		t.Fatalf("expected cyan (resumed) in styled banner, got %q", styled)
 	}
 }
 

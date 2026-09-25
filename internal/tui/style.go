@@ -29,6 +29,11 @@ func NewStyle(w io.Writer) Style {
 	return Style{}
 }
 
+// NewStyleForTest returns a Style instance with ANSI explicitly enabled or disabled.
+func NewStyleForTest(enabled bool) Style {
+	return Style{enabled: enabled}
+}
+
 // Enabled reports whether the style is producing ANSI escape codes.
 func (s Style) Enabled() bool { return s.enabled }
 

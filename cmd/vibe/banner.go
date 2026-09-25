@@ -80,7 +80,13 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 		b.WriteString("  ")
 		b.WriteString(style.BoldCyan(fmt.Sprintf("%-8s", f.Label)))
 		b.WriteString(" ")
-		b.WriteString(style.BrightWhite(f.Value))
+		if f.Label == "Session" && resumed {
+			b.WriteString(style.BrightWhite(sessionID))
+			b.WriteString("    ")
+			b.WriteString(style.Cyan("(resumed)"))
+		} else {
+			b.WriteString(style.BrightWhite(f.Value))
+		}
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
