@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAskPermissionReadsLineWhenRawModeUnavailable(t *testing.T) {
@@ -487,13 +488,14 @@ func TestEraseVisibleTextUsesDisplayWidth(t *testing.T) {
 }
 
 // TestNotifyAutoApprovalPrintsNotice verifies assisted-mode auto-approvals are
-// surfaced to the user instead of running silently.
+// surfaced to the user, including the decision latency, instead of running
+// silently.
 func TestNotifyAutoApprovalPrintsNotice(t *testing.T) {
 	var out bytes.Buffer
 	ui := &PlainUI{out: &out, style: NewStyleForTest(false)}
-	ui.NotifyAutoApproval("WebSearch")
+	ui.NotifyAutoApproval("WebSearch", 70*time.Millisecond)
 	got := out.String()
-	if !strings.Contains(got, "WebSearch") || !strings.Contains(got, "JEV Style") {
-		t.Fatalf("expected an auto-approval notice, got %q", got)
+	if !strings.Contains(got, "approved by JEV Style assisted mode (70ms)") {
+		t.Fatalf("expected an auto-approval notice with latency, got %q", got)
 	}
 }

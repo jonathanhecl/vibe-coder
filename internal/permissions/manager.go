@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
@@ -31,7 +32,7 @@ type actionSafetyDecider interface {
 // approvalNotifier is implemented by the UI to surface assisted-mode
 // auto-approvals, so the user can see why an action ran without a prompt.
 type approvalNotifier interface {
-	NotifyAutoApproval(tool string)
+	NotifyAutoApproval(tool string, elapsed time.Duration)
 }
 
 type Manager struct {
@@ -273,13 +274,15 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 		m.SetAssistedMode(false)
 		return false
 	}
+	start := time.Now()
 	dangerous, err := dec.IsCommandDangerous(context.Background(), command)
+	elapsed := time.Since(start)
 	if err != nil {
 		m.SetAssistedMode(false)
 		return false
 	}
 	if !dangerous {
-		notifyAutoApproval(ui, toolName)
+		notifyAutoApproval(ui, toolName, elapsed)
 		return true
 	}
 	return false
@@ -297,21 +300,23 @@ func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolNam
 	if !ok {
 		return false
 	}
+	start := time.Now()
 	dangerous, err := actionDec.IsActionDangerous(context.Background(), toolName, actionSummary(params))
+	elapsed := time.Since(start)
 	if err != nil {
 		m.SetAssistedMode(false)
 		return false
 	}
 	if !dangerous {
-		notifyAutoApproval(ui, toolName)
+		notifyAutoApproval(ui, toolName, elapsed)
 		return true
 	}
 	return false
 }
 
-func notifyAutoApproval(ui prompter, toolName string) {
+func notifyAutoApproval(ui prompter, toolName string, elapsed time.Duration) {
 	if n, ok := ui.(approvalNotifier); ok {
-		n.NotifyAutoApproval(toolName)
+		n.NotifyAutoApproval(toolName, elapsed)
 	}
 }
 

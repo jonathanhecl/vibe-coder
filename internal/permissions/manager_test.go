@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
@@ -184,11 +185,13 @@ func (c *commandOnlyDecider) Enabled() bool { return c.enabled }
 // notifyingUI records assisted-mode auto-approval notices.
 type notifyingUI struct {
 	fakeUI
-	approved []string
+	approved  []string
+	durations []time.Duration
 }
 
-func (n *notifyingUI) NotifyAutoApproval(tool string) {
+func (n *notifyingUI) NotifyAutoApproval(tool string, elapsed time.Duration) {
 	n.approved = append(n.approved, tool)
+	n.durations = append(n.durations, elapsed)
 }
 
 func TestAssistedExecutionMode(t *testing.T) {

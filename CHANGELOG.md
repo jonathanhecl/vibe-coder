@@ -42,7 +42,7 @@ Release archives and generated notes are available on the
 
 ### Fixed
 
-- JEV Style assisted mode now also auto-approves safe network tool calls (`WebSearch`, `WebFetch`, `HTTPRequest`) instead of always prompting. The decision model classifies the action and its arguments, and the terminal prints `✓ <tool> approved by JEV Style assisted mode` whenever assisted mode approves something without a prompt. Shell commands keep their existing behavior; file mutations (`Write`/`Edit`/`GitUndo`) still prompt.
+- JEV Style assisted mode now also auto-approves safe network tool calls (`WebSearch`, `WebFetch`, `HTTPRequest`) instead of always prompting. The decision model classifies the action and its arguments, and the terminal prints `✓ <tool> approved by JEV Style assisted mode (<latency>)` (for example `(70ms)`) whenever assisted mode approves something without a prompt. Shell commands keep their existing behavior; file mutations (`Write`/`Edit`/`GitUndo`) still prompt.
 - Slash command tests now write settings to a temporary directory instead of creating a `vibe-coder.env` artifact in the package; the stray tracked file was removed.
 - Interactive input no longer desyncs the terminal cursor. Two root causes were
   fixed: (1) `insertRune` advanced the tracked screen column *before* redrawing,
