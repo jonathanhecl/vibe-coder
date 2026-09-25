@@ -42,6 +42,7 @@ Release archives and generated notes are available on the
 
 ### Fixed
 
+- Streaming no longer drops whitespace-only deltas. Models that emit one character per chunk (some Gemma builds do) had every space and newline silently discarded, collapsing the assistant reply into a single run-on line with no list breaks.
 - JEV Style assisted mode now reviews and auto-approves safe actions of every tool that would otherwise prompt — shell commands, network tools (`WebSearch`/`WebFetch`/`HTTPRequest`), file mutations (`Write`/`Edit`/`GitUndo`), and unknown/MCP tools. Mandatory shell confirmations (`sudo`, `rm -rf /`, …) and persistent denials are unchanged. The terminal always reports the outcome: `✓ <tool> approved by JEV Style assisted mode (<latency>)` when approved, `⚠ <tool> flagged as risky by JEV Style (<latency>) · asking for permission` when rejected, plus notices when the action cannot be classified or when JEV becomes unavailable and assisted mode disables itself.
 - Slash command tests now write settings to a temporary directory instead of creating a `vibe-coder.env` artifact in the package; the stray tracked file was removed.
 - Interactive input no longer desyncs the terminal cursor. Two root causes were

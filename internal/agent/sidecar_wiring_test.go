@@ -50,13 +50,14 @@ func (s *stubClient) Pull(ctx context.Context, model string, p func(ollama.PullE
 // recordingUI captures the last tool result hint so wiring tests can
 // assert what the user actually sees.
 type recordingUI struct {
-	results []string
+	results  []string
+	streamed strings.Builder
 }
 
 func (r *recordingUI) StartESCMonitor(func()) error        { return nil }
 func (r *recordingUI) StopESCMonitor()                     {}
 func (r *recordingUI) SetPlanMode(bool)                    {}
-func (r *recordingUI) StreamAssistant(string)              {}
+func (r *recordingUI) StreamAssistant(text string)         { r.streamed.WriteString(text) }
 func (r *recordingUI) EndAssistant()                       {}
 func (r *recordingUI) StreamThinking(string)               {}
 func (r *recordingUI) EndThinking()                        {}

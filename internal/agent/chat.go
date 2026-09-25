@@ -304,8 +304,13 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 					segment := string(buf[lastShown:end])
 					if strings.TrimSpace(segment) != "" {
 						a.ui.StreamAssistant(segment)
+						lastShown = end
 					}
-					lastShown = end
+					// Whitespace-only deltas (common when a model streams one
+					// character at a time) must not advance lastShown: dropping
+					// them here would permanently delete the spaces and newlines
+					// that separate words and lines, collapsing the answer. They
+					// ride along with the next non-whitespace segment instead.
 				}
 			}
 			if chunk.Done {
