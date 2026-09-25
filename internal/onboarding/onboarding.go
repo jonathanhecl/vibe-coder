@@ -51,30 +51,18 @@ func RunFirstRun(ctx context.Context, cfg *config.Config, buildVersion string, i
 	}
 	cfg.OllamaHost = host
 
-	mainModel, err := w.chooseMainModel(sigCtx, client, models)
+	selection, err := w.chooseModels(sigCtx, client, models)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return ErrInterrupted
 		}
 		return err
 	}
-	cfg.Model = mainModel
-
-	updatedModels, err := client.Tags(sigCtx)
-	if err != nil {
-		fmt.Fprintf(w.out, "warning: could not refresh model list after selection: %v\n", err)
-		updatedModels = models
-	}
-	sidecarModel, sidecarDisabled, err := w.chooseSidecarModel(sigCtx, client, updatedModels)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			return ErrInterrupted
-		}
-		return err
-	}
-	cfg.SidecarModel = sidecarModel
-	cfg.SidecarDisabled = sidecarDisabled
+	cfg.Model = selection.Main
+	cfg.SidecarModel = selection.Sidecar
+	cfg.SidecarDisabled = selection.SidecarDisabled
 	cfg.SidecarSkipSession = false
+	cfg.JevstyleModel = selection.Jevstyle
 
 	if err := config.SaveModelSettings(cfg); err != nil {
 		return fmt.Errorf("save first-run settings: %w", err)

@@ -24,9 +24,11 @@ Release archives and generated notes are available on the
 - Decision workflows powered by JEV Style: workspace path disambiguation, autonomous mission goal completion verification, tool failure root-cause diagnosis hints, and conventional commit type classification.
 - Temporal (ephemeral) session mode (`-t`, `--temporal`, `--temp`, `VIBE_CODER_TEMPORAL`): runs an ephemeral session where conversation history, transcripts, and session indexes are discarded on exit, while files and workspace changes made by the agent remain on disk. Includes red `(temporal)` banner status, `/new` reset support, and promotion to permanent session with `/save`.
 - Isolated session mode (`--isolated`, `--isolate`, `VIBE_CODER_ISOLATED`, `ISOLATED`): runs a project-local session stored in a single `.vibe-isolated.jsonl` file strictly within the working directory, inaccessible to other folders and omitted from global session state. Automatically detects and loads the folder's isolated session on startup (with yellow `(isolated)` banner status), and resets/truncates the file on `/new`.
+- First-run onboarding now also offers the optional JEV Style decision model, alongside the primary and sidecar models, and shows it in the closing summary.
 
 ### Changed
 
+- First-run onboarding lists the installed models only once and reuses the same numbering for the primary, optional sidecar, and optional JEV Style prompts (previously the tool-capable list was printed again for each role). Entries are tagged `recommended`/`tools`/`vision`/`thinking`, and the primary selection rejects models that do not report tool support.
 - Empty sessions with 0 messages are no longer persisted to disk, preventing clutter from aborted or empty CLI/REPL runs. `/sessions` and `ListSessions` automatically skip and clean up stale 0-message session files.
 - Fixed Ollama `temperature` option serialization to prevent omitting `0` for deterministic decision models.
 

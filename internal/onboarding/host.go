@@ -16,7 +16,7 @@ func (w *wizard) selectHostAndModels(ctx context.Context, currentHost string) (s
 	}
 
 	for {
-		w.section(1, 3, "Host setup")
+		w.section(1, 2, "Host setup")
 		w.option("Enter", fmt.Sprintf("Use local Ollama (%s)", defaultOllamaHost), "default")
 		w.option("c", "Enter host URL manually")
 		w.hint("Press Enter for local Ollama, or paste a host URL.")

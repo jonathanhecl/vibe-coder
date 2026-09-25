@@ -59,7 +59,8 @@ func (w *wizard) label(text string) {
 }
 
 // option renders a numbered menu entry. Optional tags (for example
-// "recommended") are shown dimmed and are ignored in plain output.
+// "recommended" or "tools") are shown dimmed in styled output and as a plain
+// parenthesized suffix otherwise, so the single model list stays informative.
 func (w *wizard) option(key, text string, tags ...string) {
 	text = truncateRunes(text, optionWidth)
 	if w.style.Enabled() {
@@ -70,7 +71,11 @@ func (w *wizard) option(key, text string, tags ...string) {
 		fmt.Fprintln(w.out, line)
 		return
 	}
-	fmt.Fprintf(w.out, "  [%s] %s\n", key, text)
+	suffix := ""
+	if len(tags) > 0 {
+		suffix = "  (" + strings.Join(tags, " · ") + ")"
+	}
+	fmt.Fprintf(w.out, "  [%s] %s%s\n", key, text, suffix)
 }
 
 func (w *wizard) subtle(text string) {
@@ -225,6 +230,10 @@ func (w *wizard) printFinal(cfg *config.Config) {
 	if cfg != nil && !cfg.SidecarDisabled && strings.TrimSpace(cfg.SidecarModel) != "" {
 		sidecar = strings.TrimSpace(cfg.SidecarModel)
 	}
+	jevstyle := "(disabled)"
+	if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
+		jevstyle = strings.TrimSpace(cfg.JevstyleModel)
+	}
 	host := ""
 	model := ""
 	if cfg != nil {
@@ -236,6 +245,7 @@ func (w *wizard) printFinal(cfg *config.Config) {
 		{Key: "Host", Value: host},
 		{Key: "Model", Value: model},
 		{Key: "Sidecar", Value: sidecar},
+		{Key: "JEV Style", Value: jevstyle},
 	})
 
 	if cfg != nil && cfg.ConfigFile != "" {
