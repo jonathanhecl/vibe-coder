@@ -26,6 +26,7 @@ Release archives and generated notes are available on the
 - Isolated session mode (`--isolated`, `--isolate`, `VIBE_CODER_ISOLATED`, `ISOLATED`): runs a project-local session stored in a single `.vibe-isolated.jsonl` file strictly within the working directory, inaccessible to other folders and omitted from global session state. Automatically detects and loads the folder's isolated session on startup (with yellow `(isolated)` banner status), and resets/truncates the file on `/new`.
 - First-run onboarding now also offers the optional JEV Style decision model, alongside the primary and sidecar models, and shows it in the closing summary.
 - Numbered model pickers for `/model`, `/sidecar`, and `/jevstyle`: each lists the installed models once with capability tags and lets you choose by number (interactively or as an argument, e.g. `/model 2`), type a model name, press Enter to keep the current selection, or `[0]` to disable the sidecar/JEV Style role.
+- `/models` lists every installed model, numbered and tagged, marks which one each role currently uses, and explains how to switch with `/model <n>`, `/sidecar <n>`, or `/jevstyle <n>` and persist with `/save`.
 - `/promote` (alias `/keep`) keeps a temporal session by promoting it to a permanent, saved session.
 
 ### Changed

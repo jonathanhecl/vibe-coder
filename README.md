@@ -553,6 +553,7 @@ Pinned context files are injected into the system prompt on every turn, so they 
 
 - `/model` — list installed models (numbered, with capability tags) and switch the active one
 - `/model <name|number>` — switch the active model for this run (vision, thinking and native-tools support are re-checked and reported)
+- `/models` — list all installed models, numbered and tagged; switch a role with `/model <n>`, `/sidecar <n>`, or `/jevstyle <n>` and persist with `/save`
 - `/think` — show the thinking level and model capability
 - `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it)
 - `/sidecar` — list installed models and choose one; `[0]` disables it for the session

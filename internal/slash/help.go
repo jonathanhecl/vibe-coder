@@ -37,6 +37,7 @@ func printHelp(c *Ctx) {
 		{"Model", [][2]string{
 			{"/model", "list installed models and switch the active one"},
 			{"/model <name|number>", "switch the active model for this run"},
+			{"/models", "list all installed models, numbered (switch with /model, /sidecar, /jevstyle)"},
 			{"/think", "show the thinking level and model capability"},
 			{"/think off|low|medium|high|max|on", "set thinking effort for this session"},
 			{"/sidecar", "list models to pick, or on|off|status|perm-on|perm-off"},

@@ -208,8 +208,10 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		after := c.Session.TokenEstimate()
 		fmt.Fprintf(c.Out, "Compacted session tokens: %d -> %d\n", before, after)
 		return true, false, nil
-	case "/model", "/models":
+	case "/model":
 		return true, false, runModelCommand(c, fields[1:])
+	case "/models":
+		return true, false, runModelsCommand(c, fields[1:])
 	case "/think":
 		return true, false, runThinkCommand(c, fields[1:])
 	case "/tokens":
