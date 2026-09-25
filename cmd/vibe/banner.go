@@ -92,11 +92,11 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 			if cfg != nil && cfg.Temporal {
 				b.WriteString(style.BrightWhite(sessionID))
 				b.WriteString("    ")
-				b.WriteString(style.Yellow("(temporal)"))
+				b.WriteString(style.Red("(temporal)"))
 			} else if cfg != nil && cfg.Isolated {
 				b.WriteString(style.BrightWhite(sessionID))
 				b.WriteString("    ")
-				b.WriteString(style.Magenta("(isolated)"))
+				b.WriteString(style.Yellow("(isolated)"))
 			} else if resumed {
 				b.WriteString(style.BrightWhite(sessionID))
 				b.WriteString("    ")

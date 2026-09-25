@@ -392,8 +392,8 @@ func TestStartupBannerTemporal(t *testing.T) {
 	}
 	// With ANSI (color terminal)
 	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
-	if !strings.Contains(banner, "(temporal)") {
-		t.Fatalf("expected banner to contain '(temporal)', got:\n%s", banner)
+	if !strings.Contains(banner, "\x1b[31m(temporal)\x1b[0m") {
+		t.Fatalf("expected banner to contain red '(temporal)', got:\n%s", banner)
 	}
 	// Without ANSI (plain terminal)
 	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{})
@@ -412,8 +412,8 @@ func TestStartupBannerIsolated(t *testing.T) {
 	}
 	// With ANSI (color terminal)
 	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
-	if !strings.Contains(banner, "(isolated)") {
-		t.Fatalf("expected banner to contain '(isolated)', got:\n%s", banner)
+	if !strings.Contains(banner, "\x1b[33m(isolated)\x1b[0m") {
+		t.Fatalf("expected banner to contain yellow '(isolated)', got:\n%s", banner)
 	}
 	// Without ANSI (plain terminal)
 	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{})
