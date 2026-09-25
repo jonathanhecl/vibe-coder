@@ -485,3 +485,15 @@ func TestEraseVisibleTextUsesDisplayWidth(t *testing.T) {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
+
+// TestNotifyAutoApprovalPrintsNotice verifies assisted-mode auto-approvals are
+// surfaced to the user instead of running silently.
+func TestNotifyAutoApprovalPrintsNotice(t *testing.T) {
+	var out bytes.Buffer
+	ui := &PlainUI{out: &out, style: NewStyleForTest(false)}
+	ui.NotifyAutoApproval("WebSearch")
+	got := out.String()
+	if !strings.Contains(got, "WebSearch") || !strings.Contains(got, "JEV Style") {
+		t.Fatalf("expected an auto-approval notice, got %q", got)
+	}
+}

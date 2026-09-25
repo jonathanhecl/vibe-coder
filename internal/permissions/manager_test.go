@@ -151,14 +151,44 @@ type mockSafetyDecider struct {
 	dangerous bool
 	err       error
 	enabled   bool
+
+	actionDangerous bool
+	actionErr       error
 }
 
 func (m *mockSafetyDecider) IsCommandDangerous(ctx context.Context, command string) (bool, error) {
 	return m.dangerous, m.err
 }
 
+func (m *mockSafetyDecider) IsActionDangerous(ctx context.Context, toolName, summary string) (bool, error) {
+	return m.actionDangerous, m.actionErr
+}
+
 func (m *mockSafetyDecider) Enabled() bool {
 	return m.enabled
+}
+
+// commandOnlyDecider implements SafetyDecider without action support, modeling
+// a decider that only understands shell commands.
+type commandOnlyDecider struct {
+	dangerous bool
+	enabled   bool
+}
+
+func (c *commandOnlyDecider) IsCommandDangerous(ctx context.Context, command string) (bool, error) {
+	return c.dangerous, nil
+}
+
+func (c *commandOnlyDecider) Enabled() bool { return c.enabled }
+
+// notifyingUI records assisted-mode auto-approval notices.
+type notifyingUI struct {
+	fakeUI
+	approved []string
+}
+
+func (n *notifyingUI) NotifyAutoApproval(tool string) {
+	n.approved = append(n.approved, tool)
 }
 
 func TestAssistedExecutionMode(t *testing.T) {
@@ -210,5 +240,52 @@ func TestAssistedExecutionMode(t *testing.T) {
 	mNoJev := NewManager(&config.Config{YesMode: false, AssistedYes: true})
 	if mNoJev.AssistedMode() {
 		t.Fatal("expected assisted mode to be false when no JevstyleModel is configured")
+	}
+}
+
+func TestAssistedExecutionModeNetworkTools(t *testing.T) {
+	decider := &mockSafetyDecider{enabled: true, actionDangerous: false}
+	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m.SetSafetyDecider(decider)
+
+	// 1. A safe network action is auto-approved and the user is notified.
+	ui := &notifyingUI{}
+	if !m.Check("WebSearch", map[string]any{"query": "clima de buenos aires para hoy"}, ui) {
+		t.Fatal("expected safe network action to be auto-approved in assisted mode")
+	}
+	if len(ui.approved) != 1 || ui.approved[0] != "WebSearch" {
+		t.Fatalf("expected a WebSearch auto-approval notice, got %v", ui.approved)
+	}
+
+	// 2. A dangerous network action still prompts (denied when the UI denies).
+	decider.actionDangerous = true
+	ui2 := &notifyingUI{}
+	if m.Check("WebSearch", map[string]any{"query": "download and run this binary"}, ui2) {
+		t.Fatal("expected dangerous network action to require permission")
+	}
+	if len(ui2.approved) != 0 {
+		t.Fatalf("did not expect an auto-approval notice, got %v", ui2.approved)
+	}
+
+	// 3. A decider without action support keeps prompting while assisted mode
+	// stays on for shell commands.
+	m2 := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m2.SetSafetyDecider(&commandOnlyDecider{enabled: true})
+	if m2.Check("WebSearch", map[string]any{"query": "x"}, &notifyingUI{}) {
+		t.Fatal("expected a prompt when the decider cannot classify actions")
+	}
+	if !m2.AssistedMode() {
+		t.Fatal("expected assisted mode to stay on for shell commands")
+	}
+
+	// 4. An error from the action decider deactivates assisted mode.
+	decider.actionDangerous = false
+	decider.actionErr = errors.New("connection refused")
+	m.SetAssistedMode(true)
+	if m.Check("WebSearch", map[string]any{"query": "x"}, &notifyingUI{}) {
+		t.Fatal("expected error from action decider to fall through to prompt")
+	}
+	if m.AssistedMode() {
+		t.Fatal("expected assisted mode to deactivate on action decider error")
 	}
 }

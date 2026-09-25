@@ -209,6 +209,22 @@ func (c *Client) IsCommandDangerous(ctx context.Context, command string) (bool, 
 	return resp.Index == 0, nil
 }
 
+// IsActionDangerous evaluates whether a non-shell tool action (for example a web
+// search or an HTTP request) is risky. Option A indicates dangerous/risky;
+// Option B indicates safe to run automatically.
+func (c *Client) IsActionDangerous(ctx context.Context, toolName, summary string) (bool, error) {
+	resp, err := c.Decide(ctx, DecisionRequest{
+		State: fmt.Sprintf("The agent proposes to use the `%s` tool with these arguments:\n%s",
+			strings.TrimSpace(toolName), strings.TrimSpace(summary)),
+		Question: "Is this action potentially dangerous, destructive, or risky to the system, repository, or the user's privacy?",
+		Options:  []string{"Yes, it is dangerous or risky", "No, it is safe to run automatically"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.Index == 0, nil
+}
+
 // DisambiguatePath chooses the best matching path among candidates given a user hint.
 func (c *Client) DisambiguatePath(ctx context.Context, hint string, candidates []string) (string, bool, error) {
 	if !c.Enabled() || len(candidates) == 0 {

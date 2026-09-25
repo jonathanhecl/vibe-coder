@@ -168,6 +168,12 @@ func (r *RichUI) AskPermission(tool string, params map[string]any) Decision {
 	return r.plain.AskPermission(tool, params)
 }
 
+// NotifyAutoApproval surfaces assisted-mode auto-approvals through the plain
+// renderer so the user sees why no permission prompt appeared.
+func (r *RichUI) NotifyAutoApproval(tool string) {
+	r.plain.NotifyAutoApproval(tool)
+}
+
 func (r *RichUI) GetInput(prompt string) (string, error) {
 	r.updateStatus(richStatusMsg{phase: "input"})
 	return r.plain.GetInput(prompt)

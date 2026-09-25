@@ -293,6 +293,24 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	}
 }
 
+// NotifyAutoApproval reports that assisted execution mode auto-approved a tool
+// call without prompting, so the user can see why the action ran. It is
+// optional: the permissions manager reaches it through a method assertion.
+func (u *PlainUI) NotifyAutoApproval(tool string) {
+	tool = strings.TrimSpace(tool)
+	if tool == "" {
+		return
+	}
+	u.stopSpinner()
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.flushPendingToolLocked()
+	fmt.Fprintf(u.out, "%s %s %s\n",
+		u.style.BrightGreen("✓"),
+		u.style.BrightWhite(tool),
+		u.style.Dim("approved by JEV Style assisted mode"))
+}
+
 // readSingleChar puts stdin in raw mode for one keypress and returns it.
 // It returns false if stdin is not a TTY or raw mode cannot be entered.
 // The escMu lock coordinates with the ESC monitor goroutine so only one

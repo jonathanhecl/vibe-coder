@@ -2,6 +2,9 @@ package permissions
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -16,6 +19,19 @@ type prompter interface {
 type SafetyDecider interface {
 	IsCommandDangerous(ctx context.Context, command string) (bool, error)
 	Enabled() bool
+}
+
+// actionSafetyDecider is an optional extension for deciders that can also
+// classify non-shell tool actions (for example network requests). Deciders that
+// only understand shell commands keep prompting for those actions.
+type actionSafetyDecider interface {
+	IsActionDangerous(ctx context.Context, toolName, summary string) (bool, error)
+}
+
+// approvalNotifier is implemented by the UI to surface assisted-mode
+// auto-approvals, so the user can see why an action ran without a prompt.
+type approvalNotifier interface {
+	NotifyAutoApproval(tool string)
 }
 
 type Manager struct {
@@ -199,25 +215,21 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		return true
 	}
 
-	// Assisted execution mode for shell commands using a SafetyDecider (e.g. JEV Style)
-	if assistedMode && !alwaysConfirm && (tool == "bash" || tool == "interactivebash") {
-		if safetyDecider == nil || !safetyDecider.Enabled() {
-			// Decider is absent or disabled: deactivate assisted mode and fall back to manual approval
-			m.SetAssistedMode(false)
-		} else {
-			dangerous, err := safetyDecider.IsCommandDangerous(context.Background(), command)
-			if err == nil && !dangerous {
-				// Classified safe by decision model: auto-approve
+	// Assisted execution mode: a SafetyDecider (e.g. JEV Style) classifies the
+	// proposed action and auto-approves it when safe. Shell commands use the
+	// command text; network tools use their arguments. File mutations stay on
+	// the manual path for safety.
+	if assistedMode {
+		switch {
+		case (tool == "bash" || tool == "interactivebash") && !alwaysConfirm:
+			if m.assistedCommandApproved(ui, safetyDecider, toolName, command) {
 				return true
 			}
-			if err != nil {
-				// Decider failed (e.g. connection error, timeout, offline).
-				// Deactivate assisted mode so subsequent commands do not repeatedly fail/stall,
-				// falling back cleanly to the prior manual confirmation mode.
-				m.SetAssistedMode(false)
+		case toolTier(tool) == TierNetwork:
+			if m.assistedActionApproved(ui, safetyDecider, toolName, params) {
+				return true
 			}
 		}
-		// If dangerous == true or error occurred, prompt user below
 	}
 
 	// Keep prompting below.
@@ -251,4 +263,77 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	default:
 		return false
 	}
+}
+
+// assistedCommandApproved asks the safety decider whether a shell command is
+// safe and auto-approves it when so. A missing, disabled, or failing decider
+// deactivates assisted mode and falls back to manual approval.
+func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolName, command string) bool {
+	if dec == nil || !dec.Enabled() {
+		m.SetAssistedMode(false)
+		return false
+	}
+	dangerous, err := dec.IsCommandDangerous(context.Background(), command)
+	if err != nil {
+		m.SetAssistedMode(false)
+		return false
+	}
+	if !dangerous {
+		notifyAutoApproval(ui, toolName)
+		return true
+	}
+	return false
+}
+
+// assistedActionApproved asks the safety decider whether a non-shell action is
+// safe and auto-approves it when so. Deciders without action support keep the
+// manual prompt for this action while assisted mode stays on for shell commands.
+func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolName string, params map[string]any) bool {
+	if dec == nil || !dec.Enabled() {
+		m.SetAssistedMode(false)
+		return false
+	}
+	actionDec, ok := dec.(actionSafetyDecider)
+	if !ok {
+		return false
+	}
+	dangerous, err := actionDec.IsActionDangerous(context.Background(), toolName, actionSummary(params))
+	if err != nil {
+		m.SetAssistedMode(false)
+		return false
+	}
+	if !dangerous {
+		notifyAutoApproval(ui, toolName)
+		return true
+	}
+	return false
+}
+
+func notifyAutoApproval(ui prompter, toolName string) {
+	if n, ok := ui.(approvalNotifier); ok {
+		n.NotifyAutoApproval(toolName)
+	}
+}
+
+// actionSummary renders a tool's parameters as a short, stable text block for
+// the decision model.
+func actionSummary(params map[string]any) string {
+	if len(params) == 0 {
+		return "(no arguments)"
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		text := strings.TrimSpace(fmt.Sprintf("%v", params[k]))
+		text = strings.ReplaceAll(text, "\n", " ")
+		if len(text) > 400 {
+			text = text[:400] + "…"
+		}
+		fmt.Fprintf(&b, "- %s: %s\n", k, text)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
