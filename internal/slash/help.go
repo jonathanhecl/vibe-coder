@@ -44,6 +44,7 @@ func printHelp(c *Ctx) {
 			{"/jevstyle", "show or set JEV Style decision model"},
 			{"/jevstyle <name>", "set JEV Style model for this session"},
 			{"/jevstyle off", "disable JEV Style for this session"},
+			{"/jevstyle test", "test JEV Style model on a sample decision prompt"},
 			{"/hide-think", "hide model thinking blocks in CLI output"},
 			{"/show-think", "show model thinking blocks in CLI output (default)"},
 		}},

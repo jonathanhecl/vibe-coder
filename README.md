@@ -365,6 +365,24 @@ behaviours: compaction will truncate to a static "Earlier conversation
 truncated…" note, large tool outputs will be inserted verbatim into the
 context, and ambiguous paths will not be rescued.
 
+### What is the JEV Style decision model?
+
+`JEVSTYLE_MODEL` defines a specialized, **text-only decision function** (not a conversational chat model, vision model, or tool-calling model). It operates exclusively on text inputs and outputs a single option letter:
+
+- `[State]` — the current factual context or premise (text only)
+- `[Question]` — the decision question (text only)
+- `[Options]` — labeled candidate choices (`A.`, `B.`, ..., up to 26 options)
+- `Answer:` — prompt terminator
+
+At `temperature: 0`, the model emits a single option letter (`A`, `B`, ...) representing its choice. It does not accept images, audio, or tool calls.
+
+**Recommended models:**
+- [`chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-v2-GGUF`](https://huggingface.co/chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-v2-GGUF)
+- [`chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-GGUF`](https://huggingface.co/chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-GGUF)
+- (or any compatible Ollama model)
+
+You can test the configured decision model inside the interactive session with `/jevstyle test`.
+
 ### Remote Ollama for vibe only
 
 If Ollama runs on another machine in your network, you can configure `vibe` and persist
