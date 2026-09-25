@@ -106,6 +106,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 			return true, false, nil
 		}
 		return true, false, runResume(c)
+	case "/redo":
+		return true, false, runRedoCommand(c)
 	case "/new":
 		if c.Cfg != nil && c.Cfg.Temporal {
 			if c.Session != nil {

@@ -27,6 +27,7 @@ Release archives and generated notes are available on the
 - First-run onboarding now also offers the optional JEV Style decision model, alongside the primary and sidecar models, and shows it in the closing summary.
 - Numbered model pickers for `/model`, `/sidecar`, and `/jevstyle`: each lists the installed models once with capability tags and lets you choose by number (interactively or as an argument, e.g. `/model 2`), type a model name, press Enter to keep the current selection, or `[0]` to disable the sidecar/JEV Style role.
 - `/models` lists every installed model, numbered and tagged, marks which one each role currently uses, and explains how to switch with `/model <n>`, `/sidecar <n>`, or `/jevstyle <n>` and persist with `/save`.
+- `/redo` re-prints the last assistant response from the session (fully rendered, with the preceding user prompt for context), handy to recover where you left off after reopening `vibe`.
 - `/promote` (alias `/keep`) keeps a temporal session by promoting it to a permanent, saved session.
 
 ### Changed

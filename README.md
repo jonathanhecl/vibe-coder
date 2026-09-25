@@ -538,6 +538,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/sessions delete <id>` — delete a specific session
 - `/sessions delete --all` — delete every saved session
 - `/resume` — resume the last session for this project path
+- `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
 - `/status`, `/info`, `/stats` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, context usage)

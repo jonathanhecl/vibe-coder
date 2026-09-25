@@ -28,6 +28,7 @@ func printHelp(c *Ctx) {
 			{"/sessions delete <id>", "delete a specific session"},
 			{"/sessions delete --all", "delete every saved session"},
 			{"/resume", "resume the last session for this project path"},
+			{"/redo", "re-print the last assistant response (handy to recover context)"},
 			{"/compact", "force a sidecar-summarized compaction"},
 			{"/tokens", "show token usage vs the context window"},
 			{"/status, /info, /stats", "show the current configuration (banner-style)"},
