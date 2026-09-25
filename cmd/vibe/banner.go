@@ -48,7 +48,13 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 		{Label: "Ollama", Value: host},
 	}
 	if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
-		fields = append(fields, bannerField{Label: "Jevstyle", Value: strings.TrimSpace(cfg.JevstyleModel)})
+		val := strings.TrimSpace(cfg.JevstyleModel)
+		if cfg.AssistedYes {
+			val = fmt.Sprintf("%s (assisted enabled)", val)
+		} else {
+			val = fmt.Sprintf("%s (run '/yes assisted' to enable)", val)
+		}
+		fields = append(fields, bannerField{Label: "Jevstyle", Value: val})
 	}
 	return fields
 }
@@ -68,7 +74,13 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 			version.Value, sessionLine, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
 		)
 		if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
-			out += fmt.Sprintf("JEV Style: %s\n", strings.TrimSpace(cfg.JevstyleModel))
+			jevVal := strings.TrimSpace(cfg.JevstyleModel)
+			if cfg.AssistedYes {
+				jevVal = fmt.Sprintf("%s (assisted enabled)", jevVal)
+			} else {
+				jevVal = fmt.Sprintf("%s (run '/yes assisted' to enable)", jevVal)
+			}
+			out += fmt.Sprintf("JEV Style: %s\n", jevVal)
 		}
 		return out
 	}
@@ -101,6 +113,18 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 				b.WriteString(style.BrightWhite(sessionID))
 				b.WriteString("    ")
 				b.WriteString(style.Cyan("(resumed)"))
+			} else {
+				b.WriteString(style.BrightWhite(f.Value))
+			}
+		} else if f.Label == "Jevstyle" {
+			if cfg != nil && cfg.AssistedYes {
+				b.WriteString(style.BrightWhite(strings.TrimSpace(cfg.JevstyleModel)))
+				b.WriteString(" ")
+				b.WriteString(style.Green("(assisted enabled)"))
+			} else if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
+				b.WriteString(style.BrightWhite(strings.TrimSpace(cfg.JevstyleModel)))
+				b.WriteString(" ")
+				b.WriteString(style.BrightWhite("(run '/yes assisted' to enable)"))
 			} else {
 				b.WriteString(style.BrightWhite(f.Value))
 			}

@@ -395,6 +395,7 @@ You can test the configured decision model inside the interactive session with `
 When configured, JEV Style acts as a fast, discrete decision engine for key agent operations:
 1. **Assisted Command Execution Mode (`--assisted-yes`, `/yes assisted`, `/jevstyle assisted on`)**:
    Instead of either prompting on every command or blindly auto-approving everything, JEV Style classifies proposed shell commands as safe or dangerous. Safe commands (e.g. `ls`, `git status`, test runs) are auto-approved, while destructive or risky commands prompt the user.
+   - **Startup banner status**: When assisted mode is active, the startup banner highlights `(assisted enabled)` in green alongside the configured JEV Style decision model; when inactive, it displays `(run '/yes assisted' to enable)` in standard white.
    - **Configuration persistence**: Setting assisted mode can be saved across runs in `vibe-coder.env` (`ASSISTED_YES=true`, `/save`, `--save`).
    - **Absence and error fallback**: If no JEV Style model is configured or if the JEV model experiences network or inference errors, assisted mode automatically deactivates and safely reverts to standard user confirmation prompts (`AskPermission`).
    - **Setup suggestion**: Configuring a decision model via `/jevstyle <model>` automatically suggests enabling assisted mode.
