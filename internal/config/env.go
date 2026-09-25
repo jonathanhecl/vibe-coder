@@ -56,6 +56,11 @@ func applyEnv(cfg *Config) {
 			cfg.Debug = parsed
 		}
 	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_TEMPORAL", "VIBEGO_TEMPORAL", "TEMPORAL")); v != "" {
+		if b, ok := parseBoolish(v); ok {
+			cfg.Temporal = b
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_CHAT_TIMEOUT")); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
 			cfg.ChatTimeout = parsed

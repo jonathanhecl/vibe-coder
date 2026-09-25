@@ -22,6 +22,7 @@ Release archives and generated notes are available on the
 - Automatic session resume: starting `vibe` in a directory automatically loads the most recent session for that directory, displaying `(resumed)` next to the session ID in the startup banner. Added `-n`/`--new` CLI flag to bypass auto-resuming and start fresh.
 - Session origin project path tracking: saved sessions persist the directory where they were initialized (`project_path` in `<id>.ctx.json` sidecar and `session-projects.json` fast index), and `/sessions` displays a formatted `PATH` column with home-relative (`~`) shorthand and directory hierarchy preservation.
 - Decision workflows powered by JEV Style: workspace path disambiguation, autonomous mission goal completion verification, tool failure root-cause diagnosis hints, and conventional commit type classification.
+- Temporal (ephemeral) session mode (`-t`, `--temporal`, `--temp`, `VIBE_CODER_TEMPORAL`): runs an isolated session where conversation history, transcripts, and session indexes are discarded on exit, while files and workspace changes made by the agent remain on disk. Includes yellow `(temporal)` banner status, `/new` reset support, and promotion to permanent session with `/save`.
 
 ### Changed
 

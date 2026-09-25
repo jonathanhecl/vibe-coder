@@ -53,6 +53,11 @@ func (s *Session) Save() error {
 	if len(messages) == 0 {
 		return nil
 	}
+	// Temporal sessions never write to disk: session history is discarded
+	// on exit while workspace changes made by the agent remain.
+	if cfg.Temporal {
+		return nil
+	}
 	// Nothing changed since the last successful save: skip the full
 	// rewrite (transcript + index + sidecar). The REPL saves after every
 	// turn, so without this long sessions pay a whole-file rewrite each

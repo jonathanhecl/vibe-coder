@@ -261,6 +261,9 @@ func printAvailableModels(rootCtx context.Context, client ollama.Client) error {
 }
 
 func resolveSession(cfg *config.Config, sess *session.Session) (bool, error) {
+	if cfg == nil || sess == nil || cfg.Temporal {
+		return false, nil
+	}
 	if cfg.SessionID != "" {
 		if err := sess.Load(cfg.SessionID); err != nil {
 			return false, fmt.Errorf("failed to load session %q: %w", cfg.SessionID, err)

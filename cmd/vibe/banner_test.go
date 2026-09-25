@@ -45,6 +45,20 @@ func TestBannerFieldsResumed(t *testing.T) {
 	}
 }
 
+func TestBannerFieldsTemporal(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:      "llama3.2:3b",
+		OllamaHost: "http://localhost:11434",
+		Temporal:   true,
+	}
+	fields := bannerFields(cfg, "session-tmp", false)
+	if fields[0].Value != "session-tmp    (temporal)" {
+		t.Fatalf("expected session value to indicate temporal, got %q", fields[0].Value)
+	}
+}
+
 func TestBannerFieldsWithJevstyle(t *testing.T) {
 	t.Parallel()
 

@@ -572,3 +572,47 @@ func TestSaveModelSettingsJevstyle(t *testing.T) {
 		t.Fatalf("expected JEVSTYLE_MODEL removed, got:\n%s", string(data))
 	}
 }
+
+func TestTemporalConfigPrecedence(t *testing.T) {
+	// 1. Default is false
+	cfg, err := Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Temporal {
+		t.Fatal("expected Temporal to be false by default")
+	}
+
+	// 2. Env var VIBE_CODER_TEMPORAL=true
+	t.Setenv("VIBE_CODER_TEMPORAL", "1")
+	cfg, err = Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Temporal {
+		t.Fatal("expected Temporal to be true from VIBE_CODER_TEMPORAL")
+	}
+
+	// 3. CLI override --temporal=false
+	cfg, err = Load([]string{"--temporal=false"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Temporal {
+		t.Fatal("expected Temporal to be false when overridden by CLI")
+	}
+
+	// 4. CLI flags: --temporal, --temp, -t
+	for _, flag := range []string{"--temporal", "--temp", "-t"} {
+		cfg, err = Load([]string{flag})
+		if err != nil {
+			t.Fatalf("load config with %s: %v", flag, err)
+		}
+		if !cfg.Temporal {
+			t.Fatalf("expected Temporal to be true for flag %s", flag)
+		}
+		if !cfg.NewSession {
+			t.Fatalf("expected NewSession to be true when Temporal is true (flag %s)", flag)
+		}
+	}
+}

@@ -22,6 +22,7 @@ type cliOptions struct {
 	debug         optionalBool
 	resume        optionalBool
 	newSession    optionalBool
+	temporal      optionalBool
 	sessionID     optionalString
 	listSessions  optionalBool
 	ollamaHost    optionalString
@@ -67,6 +68,9 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.newSession, "n", "start a new session (do not auto-resume)")
 	fs.Var(&opts.newSession, "new", "start a new session (do not auto-resume)")
+	fs.Var(&opts.temporal, "temporal", "start a temporal session (discards session history on exit)")
+	fs.Var(&opts.temporal, "temp", "start a temporal session (alias)")
+	fs.Var(&opts.temporal, "t", "start a temporal session (shorthand)")
 	fs.Var(&opts.resume, "resume", "resume session")
 	fs.Var(&opts.sessionID, "session-id", "session id")
 	fs.Var(&opts.listSessions, "list-sessions", "list sessions")
@@ -137,6 +141,12 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.newSession.set {
 		cfg.NewSession = cli.newSession.value
+	}
+	if cli.temporal.set {
+		cfg.Temporal = cli.temporal.value
+	}
+	if cfg.Temporal {
+		cfg.NewSession = true
 	}
 	if cli.sessionID.set {
 		cfg.SessionID = cli.sessionID.value

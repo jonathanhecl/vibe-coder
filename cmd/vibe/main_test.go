@@ -334,4 +334,39 @@ func TestResolveSessionAutoResume(t *testing.T) {
 	if !resumed || s4.ID() != s1.ID() {
 		t.Fatalf("expected resumed specific session %s, got %s (resumed=%t)", s1.ID(), s4.ID(), resumed)
 	}
+
+	// 5. Temporal mode: must NOT auto-resume.
+	cfgTemp := &config.Config{
+		Cwd:         dir,
+		SessionsDir: sessionsDir,
+		Temporal:    true,
+	}
+	s5 := session.New(cfgTemp)
+	resumed, err = resolveSession(cfgTemp, s5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resumed {
+		t.Fatal("expected resumed to be false when Temporal is true")
+	}
+}
+
+func TestStartupBannerTemporal(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:      "llama3.2:3b",
+		OllamaHost: "http://localhost:11434",
+		Temporal:   true,
+	}
+	// With ANSI (color terminal)
+	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	if !strings.Contains(banner, "(temporal)") {
+		t.Fatalf("expected banner to contain '(temporal)', got:\n%s", banner)
+	}
+	// Without ANSI (plain terminal)
+	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{})
+	if !strings.Contains(bannerPlain, "(temporal)") {
+		t.Fatalf("expected plain banner to contain '(temporal)', got:\n%s", bannerPlain)
+	}
 }

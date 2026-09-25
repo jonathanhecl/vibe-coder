@@ -34,7 +34,9 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 		host = cfg.OllamaHost
 	}
 	sessVal := sessionID
-	if resumed {
+	if cfg != nil && cfg.Temporal {
+		sessVal = fmt.Sprintf("%s    (temporal)", sessionID)
+	} else if resumed {
 		sessVal = fmt.Sprintf("%s    (resumed)", sessionID)
 	}
 	fields := []bannerField{
@@ -52,7 +54,9 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style) string {
 	if !style.Enabled() {
 		sessionLine := "Session started: " + sessionID
-		if resumed {
+		if cfg != nil && cfg.Temporal {
+			sessionLine += " (temporal)"
+		} else if resumed {
 			sessionLine += " (resumed)"
 		}
 		out := fmt.Sprintf(
@@ -80,10 +84,18 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 		b.WriteString("  ")
 		b.WriteString(style.BoldCyan(fmt.Sprintf("%-8s", f.Label)))
 		b.WriteString(" ")
-		if f.Label == "Session" && resumed {
-			b.WriteString(style.BrightWhite(sessionID))
-			b.WriteString("    ")
-			b.WriteString(style.Cyan("(resumed)"))
+		if f.Label == "Session" {
+			if cfg != nil && cfg.Temporal {
+				b.WriteString(style.BrightWhite(sessionID))
+				b.WriteString("    ")
+				b.WriteString(style.Yellow("(temporal)"))
+			} else if resumed {
+				b.WriteString(style.BrightWhite(sessionID))
+				b.WriteString("    ")
+				b.WriteString(style.Cyan("(resumed)"))
+			} else {
+				b.WriteString(style.BrightWhite(f.Value))
+			}
 		} else {
 			b.WriteString(style.BrightWhite(f.Value))
 		}

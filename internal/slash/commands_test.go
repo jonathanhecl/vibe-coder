@@ -582,3 +582,91 @@ func TestShortenProjectPath(t *testing.T) {
 	}
 }
 
+func TestDispatchTemporalSession(t *testing.T) {
+	// 1. /exit in temporal mode discards session without saving to disk.
+	tmp := t.TempDir()
+	sessionsDir := filepath.Join(tmp, "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: sessionsDir,
+		Temporal:    true,
+	}
+	s := session.New(cfg)
+	s.AddUser("hello world")
+	s.AddAssistant("response")
+
+	var out bytes.Buffer
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: s,
+		Agent:   &fakePlanAgent{},
+		Out:     &out,
+	}
+
+	handled, shouldExit, err := Dispatch(ctx, "/exit")
+	if err != nil || !handled || !shouldExit {
+		t.Fatalf("unexpected exit result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(out.String(), "Temporal session discarded.") {
+		t.Fatalf("expected 'Temporal session discarded.', got %q", out.String())
+	}
+	files, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected no files written in temporal mode, found %d", len(files))
+	}
+
+	// 2. "bye" in temporal mode also discards without saving.
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "bye")
+	if err != nil || !handled || !shouldExit {
+		t.Fatalf("unexpected bye result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(out.String(), "Temporal session discarded.") {
+		t.Fatalf("expected 'Temporal session discarded.' for bye, got %q", out.String())
+	}
+
+	// 3. /new in temporal mode clears session and stays temporal.
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/new")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /new result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(out.String(), "Started a new temporal session") {
+		t.Fatalf("expected 'Started a new temporal session', got %q", out.String())
+	}
+	if s.MessageCount() != 0 {
+		t.Fatalf("expected 0 messages after /new, got %d", s.MessageCount())
+	}
+	if !cfg.Temporal {
+		t.Fatal("expected cfg.Temporal to remain true after /new")
+	}
+
+	// 4. /save promotes temporal session to permanent and saves to disk.
+	s.AddUser("durable message")
+	s.AddAssistant("durable reply")
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/save")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /save result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !strings.Contains(out.String(), "Session promoted to permanent and saved") {
+		t.Fatalf("expected 'Session promoted to permanent and saved', got %q", out.String())
+	}
+	if cfg.Temporal {
+		t.Fatal("expected cfg.Temporal to be false after promotion")
+	}
+	files, err = os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("expected session files to be written after /save promotion")
+	}
+}
+

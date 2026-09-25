@@ -488,3 +488,32 @@ func TestLoadByProjectIgnoresEmptySession(t *testing.T) {
 		t.Fatal("expected LoadByProject to return false for empty session")
 	}
 }
+
+func TestSaveTemporalDoesNotPersist(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	sessionsDir := filepath.Join(tmp, "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: sessionsDir,
+		Temporal:    true,
+	}
+	s := New(cfg)
+	s.AddUser("hello temporal")
+	s.AddAssistant("hi")
+
+	if err := s.Save(); err != nil {
+		t.Fatalf("expected Save() to return nil, got %v", err)
+	}
+
+	files, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected 0 files in sessionsDir, found %d", len(files))
+	}
+}

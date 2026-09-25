@@ -51,6 +51,10 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 
 	// "bye" (case-insensitive) is a non-slash alias for /exit.
 	if strings.EqualFold(trimmed, "bye") {
+		if c.Cfg != nil && c.Cfg.Temporal {
+			fmt.Fprintln(c.Out, "Temporal session discarded.")
+			return true, true, nil
+		}
 		if c.Session != nil && c.Session.MessageCount() > 0 {
 			if err := c.Session.Save(); err != nil {
 				return true, false, err
@@ -69,6 +73,10 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 
 	switch cmd {
 	case "/exit", "/quit", "/q", "/bye":
+		if c.Cfg != nil && c.Cfg.Temporal {
+			fmt.Fprintln(c.Out, "Temporal session discarded.")
+			return true, true, nil
+		}
 		if c.Session != nil && c.Session.MessageCount() > 0 {
 			if err := c.Session.Save(); err != nil {
 				return true, false, err
@@ -90,6 +98,13 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		return true, false, runResume(c)
 	case "/new":
+		if c.Cfg != nil && c.Cfg.Temporal {
+			if c.Session != nil {
+				c.Session.Clear()
+			}
+			fmt.Fprintf(c.Out, "Started a new temporal session (%s)\n", c.Session.ID())
+			return true, false, nil
+		}
 		if c.Session != nil && c.Session.MessageCount() > 0 {
 			if err := c.Session.Save(); err != nil {
 				return true, false, err
@@ -113,6 +128,19 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	case "/jevstyle":
 		return true, false, runJevstyleCommand(c, fields[1:])
 	case "/save":
+		if c.Cfg != nil && c.Cfg.Temporal {
+			c.Cfg.Temporal = false
+			if c.Session != nil && c.Session.MessageCount() > 0 {
+				if err := c.Session.Save(); err != nil {
+					return true, false, err
+				}
+				fmt.Fprintf(c.Out, "Session promoted to permanent and saved (%s)\n", c.Session.ID())
+			} else {
+				fmt.Fprintln(c.Out, "Session promoted to permanent (no messages to save yet)")
+			}
+			_ = config.SaveModelSettings(c.Cfg)
+			return true, false, nil
+		}
 		hasMessages := c.Session != nil && c.Session.MessageCount() > 0
 		if hasMessages {
 			if err := c.Session.Save(); err != nil {

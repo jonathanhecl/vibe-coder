@@ -42,6 +42,9 @@ type Config struct {
 	Debug              bool
 	Resume             bool
 	NewSession         bool
+	// Temporal runs an ephemeral session without persisting session history
+	// or updating project session indexes on exit.
+	Temporal           bool
 	SessionID          string
 	ListSessions       bool
 	Cwd                string
