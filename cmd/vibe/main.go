@@ -186,11 +186,11 @@ func main() {
 		return
 	}
 
-	if cfg.Resume {
-		logger.Infof("Resuming session configuration...")
-		if err := resumeConfiguredSession(cfg, sess); err != nil {
-			exitWithError(err)
-		}
+	resumed, err := resolveSession(cfg, sess)
+	if err != nil {
+		exitWithError(err)
+	}
+	if resumed {
 		restoreSessionContexts(sess, ctxStore)
 		// Restore the durable TODO/task state so a resumed autonomous run
 		// knows what is already done.
@@ -209,7 +209,7 @@ func main() {
 	bannerPrinted := false
 	if cfg.Prompt != "" {
 		logger.Infof("Running one-shot prompt flow: %q", cfg.Prompt)
-		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui)
+		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui, resumed)
 		if err != nil {
 			exitWithError(err)
 		}
@@ -222,7 +222,7 @@ func main() {
 	}
 
 	if !bannerPrinted {
-		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), tui.NewStyle(os.Stdout)))
+		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
 	}
 	logger.Infof("Entering interactive REPL loop.")
 	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore)
@@ -260,22 +260,31 @@ func printAvailableModels(rootCtx context.Context, client ollama.Client) error {
 	return nil
 }
 
-func resumeConfiguredSession(cfg *config.Config, sess *session.Session) error {
+func resolveSession(cfg *config.Config, sess *session.Session) (bool, error) {
 	if cfg.SessionID != "" {
 		if err := sess.Load(cfg.SessionID); err != nil {
-			return fmt.Errorf("failed to load session %q: %w", cfg.SessionID, err)
+			return false, fmt.Errorf("failed to load session %q: %w", cfg.SessionID, err)
 		}
-		fmt.Fprintf(os.Stdout, "Resumed session %s\n", sess.ID())
-		return nil
+		return true, nil
 	}
-	ok, err := sess.LoadByProject()
-	if err != nil {
-		return fmt.Errorf("failed to resume session by project: %w", err)
+	if cfg.Resume {
+		ok, err := sess.LoadByProject()
+		if err != nil {
+			return false, fmt.Errorf("failed to resume session by project: %w", err)
+		}
+		if !ok {
+			fmt.Fprintln(os.Stderr, "No previous session found for this project; started a new session.")
+			return false, nil
+		}
+		return true, nil
 	}
-	if ok {
-		fmt.Fprintf(os.Stdout, "Resumed project session %s\n", sess.ID())
+	if !cfg.NewSession {
+		ok, err := sess.LoadByProject()
+		if err == nil && ok {
+			return true, nil
+		}
 	}
-	return nil
+	return false, nil
 }
 
 // resolveVisionSupport detects once, at startup, whether the active model

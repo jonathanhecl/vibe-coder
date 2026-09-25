@@ -41,6 +41,7 @@ type Config struct {
 	AssistedYes        bool
 	Debug              bool
 	Resume             bool
+	NewSession         bool
 	SessionID          string
 	ListSessions       bool
 	Cwd                string
@@ -196,6 +197,7 @@ Flags:
   -y, --yes                 Enable yes mode
   --assisted-yes            Enable assisted execution mode with JEV Style (auto-approve safe commands)
   --debug                   Enable debug logs
+  -n, --new                 Start a new session (do not auto-resume previous session)
   --resume                  Resume last session for this project
   --session-id string       Resume specific session id
   --list-sessions           List known sessions

@@ -152,6 +152,7 @@ func TestLoadPrecedenceAndDirs(t *testing.T) {
 func TestAutoDetectModelWhenEmpty(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("VIBE_CODER_CONFIG", filepath.Join(tmp, "nonexistent.env"))
 	t.Setenv("VIBE_CODER_MODEL", "")
 	t.Setenv("VIBEGO_MODEL", "")
 	t.Setenv("VIBE_CODER_RAM_GB", "32")

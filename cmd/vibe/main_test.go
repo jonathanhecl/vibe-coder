@@ -157,7 +157,7 @@ func TestStartupBanner(t *testing.T) {
 		SidecarModel: "",
 		OllamaHost:   "http://localhost:11434",
 	}
-	out := startupBanner(cfg, "session-123", tui.Style{})
+	out := startupBanner(cfg, "session-123", false, tui.Style{})
 	if !strings.Contains(out, "vibe") {
 		t.Fatalf("missing app name banner: %q", out)
 	}
@@ -172,6 +172,19 @@ func TestStartupBanner(t *testing.T) {
 	}
 	if !strings.Contains(out, "Ollama host: http://localhost:11434") {
 		t.Fatalf("missing host line: %q", out)
+	}
+}
+
+func TestStartupBannerResumed(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:      "llama3.2:3b",
+		OllamaHost: "http://localhost:11434",
+	}
+	out := startupBanner(cfg, "session-123", true, tui.Style{})
+	if !strings.Contains(out, "Session started: session-123 (resumed)") {
+		t.Fatalf("expected (resumed) in session line, got %q", out)
 	}
 }
 
@@ -238,5 +251,80 @@ func TestPlanTaskFromSlash(t *testing.T) {
 		if ok != tc.ok || got != tc.want {
 			t.Fatalf("planTaskFromSlash(%q) => (%q,%t), want (%q,%t)", tc.in, got, ok, tc.want, tc.ok)
 		}
+	}
+}
+
+func TestResolveSessionAutoResume(t *testing.T) {
+	dir := t.TempDir()
+	sessionsDir := filepath.Join(dir, "sessions")
+
+	cfg := &config.Config{
+		Cwd:         dir,
+		SessionsDir: sessionsDir,
+	}
+
+	// 1. Initial run: no saved session exists yet for this project.
+	s1 := session.New(cfg)
+	resumed, err := resolveSession(cfg, s1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resumed {
+		t.Fatal("expected resumed to be false when no previous session exists")
+	}
+
+	// Save s1 so it becomes the project's last session.
+	s1.AddUser("first prompt in project")
+	if err := s1.Save(); err != nil {
+		t.Fatalf("failed to save s1: %v", err)
+	}
+
+	// 2. Subsequent run in same directory: must auto-resume s1.
+	s2 := session.New(cfg)
+	resumed, err = resolveSession(cfg, s2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resumed {
+		t.Fatal("expected auto-resume to be true for existing project session")
+	}
+	if s2.ID() != s1.ID() {
+		t.Fatalf("expected auto-resumed session %s, got %s", s1.ID(), s2.ID())
+	}
+	if s2.MessageCount() != 1 {
+		t.Fatalf("expected 1 message in resumed session, got %d", s2.MessageCount())
+	}
+
+	// 3. User passes --new: must NOT auto-resume.
+	cfgNew := &config.Config{
+		Cwd:         dir,
+		SessionsDir: sessionsDir,
+		NewSession:  true,
+	}
+	s3 := session.New(cfgNew)
+	resumed, err = resolveSession(cfgNew, s3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resumed {
+		t.Fatal("expected resumed to be false when --new is passed")
+	}
+	if s3.ID() == s1.ID() {
+		t.Fatalf("expected new session id, got %s", s3.ID())
+	}
+
+	// 4. Specific session id requested: must resume that id.
+	cfgSpecific := &config.Config{
+		Cwd:         dir,
+		SessionsDir: sessionsDir,
+		SessionID:   s1.ID(),
+	}
+	s4 := session.New(cfgSpecific)
+	resumed, err = resolveSession(cfgSpecific, s4)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resumed || s4.ID() != s1.ID() {
+		t.Fatalf("expected resumed specific session %s, got %s (resumed=%t)", s1.ID(), s4.ID(), resumed)
 	}
 }

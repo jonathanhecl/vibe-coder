@@ -15,7 +15,7 @@ func TestBannerFields(t *testing.T) {
 		SidecarModel: "qwen3.5:4b",
 		OllamaHost:   "http://localhost:11434",
 	}
-	fields := bannerFields(cfg, "session-123")
+	fields := bannerFields(cfg, "session-123", false)
 	want := []bannerField{
 		{Label: "Session", Value: "session-123"},
 		{Label: "Model", Value: "llama3.2:3b"},
@@ -32,6 +32,19 @@ func TestBannerFields(t *testing.T) {
 	}
 }
 
+func TestBannerFieldsResumed(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:      "llama3.2:3b",
+		OllamaHost: "http://localhost:11434",
+	}
+	fields := bannerFields(cfg, "session-abc", true)
+	if fields[0].Value != "session-abc    (resumed)" {
+		t.Fatalf("expected session value to indicate resumed, got %q", fields[0].Value)
+	}
+}
+
 func TestBannerFieldsWithJevstyle(t *testing.T) {
 	t.Parallel()
 
@@ -41,7 +54,7 @@ func TestBannerFieldsWithJevstyle(t *testing.T) {
 		JevstyleModel: "decision-v1",
 		OllamaHost:    "http://localhost:11434",
 	}
-	fields := bannerFields(cfg, "session-123")
+	fields := bannerFields(cfg, "session-123", false)
 	want := []bannerField{
 		{Label: "Session", Value: "session-123"},
 		{Label: "Model", Value: "llama3.2:3b"},
@@ -62,7 +75,7 @@ func TestBannerFieldsWithJevstyle(t *testing.T) {
 func TestBannerFieldsNilConfig(t *testing.T) {
 	t.Parallel()
 
-	fields := bannerFields(nil, "session-nil")
+	fields := bannerFields(nil, "session-nil", false)
 	if len(fields) != 4 {
 		t.Fatalf("expected 4 fields, got %d", len(fields))
 	}

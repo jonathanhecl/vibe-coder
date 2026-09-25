@@ -102,7 +102,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 ### Session management
 
 - **Atomic persistence** — append-only JSONL with temp-file + rename (`0o600`).
-- **Project-aware indexing** — sessions are keyed by `sha256(cwd)[:16]` so `--resume` picks up where you left off per project.
+- **Project-aware indexing & auto-resume** — sessions are keyed by `sha256(cwd)[:16]` so running `vibe` automatically resumes where you left off in that directory (tagged as `(resumed)` in the banner). Use `/new` or `-n`/`--new` to start fresh.
 - **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model summarizes the oldest messages while keeping the last 30 verbatim.
 - **Token estimate** — maintained incrementally so compaction checks are O(1).
 
@@ -447,6 +447,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)
 - `--assisted-yes` — enable assisted execution mode with JEV Style (auto-approve safe commands, prompt for dangerous commands)
 - `--debug` — enable debug logs
+- `-n, --new` — start a new session (bypass automatic session resume for current directory)
 - `--resume` — resume the last session for this project
 - `--session-id <id>` — resume a specific session
 - `--list-sessions` — list known sessions

@@ -21,6 +21,7 @@ type cliOptions struct {
 	assistedYes   optionalBool
 	debug         optionalBool
 	resume        optionalBool
+	newSession    optionalBool
 	sessionID     optionalString
 	listSessions  optionalBool
 	ollamaHost    optionalString
@@ -64,6 +65,8 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.assistedYes, "assisted-yes", "enable assisted execution mode with JEV Style")
 	fs.Var(&opts.assistedYes, "assisted", "enable assisted execution mode with JEV Style (alias)")
 	fs.Var(&opts.debug, "debug", "debug logs")
+	fs.Var(&opts.newSession, "n", "start a new session (do not auto-resume)")
+	fs.Var(&opts.newSession, "new", "start a new session (do not auto-resume)")
 	fs.Var(&opts.resume, "resume", "resume session")
 	fs.Var(&opts.sessionID, "session-id", "session id")
 	fs.Var(&opts.listSessions, "list-sessions", "list sessions")
@@ -131,6 +134,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.resume.set {
 		cfg.Resume = cli.resume.value
+	}
+	if cli.newSession.set {
+		cfg.NewSession = cli.newSession.value
 	}
 	if cli.sessionID.set {
 		cfg.SessionID = cli.sessionID.value

@@ -11,12 +11,12 @@ import (
 
 // bannerWordmark is the styled startup logo. It is only emitted when ANSI
 // styling is available, so piped or NO_COLOR output stays plain and greppable.
-const bannerWordmark = `██╗   ██╗██╗██████╗ ███████╗
-██║   ██║██║██╔══██╗██╔════╝
-██║   ██║██║██████╔╝█████╗
-╚██╗ ██╔╝██║██╔══██╗██╔══╝
- ╚████╔╝ ██║██████╔╝███████╗
-  ╚═══╝  ╚═╝╚═════╝ ╚══════╝`
+const bannerWordmark = `  ██╗   ██╗██╗██████╗ ███████╗
+  ██║   ██║██║██╔══██╗██╔════╝
+  ██║   ██║██║██████╔╝█████╗
+  ╚██╗ ██╔╝██║██╔══██╗██╔══╝
+   ╚████╔╝ ██║██████╔╝███████╗
+    ╚═══╝  ╚═╝╚═════╝ ╚══════╝`
 
 // bannerField is one label/value pair shown under the startup logo.
 type bannerField struct {
@@ -26,15 +26,19 @@ type bannerField struct {
 
 // bannerFields returns the runtime facts surfaced at startup. Keeping them as
 // data makes the layout testable without depending on ANSI escape codes.
-func bannerFields(cfg *config.Config, sessionID string) []bannerField {
+func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerField {
 	model := ""
 	host := ""
 	if cfg != nil {
 		model = cfg.Model
 		host = cfg.OllamaHost
 	}
+	sessVal := sessionID
+	if resumed {
+		sessVal = fmt.Sprintf("%s    (resumed)", sessionID)
+	}
 	fields := []bannerField{
-		{Label: "Session", Value: sessionID},
+		{Label: "Session", Value: sessVal},
 		{Label: "Model", Value: model},
 		{Label: "Sidecar", Value: formatSidecarBanner(cfg)},
 		{Label: "Ollama", Value: host},
@@ -45,11 +49,15 @@ func bannerFields(cfg *config.Config, sessionID string) []bannerField {
 	return fields
 }
 
-func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {
+func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style) string {
 	if !style.Enabled() {
+		sessionLine := "Session started: " + sessionID
+		if resumed {
+			sessionLine += " (resumed)"
+		}
 		out := fmt.Sprintf(
-			"vibe %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
-			version.Value, sessionID, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
+			"vibe %s\n%s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
+			version.Value, sessionLine, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
 		)
 		if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
 			out += fmt.Sprintf("JEV Style: %s\n", strings.TrimSpace(cfg.JevstyleModel))
@@ -58,6 +66,7 @@ func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string
 	}
 
 	var b strings.Builder
+	b.WriteString("\n")
 	b.WriteString(style.Cyan(bannerWordmark))
 	b.WriteString("\n\n")
 	b.WriteString("  ")
@@ -67,7 +76,7 @@ func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string
 	b.WriteString("\n  ")
 	b.WriteString(style.Gray(strings.Repeat("─", 46)))
 	b.WriteString("\n")
-	for _, f := range bannerFields(cfg, sessionID) {
+	for _, f := range bannerFields(cfg, sessionID, resumed) {
 		b.WriteString("  ")
 		b.WriteString(style.BoldCyan(fmt.Sprintf("%-8s", f.Label)))
 		b.WriteString(" ")
