@@ -311,14 +311,18 @@ Model keys and overrides:
 - Config file key: `MODEL=<model-name>`
 - Config file key: `UI=plain|rich`
 - Config file key: `SIDECAR_MODEL=<model-name>`
+- Config file key: `JEVSTYLE_MODEL=<model-name>`
 - Config file key: `THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_MODEL=<model-name>`
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
+- Environment: `VIBE_CODER_JEVSTYLE_MODEL=<model-name>`
 - Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
 - Config file key / environment: `CHAT_TIMEOUT` / `VIBE_CODER_CHAT_TIMEOUT` (Go duration, e.g. `30m`; default `15m`) — deadline for a single `/api/chat` turn, useful for slow local models in long missions
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
+- CLI: `--sidecar <model-name>`
+- CLI: `--jevstyle-model <model-name>` (or `--jevstyle <model-name>`)
 - CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
 
 If no model is set, `vibe` auto-selects one based on detected RAM tier.
@@ -399,6 +403,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `-m, --model <name>` — model name
 - `--sidecar <name>` — sidecar model name
 - `--no-sidecar` — disable sidecar for this session only; with `--save`, persists `SIDECAR_DISABLED=true`
+- `--jevstyle-model <name>` — JEV Style decision model name (alias: `--jevstyle <name>`)
 - `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)
 - `--debug` — enable debug logs
 - `--resume` — resume the last session for this project
@@ -419,7 +424,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
+- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `JEVSTYLE_MODEL`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
 ## MCP & Skills Management CLI
 
@@ -503,6 +508,9 @@ Pinned context files are injected into the system prompt on every turn, so they 
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/sidecar status` — show current sidecar state
+- `/jevstyle` — show current JEV Style decision model
+- `/jevstyle <name>` — switch JEV Style model for this session
+- `/jevstyle off` — disable JEV Style model for this session
 - `/hide-think` — hide model thinking blocks in CLI output
 - `/show-think` — show model thinking blocks in CLI output (default)
 

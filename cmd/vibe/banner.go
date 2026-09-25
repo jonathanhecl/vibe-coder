@@ -33,20 +33,28 @@ func bannerFields(cfg *config.Config, sessionID string) []bannerField {
 		model = cfg.Model
 		host = cfg.OllamaHost
 	}
-	return []bannerField{
+	fields := []bannerField{
 		{Label: "Session", Value: sessionID},
 		{Label: "Model", Value: model},
 		{Label: "Sidecar", Value: formatSidecarBanner(cfg)},
 		{Label: "Ollama", Value: host},
 	}
+	if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
+		fields = append(fields, bannerField{Label: "Jevstyle", Value: strings.TrimSpace(cfg.JevstyleModel)})
+	}
+	return fields
 }
 
 func startupBanner(cfg *config.Config, sessionID string, style tui.Style) string {
 	if !style.Enabled() {
-		return fmt.Sprintf(
+		out := fmt.Sprintf(
 			"vibe %s\nSession started: %s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
 			version.Value, sessionID, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
 		)
+		if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
+			out += fmt.Sprintf("JEV Style: %s\n", strings.TrimSpace(cfg.JevstyleModel))
+		}
+		return out
 	}
 
 	var b strings.Builder

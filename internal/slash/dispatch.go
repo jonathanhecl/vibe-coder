@@ -99,6 +99,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/sidecar":
 		return true, false, runSidecarCommand(c, fields[1:])
+	case "/jevstyle":
+		return true, false, runJevstyleCommand(c, fields[1:])
 	case "/save":
 		if err := c.Session.Save(); err != nil {
 			return true, false, err

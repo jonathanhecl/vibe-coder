@@ -32,6 +32,33 @@ func TestBannerFields(t *testing.T) {
 	}
 }
 
+func TestBannerFieldsWithJevstyle(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		SidecarModel:  "qwen3.5:4b",
+		JevstyleModel: "decision-v1",
+		OllamaHost:    "http://localhost:11434",
+	}
+	fields := bannerFields(cfg, "session-123")
+	want := []bannerField{
+		{Label: "Session", Value: "session-123"},
+		{Label: "Model", Value: "llama3.2:3b"},
+		{Label: "Sidecar", Value: "qwen3.5:4b"},
+		{Label: "Ollama", Value: "http://localhost:11434"},
+		{Label: "Jevstyle", Value: "decision-v1"},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d: %#v", len(want), len(fields), fields)
+	}
+	for i := range want {
+		if fields[i] != want[i] {
+			t.Fatalf("field %d = %#v, want %#v", i, fields[i], want[i])
+		}
+	}
+}
+
 func TestBannerFieldsNilConfig(t *testing.T) {
 	t.Parallel()
 

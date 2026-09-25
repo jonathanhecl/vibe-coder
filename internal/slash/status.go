@@ -52,6 +52,9 @@ func printStatus(c *Ctx) {
 	} else {
 		fmt.Fprintln(c.Out, "Sidecar: off (no SIDECAR_MODEL)")
 	}
+	if strings.TrimSpace(c.Cfg.JevstyleModel) != "" {
+		fmt.Fprintf(c.Out, "JEV Style model: %s\n", strings.TrimSpace(c.Cfg.JevstyleModel))
+	}
 }
 
 func printTokens(c *Ctx) {

@@ -68,6 +68,9 @@ func main() {
 	logger.Infof("CLI args: %v", logger.RedactArgs(os.Args))
 	logger.Infof("ConfigDir: %s, ConfigFile: %s", cfg.ConfigDir, cfg.ConfigFile)
 	logger.Infof("OllamaHost: %s, Model: %s, UI: %s", cfg.OllamaHost, cfg.Model, cfg.UI)
+	if strings.TrimSpace(cfg.JevstyleModel) != "" {
+		logger.Infof("JevstyleModel: %s", cfg.JevstyleModel)
+	}
 
 	if persistModelSettings {
 		cfg.PersistSidecarOffFromSave(true)

@@ -16,6 +16,7 @@ Release archives and generated notes are available on the
 - Continuous integration workflow (formatting, vet, tests, RAG-tagged tests, and
   a cross-compilation matrix), issue/PR templates, and Dependabot updates.
 - `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and this changelog.
+- JEV Style decision model configuration support across CLI flags (`--jevstyle-model`, `--jevstyle`), environment variables (`VIBE_CODER_JEVSTYLE_MODEL`, `VIBEGO_JEVSTYLE_MODEL`), config file (`JEVSTYLE_MODEL`), `/jevstyle` slash command, and `--save` persistence.
 
 ### Changed
 

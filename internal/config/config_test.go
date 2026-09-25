@@ -482,3 +482,93 @@ func TestSaveModelSettingsHideThink(t *testing.T) {
 		t.Fatalf("expected HIDE_THINK=false, got:\n%s", string(data))
 	}
 }
+
+func TestJevstyleConfig(t *testing.T) {
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "vibe-coder.env")
+
+	// 1. File loading
+	if err := os.WriteFile(configFile, []byte("JEVSTYLE_MODEL=file-jev\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VIBE_CODER_CONFIG", configFile)
+	t.Setenv("OLLAMA_HOST", "http://localhost:11434")
+
+	cfg, err := Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.JevstyleModel != "file-jev" {
+		t.Fatalf("expected file-jev, got %q", cfg.JevstyleModel)
+	}
+
+	// 2. Env override
+	t.Setenv("VIBE_CODER_JEVSTYLE_MODEL", "env-jev")
+	cfg, err = Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.JevstyleModel != "env-jev" {
+		t.Fatalf("expected env-jev, got %q", cfg.JevstyleModel)
+	}
+
+	// 3. CLI override (--jevstyle-model)
+	cfg, err = Load([]string{"--jevstyle-model", "cli-jev"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.JevstyleModel != "cli-jev" {
+		t.Fatalf("expected cli-jev, got %q", cfg.JevstyleModel)
+	}
+
+	// 4. CLI alias override (--jevstyle)
+	cfg, err = Load([]string{"--jevstyle", "cli-jev-alias"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.JevstyleModel != "cli-jev-alias" {
+		t.Fatalf("expected cli-jev-alias, got %q", cfg.JevstyleModel)
+	}
+}
+
+func TestSaveModelSettingsJevstyle(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
+	if err := os.WriteFile(cfgPath, []byte("MODEL=main-model\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		ConfigDir:     tmp,
+		ConfigFile:    cfgPath,
+		Model:         "main-model",
+		JevstyleModel: "jev-model-v1",
+		OllamaHost:    "http://localhost:11434",
+	}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "JEVSTYLE_MODEL=jev-model-v1") {
+		t.Fatalf("expected JEVSTYLE_MODEL=jev-model-v1, got:\n%s", string(data))
+	}
+
+	// When cleared, JEVSTYLE_MODEL should be removed
+	cfg.JevstyleModel = ""
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "JEVSTYLE_MODEL") {
+		t.Fatalf("expected JEVSTYLE_MODEL removed, got:\n%s", string(data))
+	}
+}
+

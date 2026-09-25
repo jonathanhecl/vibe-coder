@@ -25,6 +25,8 @@ type Config struct {
 	Model            string
 	UI               string
 	SidecarModel     string
+	// JevstyleModel holds the optional JEV Style decision model name.
+	JevstyleModel    string
 	ConfigFileExists bool
 	// SidecarDisabled, when true, turns off the sidecar until changed in config (SIDECAR_DISABLED / SIDECAR_ENABLED).
 	SidecarDisabled bool
@@ -188,6 +190,8 @@ Flags:
   -m, --model string        Model name
   --sidecar string          Sidecar model name
   --no-sidecar              Disable sidecar for this session only
+  --jevstyle-model string   JEV Style decision model name
+  --jevstyle string         Alias for --jevstyle-model
   -y, --yes                 Enable yes mode
   --debug                   Enable debug logs
   --resume                  Resume last session for this project
@@ -210,7 +214,7 @@ Flags:
   --show-think              Show Ollama thinking blocks in CLI output (overrides config/env)
 
 Special directive:
-  --save                    Persist model, sidecar, host, hide-think, think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
+  --save                    Persist model, sidecar, jevstyle, host, hide-think, think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 

@@ -16,6 +16,7 @@ type cliOptions struct {
 	ui            optionalString
 	sidecar       optionalString
 	noSidecar     bool
+	jevstyleModel optionalString
 	yesMode       optionalBool
 	debug         optionalBool
 	resume        optionalBool
@@ -55,6 +56,8 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ui, "ui", "ui mode (plain|rich)")
 	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
 	fs.BoolVar(&opts.noSidecar, "no-sidecar", false, "disable sidecar for this session only")
+	fs.Var(&opts.jevstyleModel, "jevstyle-model", "jevstyle decision model")
+	fs.Var(&opts.jevstyleModel, "jevstyle", "jevstyle decision model (alias)")
 	fs.Var(&opts.yesMode, "y", "yes mode")
 	fs.Var(&opts.yesMode, "yes", "yes mode")
 	fs.Var(&opts.debug, "debug", "debug logs")
@@ -110,6 +113,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.noSidecar {
 		cfg.SidecarSkipSession = true
+	}
+	if cli.jevstyleModel.set {
+		cfg.JevstyleModel = cli.jevstyleModel.value
 	}
 	if cli.yesMode.set {
 		cfg.YesMode = cli.yesMode.value
