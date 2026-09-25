@@ -51,6 +51,9 @@ func TestJevstyleSlashCommand(t *testing.T) {
 	if !strings.Contains(out.String(), "JEV Style model set to: jev-decision:v1") {
 		t.Fatalf("expected set confirmation, got %q", out.String())
 	}
+	if !strings.Contains(out.String(), "Tip: Enable assisted execution mode") {
+		t.Fatalf("expected tip to enable assisted execution mode, got %q", out.String())
+	}
 
 	// 3. Inspect status via /jevstyle status
 	out.Reset()
@@ -82,7 +85,8 @@ func TestJevstyleSlashCommand(t *testing.T) {
 		t.Fatalf("expected invalid format warning, got %q", out.String())
 	}
 
-	// 6. Disable JEV style model
+	// 6. Disable JEV style model (should also deactivate assisted mode)
+	cfg.AssistedYes = true
 	out.Reset()
 	handled, shouldExit, err = Dispatch(ctx, "/jevstyle off")
 	if err != nil || !handled || shouldExit {
@@ -90,6 +94,9 @@ func TestJevstyleSlashCommand(t *testing.T) {
 	}
 	if cfg.JevstyleModel != "" {
 		t.Fatalf("expected JevstyleModel empty after off, got %q", cfg.JevstyleModel)
+	}
+	if cfg.AssistedYes {
+		t.Fatal("expected AssistedYes false after /jevstyle off")
 	}
 	if !strings.Contains(out.String(), "disabled") {
 		t.Fatalf("expected disabled confirmation, got %q", out.String())

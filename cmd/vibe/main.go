@@ -124,10 +124,14 @@ func main() {
 	jevClient := jevstyle.New(cfg, client)
 	if cfg.JevstyleInUse() {
 		perm.SetSafetyDecider(jevClient)
+		reg.Register(tools.NewJevDecideTool(jevClient))
 	}
 	// One shared sidecar pool for the agent and the DescribeImage tool so
 	// vision second-opinions respect the same load controls as summaries.
 	sidePool := sidecar.New(cfg, client)
+	if cfg.JevstyleInUse() {
+		sidePool.SetJevstyle(jevClient)
+	}
 	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool))
 
 	mcpCtx, mcpCancel := mcp.DefaultInitContext()

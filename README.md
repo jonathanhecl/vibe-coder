@@ -312,17 +312,20 @@ Model keys and overrides:
 - Config file key: `UI=plain|rich`
 - Config file key: `SIDECAR_MODEL=<model-name>`
 - Config file key: `JEVSTYLE_MODEL=<model-name>`
+- Config file key: `ASSISTED_YES=true|false`
 - Config file key: `THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_MODEL=<model-name>`
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
 - Environment: `VIBE_CODER_JEVSTYLE_MODEL=<model-name>`
+- Environment: `VIBE_CODER_ASSISTED_YES=true|false`
 - Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
 - Config file key / environment: `CHAT_TIMEOUT` / `VIBE_CODER_CHAT_TIMEOUT` (Go duration, e.g. `30m`; default `15m`) — deadline for a single `/api/chat` turn, useful for slow local models in long missions
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 - CLI: `--sidecar <model-name>`
 - CLI: `--jevstyle-model <model-name>` (or `--jevstyle <model-name>`)
+- CLI: `--assisted-yes` (auto-approve safe commands via JEV Style)
 - CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
 
 If no model is set, `vibe` auto-selects one based on detected RAM tier.
@@ -388,6 +391,9 @@ You can test the configured decision model inside the interactive session with `
 When configured, JEV Style acts as a fast, discrete decision engine for key agent operations:
 1. **Assisted Command Execution Mode (`--assisted-yes`, `/yes assisted`, `/jevstyle assisted on`)**:
    Instead of either prompting on every command or blindly auto-approving everything, JEV Style classifies proposed shell commands as safe or dangerous. Safe commands (e.g. `ls`, `git status`, test runs) are auto-approved, while destructive or risky commands prompt the user.
+   - **Configuration persistence**: Setting assisted mode can be saved across runs in `vibe-coder.env` (`ASSISTED_YES=true`, `/save`, `--save`).
+   - **Absence and error fallback**: If no JEV Style model is configured or if the JEV model experiences network or inference errors, assisted mode automatically deactivates and safely reverts to standard user confirmation prompts (`AskPermission`).
+   - **Setup suggestion**: Configuring a decision model via `/jevstyle <model>` automatically suggests enabling assisted mode.
 2. **Workspace Path Disambiguation**:
    When the agent references an ambiguous file basename matched across multiple repository paths, JEV Style selects the best matching candidate according to user context and intent.
 3. **Autonomous Mission Completion Verification**:
@@ -396,6 +402,8 @@ When configured, JEV Style acts as a fast, discrete decision engine for key agen
    When tool executions fail (e.g. bash commands or test failures), JEV Style diagnoses the primary cause (compile/syntax error, missing dependency, failing test assertion, permission issue, or network timeout) and injects diagnostic hints for recovery.
 5. **Conventional Commit Classification**:
    Analyzes git diff summaries during `/commit` to categorize changes into standard conventional commit types (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`).
+6. **Agent Tool (`JevDecide`)**:
+   Exposes JEV Style directly as an agent tool to the main coding model and sidecars. When the agent needs an extra review, second opinion, sanity check, or discrete classification between discrete choices, it calls `JevDecide` with context state, a decision question, and candidate options.
 
 ### Remote Ollama for vibe only
 
@@ -457,7 +465,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `JEVSTYLE_MODEL`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
+- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `JEVSTYLE_MODEL`, `ASSISTED_YES`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
 ## MCP & Skills Management CLI
 

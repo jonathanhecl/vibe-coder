@@ -17,7 +17,8 @@ Release archives and generated notes are available on the
   a cross-compilation matrix), issue/PR templates, and Dependabot updates.
 - `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and this changelog.
 - JEV Style decision model configuration support across CLI flags (`--jevstyle-model`, `--jevstyle`), environment variables (`VIBE_CODER_JEVSTYLE_MODEL`, `VIBEGO_JEVSTYLE_MODEL`), config file (`JEVSTYLE_MODEL`), `/jevstyle` slash command, and `--save` persistence.
-- JEV Style assisted command execution mode (`--assisted-yes`, `/yes assisted`, `/jevstyle assisted on`) allowing automatic approval of safe commands while prompting for dangerous actions.
+- JEV Style assisted command execution mode (`--assisted-yes`, `/yes assisted`, `/jevstyle assisted on`) allowing automatic approval of safe commands while prompting for dangerous actions. Includes config file persistence (`ASSISTED_YES`), auto-deactivation and graceful fallback to manual approval if the model is absent or errors, and setup suggestion tips when configuring JEV Style models.
+- Agent tool `JevDecide` exposed to the primary coding model and sidecars to query the JEV Style decision model for second opinions, safety validations, and discrete choices.
 - Decision workflows powered by JEV Style: workspace path disambiguation, autonomous mission goal completion verification, tool failure root-cause diagnosis hints, and conventional commit type classification.
 
 ### Changed

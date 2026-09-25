@@ -163,7 +163,7 @@ func (m *mockSafetyDecider) Enabled() bool {
 
 func TestAssistedExecutionMode(t *testing.T) {
 	decider := &mockSafetyDecider{enabled: true}
-	m := NewManager(&config.Config{YesMode: false, AssistedYes: true})
+	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
 	m.SetSafetyDecider(decider)
 
 	// 1. Safe command is auto-approved by assisted mode
@@ -190,17 +190,25 @@ func TestAssistedExecutionMode(t *testing.T) {
 		t.Fatal("expected always-confirm command (sudo) to require UI prompt even if decider claims safe")
 	}
 
-	// 5. Decider error falls through to prompt
-	decider.err = errors.New("timeout")
+	// 5. Decider error falls through to prompt and deactivates assisted mode
+	decider.err = errors.New("connection refused")
 	if m.Check("Bash", map[string]any{"command": "ls"}, nil) {
 		t.Fatal("expected error from safety decider to safely fall through to prompt")
+	}
+	if m.AssistedMode() {
+		t.Fatal("expected assisted mode to be automatically deactivated upon decider error")
 	}
 	decider.err = nil
 
 	// 6. When assisted mode is disabled, commands prompt UI
-	m.SetAssistedMode(false)
 	decider.dangerous = false
 	if m.Check("Bash", map[string]any{"command": "git status"}, nil) {
 		t.Fatal("expected bash command to require prompt when assisted mode is off")
+	}
+
+	// 7. No JEV model configured at startup prevents assisted mode
+	mNoJev := NewManager(&config.Config{YesMode: false, AssistedYes: true})
+	if mNoJev.AssistedMode() {
+		t.Fatal("expected assisted mode to be false when no JevstyleModel is configured")
 	}
 }

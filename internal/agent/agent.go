@@ -126,6 +126,9 @@ func New(
 		reg.Register(tools.NewMissionStartTool(a.mission))
 		reg.Register(tools.NewMissionCompleteTool(a.mission))
 		reg.Register(tools.NewMissionBlockedTool(a.mission))
+		if a.jev != nil {
+			reg.Register(tools.NewJevDecideTool(a.jev))
+		}
 	}
 	return a
 }
@@ -135,6 +138,9 @@ func (a *Agent) SetJevstyle(d jevstyle.Decider) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.jev = d
+	if a.reg != nil && d != nil {
+		a.reg.Register(tools.NewJevDecideTool(d))
+	}
 }
 
 // Jevstyle returns the current JEV Style decision decider.

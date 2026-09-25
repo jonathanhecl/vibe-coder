@@ -46,7 +46,9 @@ func NewManager(cfg *config.Config) *Manager {
 	var permFile string
 	if cfg != nil {
 		yesMode = cfg.YesMode
-		assistedMode = cfg.AssistedYes
+		if cfg.JevstyleInUse() {
+			assistedMode = cfg.AssistedYes
+		}
 		permFile = cfg.PermFile
 	}
 	m := &Manager{
@@ -198,11 +200,22 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	}
 
 	// Assisted execution mode for shell commands using a SafetyDecider (e.g. JEV Style)
-	if assistedMode && !alwaysConfirm && (tool == "bash" || tool == "interactivebash") && safetyDecider != nil && safetyDecider.Enabled() {
-		dangerous, err := safetyDecider.IsCommandDangerous(context.Background(), command)
-		if err == nil && !dangerous {
-			// Classified safe by decision model: auto-approve
-			return true
+	if assistedMode && !alwaysConfirm && (tool == "bash" || tool == "interactivebash") {
+		if safetyDecider == nil || !safetyDecider.Enabled() {
+			// Decider is absent or disabled: deactivate assisted mode and fall back to manual approval
+			m.SetAssistedMode(false)
+		} else {
+			dangerous, err := safetyDecider.IsCommandDangerous(context.Background(), command)
+			if err == nil && !dangerous {
+				// Classified safe by decision model: auto-approve
+				return true
+			}
+			if err != nil {
+				// Decider failed (e.g. connection error, timeout, offline).
+				// Deactivate assisted mode so subsequent commands do not repeatedly fail/stall,
+				// falling back cleanly to the prior manual confirmation mode.
+				m.SetAssistedMode(false)
+			}
 		}
 		// If dangerous == true or error occurred, prompt user below
 	}

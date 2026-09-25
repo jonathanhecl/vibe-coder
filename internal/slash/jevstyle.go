@@ -48,6 +48,10 @@ func runJevstyleCommand(c *Ctx, args []string) error {
 		}
 	case "off", "disable", "none":
 		c.Cfg.JevstyleModel = ""
+		c.Cfg.AssistedYes = false
+		if c.Perm != nil {
+			c.Perm.SetAssistedMode(false)
+		}
 		fmt.Fprintln(c.Out, "JEV Style model disabled for this session.")
 	default:
 		if strings.EqualFold(sub, "set") && len(args) > 1 {
@@ -62,6 +66,9 @@ func runJevstyleCommand(c *Ctx, args []string) error {
 		}
 		c.Cfg.JevstyleModel = sub
 		fmt.Fprintf(c.Out, "JEV Style model set to: %s (run /save to persist)\n", c.Cfg.JevstyleModel)
+		if !c.Cfg.AssistedYes {
+			fmt.Fprintln(c.Out, "Tip: Enable assisted execution mode with /yes assisted or /jevstyle assisted on (auto-approves safe commands, prompts for dangerous ones).")
+		}
 	}
 	return nil
 }

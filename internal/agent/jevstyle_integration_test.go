@@ -78,6 +78,9 @@ func TestAgentJevstyleWiring(t *testing.T) {
 	if ag.Jevstyle() != stub {
 		t.Fatal("SetJevstyle did not store the decider")
 	}
+	if ag.reg.Get("JevDecide") == nil {
+		t.Fatal("expected JevDecide tool to be registered in agent registry")
+	}
 }
 
 func TestAgentJevstyleDisambiguation(t *testing.T) {

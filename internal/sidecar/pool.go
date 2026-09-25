@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"golang.org/x/sync/singleflight"
 )
@@ -24,12 +25,23 @@ const (
 type Pool struct {
 	cfg    *config.Config
 	client ollama.Client
+	jev    jevstyle.Decider
 
 	sem   chan struct{}
 	sf    singleflight.Group
 	cache *lruCache
 
 	threshold int
+}
+
+// SetJevstyle attaches a JEV Style decision decider to the sidecar pool.
+func (p *Pool) SetJevstyle(d jevstyle.Decider) {
+	p.jev = d
+}
+
+// Jevstyle returns the attached JEV Style decider, if any.
+func (p *Pool) Jevstyle() jevstyle.Decider {
+	return p.jev
 }
 
 // Option lets tests tune internals without exposing them on Config.
