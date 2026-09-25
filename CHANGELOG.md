@@ -25,6 +25,7 @@ Release archives and generated notes are available on the
 
 ### Changed
 
+- Empty sessions with 0 messages are no longer persisted to disk, preventing clutter from aborted or empty CLI/REPL runs. `/sessions` and `ListSessions` automatically skip and clean up stale 0-message session files.
 - Fixed Ollama `temperature` option serialization to prevent omitting `0` for deterministic decision models.
 
 - Styled startup banner now shows a colored wordmark with aligned runtime facts;

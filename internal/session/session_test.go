@@ -392,3 +392,99 @@ func TestWriteProjectIndexForExplicitID(t *testing.T) {
 		t.Fatalf("expected LoadByProject to find customID %q, got %q", customID, loaded.ID())
 	}
 }
+
+func TestEmptySessionNotSaved(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: filepath.Join(tmp, "sessions"),
+	}
+	s := New(cfg)
+	if err := s.Save(); err != nil {
+		t.Fatalf("expected nil error on empty save, got %v", err)
+	}
+	target := filepath.Join(cfg.SessionsDir, s.ID()+".jsonl")
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("expected empty session file not created on disk, got err %v", err)
+	}
+	infos, err := ListSessions(cfg)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("expected 0 sessions in list, got %d", len(infos))
+	}
+}
+
+func TestListSessionsCleansUpEmptySessionFiles(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "project"),
+		SessionsDir: filepath.Join(tmp, "sessions"),
+	}
+	if err := os.MkdirAll(cfg.SessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Seed a 0-byte dummy session file left over from an old version
+	emptyFile := filepath.Join(cfg.SessionsDir, "00000000000000000000000000000001.jsonl")
+	if err := os.WriteFile(emptyFile, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// And a real session
+	s := New(cfg)
+	s.AddUser("real message")
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	infos, err := ListSessions(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(infos))
+	}
+	if infos[0].ID != s.ID() {
+		t.Fatalf("expected real session %s, got %s", s.ID(), infos[0].ID)
+	}
+	// Empty file should have been cleaned up automatically
+	if _, err := os.Stat(emptyFile); !os.IsNotExist(err) {
+		t.Fatalf("expected empty session file to be cleaned up, got %v", err)
+	}
+}
+
+func TestLoadByProjectIgnoresEmptySession(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	sessionsDir := filepath.Join(tmp, "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Cwd:         filepath.Join(tmp, "myproject"),
+		SessionsDir: sessionsDir,
+	}
+	if err := os.MkdirAll(cfg.Cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := New(cfg)
+	emptyID := "empty-session-id-456"
+	// Write empty file
+	if err := os.WriteFile(filepath.Join(sessionsDir, emptyID+".jsonl"), []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeProjectIndexFor(emptyID); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := New(cfg)
+	ok, err := loaded.LoadByProject()
+	if err != nil {
+		t.Fatalf("LoadByProject returned error: %v", err)
+	}
+	if ok {
+		t.Fatal("expected LoadByProject to return false for empty session")
+	}
+}

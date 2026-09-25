@@ -37,6 +37,7 @@ func TestWorkStateClearRemovesSidecar(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{Cwd: filepath.Join(tmp, "project"), SessionsDir: filepath.Join(tmp, "sessions")}
 	s := New(cfg)
+	s.AddUser("task")
 	s.SetWorkState([]byte(`{"version":1}`))
 	if err := s.Save(); err != nil {
 		t.Fatalf("save: %v", err)

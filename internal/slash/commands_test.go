@@ -512,6 +512,7 @@ func TestByeExitsAndIgnoresCase(t *testing.T) {
 	for _, input := range []string{"bye", "Bye", "BYE", "  bye  ", "/bye"} {
 		var out bytes.Buffer
 		ctx.Out = &out
+		ctx.Session.AddUser("hello")
 		handled, shouldExit, err := Dispatch(ctx, input)
 		if err != nil || !handled || !shouldExit {
 			t.Fatalf("unexpected %q result: handled=%t exit=%t err=%v", input, handled, shouldExit, err)
@@ -521,10 +522,25 @@ func TestByeExitsAndIgnoresCase(t *testing.T) {
 		}
 	}
 
+	// An empty session without messages must NOT be saved on exit.
+	emptyCtx := &Ctx{
+		Cfg:     cfg,
+		Session: session.New(cfg),
+		Agent:   &fakePlanAgent{},
+		Out:     &bytes.Buffer{},
+	}
+	handled, shouldExit, err := Dispatch(emptyCtx, "/exit")
+	if err != nil || !handled || !shouldExit {
+		t.Fatalf("unexpected empty exit result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if strings.Contains(emptyCtx.Out.(*bytes.Buffer).String(), "Session saved") {
+		t.Fatalf("empty session should not be saved on exit, got %q", emptyCtx.Out.(*bytes.Buffer).String())
+	}
+
 	// "bye" embedded in a longer message must NOT be treated as exit.
 	var out bytes.Buffer
 	ctx.Out = &out
-	handled, shouldExit, err := Dispatch(ctx, "bye please help me")
+	handled, shouldExit, err = Dispatch(ctx, "bye please help me")
 	if err != nil || handled || shouldExit {
 		t.Fatalf("unexpected embedded bye result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}

@@ -51,10 +51,12 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 
 	// "bye" (case-insensitive) is a non-slash alias for /exit.
 	if strings.EqualFold(trimmed, "bye") {
-		if err := c.Session.Save(); err != nil {
-			return true, false, err
+		if c.Session != nil && c.Session.MessageCount() > 0 {
+			if err := c.Session.Save(); err != nil {
+				return true, false, err
+			}
+			fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		}
-		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		return true, true, nil
 	}
 
@@ -67,10 +69,12 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 
 	switch cmd {
 	case "/exit", "/quit", "/q", "/bye":
-		if err := c.Session.Save(); err != nil {
-			return true, false, err
+		if c.Session != nil && c.Session.MessageCount() > 0 {
+			if err := c.Session.Save(); err != nil {
+				return true, false, err
+			}
+			fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		}
-		fmt.Fprintf(c.Out, "Session saved (%s)\n", c.Session.ID())
 		return true, true, nil
 	case "/help", "/commands", "/cmds":
 		printHelp(c)
@@ -86,11 +90,18 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		return true, false, runResume(c)
 	case "/new":
-		if err := c.Session.Save(); err != nil {
-			return true, false, err
+		if c.Session != nil && c.Session.MessageCount() > 0 {
+			if err := c.Session.Save(); err != nil {
+				return true, false, err
+			}
+			c.Session.Clear()
+			fmt.Fprintf(c.Out, "Session saved. Started a new session (%s)\n", c.Session.ID())
+		} else {
+			if c.Session != nil {
+				c.Session.Clear()
+			}
+			fmt.Fprintf(c.Out, "Started a new session (%s)\n", c.Session.ID())
 		}
-		c.Session.Clear()
-		fmt.Fprintf(c.Out, "Session saved. Started a new session (%s)\n", c.Session.ID())
 		return true, false, nil
 	case "/clear":
 		return true, false, runClearCommand(c, fields[1:])
@@ -102,13 +113,20 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	case "/jevstyle":
 		return true, false, runJevstyleCommand(c, fields[1:])
 	case "/save":
-		if err := c.Session.Save(); err != nil {
-			return true, false, err
+		hasMessages := c.Session != nil && c.Session.MessageCount() > 0
+		if hasMessages {
+			if err := c.Session.Save(); err != nil {
+				return true, false, err
+			}
 		}
 		if err := config.SaveModelSettings(c.Cfg); err != nil {
 			return true, false, err
 		}
-		fmt.Fprintf(c.Out, "Saved session (%s) and settings\n", c.Session.ID())
+		if hasMessages {
+			fmt.Fprintf(c.Out, "Saved session (%s) and settings\n", c.Session.ID())
+		} else {
+			fmt.Fprintln(c.Out, "Saved settings")
+		}
 		return true, false, nil
 	case "/hide-think":
 		c.Cfg.OllamaHideThink = true

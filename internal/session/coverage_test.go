@@ -177,6 +177,7 @@ func TestSaveWithInvalidSessionID(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{Cwd: tmp, SessionsDir: filepath.Join(tmp, "sessions")}
 	s := New(cfg)
+	s.AddUser("test")
 	s.id = "!!!"
 	if err := s.Save(); err == nil {
 		t.Fatal("expected save to fail for invalid sanitized session id")

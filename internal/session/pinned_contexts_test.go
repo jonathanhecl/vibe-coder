@@ -58,6 +58,7 @@ func TestDeleteSessionRemovesSidecar(t *testing.T) {
 		SessionsDir: filepath.Join(tmp, "sessions"),
 	}
 	s := New(cfg)
+	s.AddUser("hello")
 	s.SetPinnedContexts([]string{"/guides/a.md"})
 	if err := s.Save(); err != nil {
 		t.Fatalf("save: %v", err)

@@ -48,11 +48,15 @@ func (s *Session) Save() error {
 	if cfg == nil {
 		return fmt.Errorf("session config is nil")
 	}
+	// Never persist empty sessions: sessions without messages must not
+	// clutter the filesystem or the session list.
+	if len(messages) == 0 {
+		return nil
+	}
 	// Nothing changed since the last successful save: skip the full
 	// rewrite (transcript + index + sidecar). The REPL saves after every
 	// turn, so without this long sessions pay a whole-file rewrite each
-	// time even for slash-only turns. Revision 0 with no prior save still
-	// writes so empty sessions materialize on disk as before.
+	// time even for slash-only turns.
 	if savedRev != 0 && rev == savedRev {
 		return nil
 	}
@@ -202,6 +206,9 @@ func (s *Session) LoadByProject() (bool, error) {
 	}
 	if err := s.Load(id); err != nil {
 		return false, err
+	}
+	if s.MessageCount() == 0 {
+		return false, nil
 	}
 	return true, nil
 }

@@ -150,6 +150,7 @@ func TestContextRejectsBadFiles(t *testing.T) {
 
 func TestContextPinsPersistAcrossSaveResume(t *testing.T) {
 	ctx, _, out := newContextTestCtx(t)
+	ctx.Session.AddUser("initial conversation message")
 	guide := writeGuide(t, t.TempDir(), "guide.md", "Persistent guide.")
 	if _, _, err := Dispatch(ctx, "/context add "+guide); err != nil {
 		t.Fatal(err)

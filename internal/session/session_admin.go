@@ -260,6 +260,20 @@ func ListSessions(cfg *config.Config) ([]SessionInfo, error) {
 		}
 		full := filepath.Join(dir, name)
 		count, preview := scanSessionMeta(full)
+		if count == 0 {
+			// Clean up and skip empty sessions: sessions without messages are
+			// invalid and should never appear in session listings.
+			_ = os.Remove(full)
+			if sidecar, err := pinnedContextsPath(dir, id); err == nil {
+				_ = os.Remove(sidecar)
+			}
+			if sidecar, err := workStatePath(dir, id); err == nil {
+				_ = os.Remove(sidecar)
+			}
+			_ = pruneProjectIndex(dir, id)
+			_ = pruneSessionProject(dir, id)
+			continue
+		}
 
 		projectPath := sessionProjects[id]
 		if projectPath == "" {

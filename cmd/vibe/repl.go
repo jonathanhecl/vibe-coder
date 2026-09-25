@@ -49,8 +49,10 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 		ui.SetPlanMode(ag.InPlanMode())
 		line, err := ui.GetInput("> ")
 		if err != nil {
-			if err := sess.Save(); err != nil {
-				fmt.Fprintf(os.Stderr, "error: failed to save session: %v\n", err)
+			if sess != nil && sess.MessageCount() > 0 {
+				if err := sess.Save(); err != nil {
+					fmt.Fprintf(os.Stderr, "error: failed to save session: %v\n", err)
+				}
 			}
 			printByeOnInterrupt()
 			return
