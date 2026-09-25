@@ -35,6 +35,16 @@ Release archives and generated notes are available on the
 
 ### Fixed
 
+- Interactive input no longer desyncs the terminal cursor. Two root causes were
+  fixed: (1) `insertRune` advanced the tracked screen column *before* redrawing,
+  so every mid-line insert made `redraw` move one cell too far left, shifting
+  the text and erasing the space after `user >`; (2) width was measured in runes,
+  not terminal cells, so the double-width `👤` prompt icon (and any emoji/CJK
+  typed by the user) threw the cursor off by one. Moving with the arrow keys no
+  longer overlaps letters, typing lands at the cursor, and backspace can no
+  longer erase the prompt. Wide runes are erased by both cells they occupy.
+- Restored the macOS build of the TUI: terminal attributes use the Darwin/BSD
+  `TIOCGETA`/`TIOCSETA` ioctls instead of the Linux-only `TCGETS`/`TCSETS`.
 - Applied `gofmt` to files that had drifted from the canonical format.
 - Removed superfluous blank lines and orphan prefix bars in thinking blocks and assistant turn completion footers (`thought for Xs` and `responded in Xs`).
 

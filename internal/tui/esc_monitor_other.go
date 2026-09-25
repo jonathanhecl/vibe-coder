@@ -108,16 +108,16 @@ func (u *PlainUI) escMonitorLoop(stop <-chan struct{}, done chan struct{}) {
 // formatted output or the Ctrl+C signal handler.
 func setNonCanonical(f *os.File) (restore func(), ok bool) {
 	fd := int(f.Fd())
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	termios, err := getTermios(fd)
 	if err != nil {
 		return nil, false
 	}
 	old := *termios
 	termios.Lflag &^= unix.ICANON | unix.ECHO
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, termios); err != nil {
+	if err := setTermios(fd, termios); err != nil {
 		return nil, false
 	}
 	return func() {
-		_ = unix.IoctlSetTermios(fd, unix.TCSETS, &old)
+		_ = setTermios(fd, &old)
 	}, true
 }

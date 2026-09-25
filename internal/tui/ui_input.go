@@ -172,7 +172,7 @@ func formatPastedBlock(content string) string {
 }
 
 func eraseVisibleText(text string) string {
-	count := utf8.RuneCountInString(text)
+	count := displayWidth(text)
 	if count == 0 {
 		return ""
 	}

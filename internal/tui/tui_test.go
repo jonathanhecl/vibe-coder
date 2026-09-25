@@ -384,3 +384,104 @@ func TestRedrawPreservesPrompt(t *testing.T) {
 		t.Fatalf("redraw erased prompt (moved to col 0), got %q", rendered)
 	}
 }
+
+// TestMidLineInsertDoesNotErasePrompt is the regression test for the cursor
+// desync that made text shift one cell left and eat the space after `>`. The
+// bug was ordering: insertRune advanced screenCol before redraw(), so redraw
+// believed the cursor was one cell further right and moved back one cell too
+// far. Width-independent: it reproduces with a plain ASCII prompt.
+func TestMidLineInsertDoesNotErasePrompt(t *testing.T) {
+	var out bytes.Buffer
+	prompt := "> "
+	// Type "hola", move left twice (cursor between "ho" and "la"), insert "x".
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("hola\x1b[D\x1b[Dx\n"), &out, Style{}, nil, prompt)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "hoxla" {
+		t.Fatalf("expected mid-line insert to yield hoxla, got %q", got)
+	}
+	rendered := out.String()
+	if !strings.Contains(rendered, "\x1b[2D\x1b[J") {
+		t.Fatalf("expected redraw to move exactly 2 cells left (to the column after the prompt), got %q", rendered)
+	}
+	if strings.Contains(rendered, "\x1b[3D\x1b[J") {
+		t.Fatalf("redraw moved one cell too far left and erased the prompt, got %q", rendered)
+	}
+}
+
+// TestVisibleWidthCountsWideRunes verifies that the double-width user icon in
+// the prompt is measured as two terminal cells. Counting it as one rune was
+// what desynced the editor: every redraw landed one column too far left, so
+// typing overwrote the last letter and backspace could eat into the prompt.
+func TestVisibleWidthCountsWideRunes(t *testing.T) {
+	if got := visibleWidth("> "); got != 2 {
+		t.Fatalf("expected ASCII prompt width 2, got %d", got)
+	}
+	if got := visibleWidth("👤 user > "); got != 10 {
+		t.Fatalf("expected emoji prompt width 10, got %d", got)
+	}
+	styled := "\x1b[92m👤\x1b[0m \x1b[1;32muser\x1b[0m \x1b[1;32m> \x1b[0m"
+	if got := visibleWidth(styled); got != 10 {
+		t.Fatalf("expected styled emoji prompt width 10, got %d", got)
+	}
+}
+
+// TestInteractiveInputWidePromptAlignsCursor verifies that a mid-line insert
+// with the real (emoji) prompt redraws the cursor to the correct terminal
+// column, including the two cells the 👤 icon occupies.
+func TestInteractiveInputWidePromptAlignsCursor(t *testing.T) {
+	var out bytes.Buffer
+	prompt := "👤 user > "
+	// Type "ab", move left once, then insert "c" mid-line. That forces a full
+	// redraw whose final cursor placement is promptWidth + cursorCol = 10 + 2.
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("ab\x1b[Dc\n"), &out, Style{}, nil, prompt)
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "acb" {
+		t.Fatalf("expected mid-line insert to yield acb, got %q", got)
+	}
+	rendered := out.String()
+	if !strings.Contains(rendered, "\x1b[12C") {
+		t.Fatalf("expected cursor placed at column 12 after redraw, got %q", rendered)
+	}
+	if strings.Contains(rendered, "\x1b[11C") {
+		t.Fatalf("cursor placement ignored the emoji width (landed at column 11), got %q", rendered)
+	}
+	// The cursor was one cell into the buffer, so redraw must back up exactly
+	// one cell (to the column right after the prompt), not two.
+	if !strings.Contains(rendered, "\x1b[1D\x1b[J") {
+		t.Fatalf("expected redraw to back up exactly one cell, got %q", rendered)
+	}
+	if strings.Contains(rendered, "\x1b[2D\x1b[J") {
+		t.Fatalf("redraw backed up too far and erased the prompt, got %q", rendered)
+	}
+}
+
+// TestBackspaceWideRuneErasesBothCells verifies that deleting a wide rune at
+// the end of the line erases the two cells the terminal advanced by, instead
+// of a single cell that would leave a phantom and drift the cursor.
+func TestBackspaceWideRuneErasesBothCells(t *testing.T) {
+	var out bytes.Buffer
+	got, err := readInteractiveInputStreamWithStyle(strings.NewReader("ab👤\x7f\n"), &out, Style{}, nil, "")
+	if err != nil {
+		t.Fatalf("interactive input failed: %v", err)
+	}
+	if got != "ab" {
+		t.Fatalf("expected wide rune to be removed, got %q", got)
+	}
+	if !strings.Contains(out.String(), "\b \b\b \b") {
+		t.Fatalf("expected two erase cycles for the wide rune, got %q", out.String())
+	}
+}
+
+// TestEraseVisibleTextUsesDisplayWidth verifies paste-block erasure counts
+// terminal cells, not runes.
+func TestEraseVisibleTextUsesDisplayWidth(t *testing.T) {
+	got := eraseVisibleText("👤")
+	want := "\b\b  \b\b"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}

@@ -72,25 +72,12 @@ func newLineEditor(out io.Writer, style Style, history *inputHistory, prompt str
 }
 
 // visibleWidth returns the display width of s with ANSI escape sequences
-// stripped. Wide characters (CJK/emoji) are counted as 1 column each; this is
-// a known limitation consistent with the English-only convention in AGENTS.md.
+// ignored and wide runes (CJK/emoji) counted as the two cells the terminal
+// actually advances by. Accounting for wide runes is essential: the prompt
+// starts with the double-width 👤 emoji, and a rune-count measurement would be
+// off by one, desyncing every cursor redraw.
 func visibleWidth(s string) int {
-	width := 0
-	inEscape := false
-	for _, r := range s {
-		if inEscape {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				inEscape = false
-			}
-			continue
-		}
-		if r == 0x1b {
-			inEscape = true
-			continue
-		}
-		width++
-	}
-	return width
+	return displayWidth(s)
 }
 
 // readByte pulls a single byte from reader.
@@ -334,7 +321,7 @@ func (e *lineEditor) computeRowCol(idx int) (row, col int) {
 	for _, b := range e.blocks {
 		if b.end <= idx {
 			e.advanceRowCol(&row, &col, e.buf[pos:b.start])
-			col += utf8.RuneCountInString(b.display)
+			col += displayWidth(b.display)
 			pos = b.end
 		} else if b.start < idx {
 			e.advanceRowCol(&row, &col, e.buf[pos:b.start])
@@ -349,14 +336,15 @@ func (e *lineEditor) computeRowCol(idx int) (row, col int) {
 }
 
 // advanceRowCol updates row/col for the runes in segment, handling '\n' by
-// incrementing row and resetting col to 0.
+// incrementing row and resetting col to 0. Non-newline runes advance by their
+// terminal cell width so wide runes stay aligned with the real cursor.
 func (e *lineEditor) advanceRowCol(row, col *int, segment []rune) {
 	for _, r := range segment {
 		if r == '\n' {
 			*row++
 			*col = 0
 		} else {
-			*col++
+			*col += runeCellWidth(r)
 		}
 	}
 }
@@ -461,19 +449,18 @@ func (e *lineEditor) insertRune(r rune) {
 			e.screenRow++
 			e.screenCol = 0
 		} else {
-			e.screenCol++
+			e.screenCol += runeCellWidth(r)
 		}
 		return
 	}
 	e.buf = spliceRunes(e.buf, at, []rune{r})
 	e.shiftBlocks(at, 1)
 	e.cursor++
-	if r == '\n' {
-		e.screenRow++
-		e.screenCol = 0
-	} else {
-		e.screenCol++
-	}
+	// redraw() uses screenRow/screenCol as the terminal's *current* position to
+	// decide how far to move back before erasing. Do not advance them here: if
+	// they already reflect the newly inserted rune, redraw moves one cell too
+	// far left and erases the prompt's trailing space. redraw recomputes both
+	// from the new cursor index when it finishes.
 	e.redraw()
 }
 
@@ -553,12 +540,16 @@ func (e *lineEditor) backspace() {
 	e.shiftBlocks(at+1, -1)
 	e.cursor = at
 	// Optimized path: deleting a non-newline rune at the end of the buffer.
-	if e.cursor == len(e.buf) && deleted != '\n' && e.screenCol > 0 {
-		_, _ = io.WriteString(e.out, "\b \b")
-		e.screenCol--
-	} else {
-		e.redraw()
+	// Erase as many cells as the rune occupied so wide runes (emoji, CJK) do
+	// not leave a phantom cell behind or overwrite the prompt on row 0.
+	if e.cursor == len(e.buf) && deleted != '\n' {
+		if w := runeCellWidth(deleted); w > 0 && e.screenCol >= w {
+			_, _ = io.WriteString(e.out, strings.Repeat("\b \b", w))
+			e.screenCol -= w
+			return
+		}
 	}
+	e.redraw()
 }
 
 // deleteForward removes the rune at the cursor.
