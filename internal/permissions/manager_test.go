@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
@@ -182,16 +181,21 @@ func (c *commandOnlyDecider) IsCommandDangerous(ctx context.Context, command str
 
 func (c *commandOnlyDecider) Enabled() bool { return c.enabled }
 
-// notifyingUI records assisted-mode auto-approval notices.
+// notifyingUI records assisted-mode review notices.
 type notifyingUI struct {
 	fakeUI
-	approved  []string
-	durations []time.Duration
+	notices []tui.AssistedNotice
 }
 
-func (n *notifyingUI) NotifyAutoApproval(tool string, elapsed time.Duration) {
-	n.approved = append(n.approved, tool)
-	n.durations = append(n.durations, elapsed)
+func (n *notifyingUI) NotifyAssisted(notice tui.AssistedNotice) {
+	n.notices = append(n.notices, notice)
+}
+
+func (n *notifyingUI) lastOutcome() (tui.AssistedOutcome, bool) {
+	if len(n.notices) == 0 {
+		return 0, false
+	}
+	return n.notices[len(n.notices)-1].Outcome, true
 }
 
 func TestAssistedExecutionMode(t *testing.T) {
@@ -256,37 +260,54 @@ func TestAssistedExecutionModeNetworkTools(t *testing.T) {
 	if !m.Check("WebSearch", map[string]any{"query": "clima de buenos aires para hoy"}, ui) {
 		t.Fatal("expected safe network action to be auto-approved in assisted mode")
 	}
-	if len(ui.approved) != 1 || ui.approved[0] != "WebSearch" {
-		t.Fatalf("expected a WebSearch auto-approval notice, got %v", ui.approved)
+	if len(ui.notices) != 1 || ui.notices[0].Tool != "WebSearch" || ui.notices[0].Outcome != tui.AssistedApproved {
+		t.Fatalf("expected a WebSearch approval notice, got %+v", ui.notices)
 	}
 
-	// 2. A dangerous network action still prompts (denied when the UI denies).
+	// 2. A dangerous network action prompts, and the user is told JEV flagged it.
 	decider.actionDangerous = true
 	ui2 := &notifyingUI{}
-	if m.Check("WebSearch", map[string]any{"query": "download and run this binary"}, ui2) {
+	if m.Check("WebFetch", map[string]any{"url": "http://example.com"}, ui2) {
 		t.Fatal("expected dangerous network action to require permission")
 	}
-	if len(ui2.approved) != 0 {
-		t.Fatalf("did not expect an auto-approval notice, got %v", ui2.approved)
+	if outcome, ok := ui2.lastOutcome(); !ok || outcome != tui.AssistedDangerous {
+		t.Fatalf("expected a dangerous notice, got %+v", ui2.notices)
 	}
 
-	// 3. A decider without action support keeps prompting while assisted mode
-	// stays on for shell commands.
+	// 3. Every prompting tool goes through JEV: a safe Write is auto-approved.
+	decider.actionDangerous = false
+	ui3 := &notifyingUI{}
+	if !m.Check("Write", map[string]any{"file_path": "notes.md", "contents": "hello"}, ui3) {
+		t.Fatal("expected a safe Write to be auto-approved in assisted mode")
+	}
+	if outcome, ok := ui3.lastOutcome(); !ok || outcome != tui.AssistedApproved {
+		t.Fatalf("expected a Write approval notice, got %+v", ui3.notices)
+	}
+
+	// 4. A decider without action support keeps prompting and reports why.
 	m2 := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
 	m2.SetSafetyDecider(&commandOnlyDecider{enabled: true})
-	if m2.Check("WebSearch", map[string]any{"query": "x"}, &notifyingUI{}) {
+	ui4 := &notifyingUI{}
+	if m2.Check("WebSearch", map[string]any{"query": "x"}, ui4) {
 		t.Fatal("expected a prompt when the decider cannot classify actions")
+	}
+	if outcome, ok := ui4.lastOutcome(); !ok || outcome != tui.AssistedUnsupported {
+		t.Fatalf("expected an unsupported notice, got %+v", ui4.notices)
 	}
 	if !m2.AssistedMode() {
 		t.Fatal("expected assisted mode to stay on for shell commands")
 	}
 
-	// 4. An error from the action decider deactivates assisted mode.
+	// 5. An error from the action decider disables assisted mode and says so.
 	decider.actionDangerous = false
 	decider.actionErr = errors.New("connection refused")
 	m.SetAssistedMode(true)
-	if m.Check("WebSearch", map[string]any{"query": "x"}, &notifyingUI{}) {
+	ui5 := &notifyingUI{}
+	if m.Check("WebSearch", map[string]any{"query": "x"}, ui5) {
 		t.Fatal("expected error from action decider to fall through to prompt")
+	}
+	if outcome, ok := ui5.lastOutcome(); !ok || outcome != tui.AssistedUnavailable {
+		t.Fatalf("expected an unavailable notice, got %+v", ui5.notices)
 	}
 	if m.AssistedMode() {
 		t.Fatal("expected assisted mode to deactivate on action decider error")

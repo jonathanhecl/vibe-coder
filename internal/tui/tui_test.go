@@ -487,15 +487,46 @@ func TestEraseVisibleTextUsesDisplayWidth(t *testing.T) {
 	}
 }
 
-// TestNotifyAutoApprovalPrintsNotice verifies assisted-mode auto-approvals are
-// surfaced to the user, including the decision latency, instead of running
-// silently.
-func TestNotifyAutoApprovalPrintsNotice(t *testing.T) {
-	var out bytes.Buffer
-	ui := &PlainUI{out: &out, style: NewStyleForTest(false)}
-	ui.NotifyAutoApproval("WebSearch", 70*time.Millisecond)
-	got := out.String()
-	if !strings.Contains(got, "approved by JEV Style assisted mode (70ms)") {
-		t.Fatalf("expected an auto-approval notice with latency, got %q", got)
+// TestNotifyAssistedOutcomes verifies the assisted-mode review notices are
+// surfaced to the user: approval (with latency), rejection, unsupported, and
+// unavailability.
+func TestNotifyAssistedOutcomes(t *testing.T) {
+	cases := []struct {
+		name   string
+		notice AssistedNotice
+		want   []string
+	}{
+		{
+			name:   "approved",
+			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedApproved, Elapsed: 70 * time.Millisecond},
+			want:   []string{"WebFetch", "approved by JEV Style assisted mode (70ms)"},
+		},
+		{
+			name:   "dangerous",
+			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedDangerous, Elapsed: 70 * time.Millisecond},
+			want:   []string{"WebFetch", "flagged as risky by JEV Style (70ms)", "asking for permission"},
+		},
+		{
+			name:   "unsupported",
+			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedUnsupported},
+			want:   []string{"WebFetch", "cannot be classified by JEV Style", "asking for permission"},
+		},
+		{
+			name:   "unavailable",
+			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedUnavailable},
+			want:   []string{"JEV Style unavailable", "assisted mode disabled", "asking for permission"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			ui := &PlainUI{out: &out, style: NewStyleForTest(false)}
+			ui.NotifyAssisted(tc.notice)
+			for _, want := range tc.want {
+				if !strings.Contains(out.String(), want) {
+					t.Fatalf("expected %q in %q", want, out.String())
+				}
+			}
+		})
 	}
 }

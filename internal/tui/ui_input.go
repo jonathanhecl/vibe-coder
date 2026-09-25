@@ -293,38 +293,6 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	}
 }
 
-// NotifyAutoApproval reports that assisted execution mode auto-approved a tool
-// call without prompting, so the user can see why the action ran. It is
-// optional: the permissions manager reaches it through a method assertion.
-func (u *PlainUI) NotifyAutoApproval(tool string, elapsed time.Duration) {
-	tool = strings.TrimSpace(tool)
-	if tool == "" {
-		return
-	}
-	detail := "approved by JEV Style assisted mode"
-	if elapsed > 0 {
-		detail += " (" + formatDecisionDuration(elapsed) + ")"
-	}
-	u.stopSpinner()
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	u.flushPendingToolLocked()
-	fmt.Fprintf(u.out, "%s %s %s\n",
-		u.style.BrightGreen("✓"),
-		u.style.BrightWhite(tool),
-		u.style.Dim(detail))
-}
-
-// formatDecisionDuration renders a decision-model latency for the assisted-mode
-// notice: sub-millisecond values show as "<1ms", otherwise rounded to the
-// millisecond (for example "70ms" or "1.2s").
-func formatDecisionDuration(d time.Duration) string {
-	if d < time.Millisecond {
-		return "<1ms"
-	}
-	return d.Round(time.Millisecond).String()
-}
-
 // readSingleChar puts stdin in raw mode for one keypress and returns it.
 // It returns false if stdin is not a TTY or raw mode cannot be entered.
 // The escMu lock coordinates with the ESC monitor goroutine so only one

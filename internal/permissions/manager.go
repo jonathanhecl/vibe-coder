@@ -29,10 +29,11 @@ type actionSafetyDecider interface {
 	IsActionDangerous(ctx context.Context, toolName, summary string) (bool, error)
 }
 
-// approvalNotifier is implemented by the UI to surface assisted-mode
-// auto-approvals, so the user can see why an action ran without a prompt.
+// approvalNotifier is implemented by the UI to surface assisted-mode review
+// outcomes, so the user can see why an action ran without a prompt, or why the
+// normal permission prompt is being shown.
 type approvalNotifier interface {
-	NotifyAutoApproval(tool string, elapsed time.Duration)
+	NotifyAssisted(notice tui.AssistedNotice)
 }
 
 type Manager struct {
@@ -216,17 +217,17 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		return true
 	}
 
-	// Assisted execution mode: a SafetyDecider (e.g. JEV Style) classifies the
-	// proposed action and auto-approves it when safe. Shell commands use the
-	// command text; network tools use their arguments. File mutations stay on
-	// the manual path for safety.
-	if assistedMode {
-		switch {
-		case (tool == "bash" || tool == "interactivebash") && !alwaysConfirm:
+	// Assisted execution mode: a SafetyDecider (e.g. JEV Style) reviews every
+	// action that would otherwise prompt (shell commands, network tools, file
+	// mutations, unknown/MCP tools) and auto-approves it when safe. Mandatory
+	// confirmations (always-confirm shell patterns) and safe-tier tools keep
+	// their existing paths.
+	if assistedMode && !alwaysConfirm {
+		if tool == "bash" || tool == "interactivebash" {
 			if m.assistedCommandApproved(ui, safetyDecider, toolName, command) {
 				return true
 			}
-		case toolTier(tool) == TierNetwork:
+		} else if toolTier(tool) != TierSafe {
 			if m.assistedActionApproved(ui, safetyDecider, toolName, params) {
 				return true
 			}
@@ -267,11 +268,14 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 }
 
 // assistedCommandApproved asks the safety decider whether a shell command is
-// safe and auto-approves it when so. A missing, disabled, or failing decider
-// deactivates assisted mode and falls back to manual approval.
+// safe and auto-approves it when so. It always reports the outcome to the UI so
+// the user knows whether assisted mode approved, flagged, or could not review
+// the command. A missing, disabled, or failing decider deactivates assisted
+// mode and falls back to manual approval.
 func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolName, command string) bool {
 	if dec == nil || !dec.Enabled() {
 		m.SetAssistedMode(false)
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable})
 		return false
 	}
 	start := time.Now()
@@ -279,25 +283,29 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 	elapsed := time.Since(start)
 	if err != nil {
 		m.SetAssistedMode(false)
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
 		return false
 	}
-	if !dangerous {
-		notifyAutoApproval(ui, toolName, elapsed)
-		return true
+	if dangerous {
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
+		return false
 	}
-	return false
+	notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedApproved, Elapsed: elapsed})
+	return true
 }
 
 // assistedActionApproved asks the safety decider whether a non-shell action is
 // safe and auto-approves it when so. Deciders without action support keep the
-// manual prompt for this action while assisted mode stays on for shell commands.
+// manual prompt for that action while assisted mode stays on for shell commands.
 func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolName string, params map[string]any) bool {
 	if dec == nil || !dec.Enabled() {
 		m.SetAssistedMode(false)
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable})
 		return false
 	}
 	actionDec, ok := dec.(actionSafetyDecider)
 	if !ok {
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnsupported})
 		return false
 	}
 	start := time.Now()
@@ -305,18 +313,20 @@ func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolNam
 	elapsed := time.Since(start)
 	if err != nil {
 		m.SetAssistedMode(false)
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
 		return false
 	}
-	if !dangerous {
-		notifyAutoApproval(ui, toolName, elapsed)
-		return true
+	if dangerous {
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
+		return false
 	}
-	return false
+	notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedApproved, Elapsed: elapsed})
+	return true
 }
 
-func notifyAutoApproval(ui prompter, toolName string, elapsed time.Duration) {
+func notifyAssisted(ui prompter, notice tui.AssistedNotice) {
 	if n, ok := ui.(approvalNotifier); ok {
-		n.NotifyAutoApproval(toolName, elapsed)
+		n.NotifyAssisted(notice)
 	}
 }
 
