@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -172,4 +173,53 @@ func (a *Agent) MissionContinuationPrompt() string {
 			"or MissionBlocked if you need the user. The runtime keeps starting turns for you until you do.",
 		missionPromptPrefix, strings.TrimSpace(m.Goal),
 	)
+}
+
+// CheckMissionCompletion evaluates whether the active mission goal has been achieved
+// using JEV Style, if configured and enabled.
+func (a *Agent) CheckMissionCompletion(ctx context.Context) (bool, error) {
+	if a == nil || !a.MissionActive() {
+		return false, nil
+	}
+	a.mu.RLock()
+	jev := a.jev
+	goal := a.mission.Snapshot().Goal
+	a.mu.RUnlock()
+
+	if jev == nil || !jev.Enabled() || strings.TrimSpace(goal) == "" {
+		return false, nil
+	}
+
+	progress := a.recentProgressSummary()
+	return jev.CheckGoalCompletion(ctx, goal, progress)
+}
+
+// CompleteMission ends the active mission successfully from the runtime.
+func (a *Agent) CompleteMission(summary string) {
+	if a == nil || a.mission == nil {
+		return
+	}
+	a.mission.Complete(summary)
+}
+
+func (a *Agent) recentProgressSummary() string {
+	var b strings.Builder
+	if tw := a.todoWriteTool(); tw != nil {
+		for _, item := range tw.Store().Snapshot() {
+			if item.Status == tools.TodoStatusCompleted {
+				b.WriteString("- Completed task: ")
+				b.WriteString(item.Content)
+				b.WriteByte('\n')
+			}
+		}
+	}
+	if a.sess != nil {
+		for _, msg := range a.sess.MessagesReadOnly() {
+			if msg.Role == "system" || msg.Role == "tool" {
+				b.WriteString(msg.Content)
+				b.WriteByte('\n')
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
 }

@@ -1,6 +1,8 @@
 package permissions
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,5 +144,63 @@ TOOL_PERMISSIONS={"write":"allow","bash":"allow","edit":"deny"}
 	}
 	if !strings.Contains(string(raw), "TOOL_PERMISSIONS=") {
 		t.Fatalf("expected TOOL_PERMISSIONS in vibe-coder.env")
+	}
+}
+
+type mockSafetyDecider struct {
+	dangerous bool
+	err       error
+	enabled   bool
+}
+
+func (m *mockSafetyDecider) IsCommandDangerous(ctx context.Context, command string) (bool, error) {
+	return m.dangerous, m.err
+}
+
+func (m *mockSafetyDecider) Enabled() bool {
+	return m.enabled
+}
+
+func TestAssistedExecutionMode(t *testing.T) {
+	decider := &mockSafetyDecider{enabled: true}
+	m := NewManager(&config.Config{YesMode: false, AssistedYes: true})
+	m.SetSafetyDecider(decider)
+
+	// 1. Safe command is auto-approved by assisted mode
+	decider.dangerous = false
+	if !m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+		t.Fatal("expected safe command to be auto-approved in assisted mode")
+	}
+
+	// 2. Dangerous command prompts user (denied when ui is nil)
+	decider.dangerous = true
+	if m.Check("Bash", map[string]any{"command": "rm -rf .git"}, nil) {
+		t.Fatal("expected dangerous command to require user permission")
+	}
+
+	// 3. Dangerous command allowed when user approves via UI
+	ui := fakeUI{decision: tui.DecisionAllowOnce}
+	if !m.Check("Bash", map[string]any{"command": "rm -rf .git"}, ui) {
+		t.Fatal("expected dangerous command to be allowed when user explicitly approves")
+	}
+
+	// 4. Always-confirm commands (e.g. sudo) always prompt even if decider returns false
+	decider.dangerous = false
+	if m.Check("Bash", map[string]any{"command": "sudo apt update"}, nil) {
+		t.Fatal("expected always-confirm command (sudo) to require UI prompt even if decider claims safe")
+	}
+
+	// 5. Decider error falls through to prompt
+	decider.err = errors.New("timeout")
+	if m.Check("Bash", map[string]any{"command": "ls"}, nil) {
+		t.Fatal("expected error from safety decider to safely fall through to prompt")
+	}
+	decider.err = nil
+
+	// 6. When assisted mode is disabled, commands prompt UI
+	m.SetAssistedMode(false)
+	decider.dangerous = false
+	if m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+		t.Fatal("expected bash command to require prompt when assisted mode is off")
 	}
 }

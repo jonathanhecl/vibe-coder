@@ -116,6 +116,50 @@ func TestJevstyleSlashCommand(t *testing.T) {
 	if !strings.Contains(out.String(), "JEV Style decision: B. No") {
 		t.Fatalf("expected successful decision test, got %q", out.String())
 	}
+
+	// 9. /jevstyle assisted on / off
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/jevstyle assisted on")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /jevstyle assisted on result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !cfg.AssistedYes {
+		t.Fatal("expected cfg.AssistedYes true")
+	}
+
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/jevstyle assisted off")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /jevstyle assisted off result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if cfg.AssistedYes {
+		t.Fatal("expected cfg.AssistedYes false")
+	}
+
+	// 10. /yes assisted
+	out.Reset()
+	handled, shouldExit, err = Dispatch(ctx, "/yes assisted")
+	if err != nil || !handled || shouldExit {
+		t.Fatalf("unexpected /yes assisted result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+	}
+	if !cfg.AssistedYes {
+		t.Fatal("expected cfg.AssistedYes true after /yes assisted")
+	}
+	if !strings.Contains(out.String(), "Assisted yes mode enabled") {
+		t.Fatalf("expected assisted mode message, got %q", out.String())
+	}
+}
+
+func TestEnsureCommitTypePrefix(t *testing.T) {
+	if got := ensureCommitTypePrefix("add new feature", "feat"); got != "feat: add new feature" {
+		t.Fatalf("expected 'feat: add new feature', got %q", got)
+	}
+	if got := ensureCommitTypePrefix("fix: resolve bug", "feat"); got != "fix: resolve bug" {
+		t.Fatalf("expected 'fix: resolve bug' preserved, got %q", got)
+	}
+	if got := ensureCommitTypePrefix("docs: update readme", "docs"); got != "docs: update readme" {
+		t.Fatalf("expected 'docs: update readme' preserved, got %q", got)
+	}
 }
 
 type mockCommitClient struct {

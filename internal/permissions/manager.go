@@ -1,6 +1,7 @@
 package permissions
 
 import (
+	"context"
 	"sync"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -11,13 +12,21 @@ type prompter interface {
 	AskPermission(tool string, params map[string]any) tui.Decision
 }
 
+// SafetyDecider evaluates whether a shell command is dangerous or safe to run automatically.
+type SafetyDecider interface {
+	IsCommandDangerous(ctx context.Context, command string) (bool, error)
+	Enabled() bool
+}
+
 type Manager struct {
 	mu sync.Mutex
 
-	yesMode bool
-	allow   map[string]struct{}
-	deny    map[string]struct{}
-	file    string
+	yesMode       bool
+	assistedMode  bool
+	safetyDecider SafetyDecider
+	allow         map[string]struct{}
+	deny          map[string]struct{}
+	file          string
 
 	persistent map[string]string
 
@@ -33,12 +42,20 @@ type Manager struct {
 }
 
 func NewManager(cfg *config.Config) *Manager {
+	var yesMode, assistedMode bool
+	var permFile string
+	if cfg != nil {
+		yesMode = cfg.YesMode
+		assistedMode = cfg.AssistedYes
+		permFile = cfg.PermFile
+	}
 	m := &Manager{
-		yesMode:    cfg.YesMode,
-		allow:      map[string]struct{}{},
-		deny:       map[string]struct{}{},
-		file:       cfg.PermFile,
-		persistent: map[string]string{},
+		yesMode:      yesMode,
+		assistedMode: assistedMode,
+		allow:        map[string]struct{}{},
+		deny:         map[string]struct{}{},
+		file:         permFile,
+		persistent:   map[string]string{},
 	}
 	m.loadPersistent()
 	return m
@@ -48,6 +65,35 @@ func (m *Manager) SetYesMode(on bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.yesMode = on
+}
+
+// SetAssistedMode toggles assisted execution mode. When enabled, safe shell commands
+// are auto-approved by a SafetyDecider, while dangerous ones prompt the user.
+func (m *Manager) SetAssistedMode(on bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.assistedMode = on
+}
+
+// AssistedMode reports whether assisted execution mode is active.
+func (m *Manager) AssistedMode() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.assistedMode
+}
+
+// SetSafetyDecider attaches a decision function model for command safety evaluation.
+func (m *Manager) SetSafetyDecider(d SafetyDecider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.safetyDecider = d
+}
+
+// SafetyDecider returns the currently attached safety decider.
+func (m *Manager) SafetyDecider() SafetyDecider {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.safetyDecider
 }
 
 // SetUnattended toggles unattended auto-approval, used while a mission is active.
@@ -124,6 +170,8 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 
 	_, allowed := m.allow[tool]
 	yesMode := m.yesMode
+	assistedMode := m.assistedMode
+	safetyDecider := m.safetyDecider
 	unattended := m.unattended
 	pRule := m.persistent[tool]
 	m.mu.Unlock()
@@ -147,6 +195,16 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	}
 	if !alwaysConfirm && (allowed || pRule == "allow" || yesMode) {
 		return true
+	}
+
+	// Assisted execution mode for shell commands using a SafetyDecider (e.g. JEV Style)
+	if assistedMode && !alwaysConfirm && (tool == "bash" || tool == "interactivebash") && safetyDecider != nil && safetyDecider.Enabled() {
+		dangerous, err := safetyDecider.IsCommandDangerous(context.Background(), command)
+		if err == nil && !dangerous {
+			// Classified safe by decision model: auto-approve
+			return true
+		}
+		// If dangerous == true or error occurred, prompt user below
 	}
 
 	// Keep prompting below.

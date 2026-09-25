@@ -70,6 +70,10 @@ func applyConfigFile(cfg *Config, path string) error {
 			cfg.SidecarModel = value
 		case "JEVSTYLE_MODEL", "JEV_STYLE_MODEL":
 			cfg.JevstyleModel = value
+		case "ASSISTED_YES", "ASSISTED_MODE":
+			if b, ok := parseBoolish(value); ok {
+				cfg.AssistedYes = b
+			}
 		case "SIDECAR_DISABLED":
 			if b, ok := parseBoolish(value); ok {
 				cfg.SidecarDisabled = b
@@ -142,6 +146,7 @@ func SaveModelSettings(cfg *Config) error {
 		"MODEL":          strings.TrimSpace(cfg.Model),
 		"SIDECAR_MODEL":  strings.TrimSpace(cfg.SidecarModel),
 		"JEVSTYLE_MODEL": strings.TrimSpace(cfg.JevstyleModel),
+		"ASSISTED_YES":   strconv.FormatBool(cfg.AssistedYes),
 		"OLLAMA_HOST":    strings.TrimSpace(cfg.OllamaHost),
 		"HIDE_THINK":     strconv.FormatBool(cfg.OllamaHideThink),
 		"THINK":          strings.TrimSpace(cfg.OllamaThinkLevel),
@@ -181,6 +186,9 @@ func SaveModelSettings(cfg *Config) error {
 		if value := updates[key]; value != "" {
 			out = append(out, key+"="+value)
 		}
+	}
+	if !seen["ASSISTED_YES"] && cfg.AssistedYes {
+		out = append(out, "ASSISTED_YES=true")
 	}
 	if cfg.SidecarDisabled {
 		out = append(out, "SIDECAR_DISABLED=true")

@@ -571,4 +571,3 @@ func TestSaveModelSettingsJevstyle(t *testing.T) {
 		t.Fatalf("expected JEVSTYLE_MODEL removed, got:\n%s", string(data))
 	}
 }
-

@@ -9,6 +9,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
+	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -43,6 +44,7 @@ type Agent struct {
 	rag         ragProvider
 	paths       *pathMemory
 	side        *sidecar.Pool
+	jev         jevstyle.Decider
 	currentGoal string // verbatim text of the user's request for this Run()
 	ctxStore    *contextfiles.Store
 	imgCache    *vision.Cache
@@ -115,6 +117,9 @@ func New(
 		side:     sidecar.New(cfg, client),
 		mission:  tools.NewMissionStore(),
 	}
+	if cfg != nil && cfg.JevstyleInUse() {
+		a.jev = jevstyle.New(cfg, client)
+	}
 	// Mission tools let the agent own the lifecycle of long-running work:
 	// it decides when to start, and only the agent completes or blocks it.
 	if reg != nil {
@@ -123,6 +128,20 @@ func New(
 		reg.Register(tools.NewMissionBlockedTool(a.mission))
 	}
 	return a
+}
+
+// SetJevstyle overrides the JEV Style decision model decider.
+func (a *Agent) SetJevstyle(d jevstyle.Decider) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.jev = d
+}
+
+// Jevstyle returns the current JEV Style decision decider.
+func (a *Agent) Jevstyle() jevstyle.Decider {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.jev
 }
 
 // SetSidecar overrides the default sidecar pool. Tests use this to inject

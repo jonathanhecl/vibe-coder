@@ -21,6 +21,31 @@ func runJevstyleCommand(c *Ctx, args []string) error {
 		printJevstyleStatus(c)
 	case "test":
 		return runJevstyleTest(c)
+	case "assisted":
+		if len(args) > 1 {
+			switch strings.ToLower(strings.TrimSpace(args[1])) {
+			case "on", "true", "yes", "1", "enable":
+				c.Cfg.AssistedYes = true
+				if c.Perm != nil {
+					c.Perm.SetAssistedMode(true)
+				}
+				fmt.Fprintln(c.Out, "JEV Style assisted mode enabled.")
+			case "off", "false", "no", "0", "disable":
+				c.Cfg.AssistedYes = false
+				if c.Perm != nil {
+					c.Perm.SetAssistedMode(false)
+				}
+				fmt.Fprintln(c.Out, "JEV Style assisted mode disabled.")
+			default:
+				fmt.Fprintln(c.Out, "Usage: /jevstyle assisted on|off")
+			}
+		} else {
+			status := "off"
+			if c.Cfg.AssistedYes {
+				status = "on"
+			}
+			fmt.Fprintf(c.Out, "JEV Style assisted execution mode: %s\n", status)
+		}
 	case "off", "disable", "none":
 		c.Cfg.JevstyleModel = ""
 		fmt.Fprintln(c.Out, "JEV Style model disabled for this session.")
@@ -45,7 +70,11 @@ func printJevstyleStatus(c *Ctx) {
 	if strings.TrimSpace(c.Cfg.JevstyleModel) == "" {
 		fmt.Fprintln(c.Out, "JEV Style: no model configured (JEVSTYLE_MODEL).")
 	} else {
-		fmt.Fprintf(c.Out, "JEV Style: on (%s)\n", strings.TrimSpace(c.Cfg.JevstyleModel))
+		assisted := "off"
+		if c.Cfg.AssistedYes {
+			assisted = "on"
+		}
+		fmt.Fprintf(c.Out, "JEV Style: on (%s) [assisted mode: %s]\n", strings.TrimSpace(c.Cfg.JevstyleModel), assisted)
 	}
 }
 

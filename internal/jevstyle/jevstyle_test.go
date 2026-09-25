@@ -196,4 +196,45 @@ func TestClientDecide(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on disabled client")
 	}
+
+	// 5. IsCommandDangerous
+	fake.responseContent = " A"
+	dangerous, err := client.IsCommandDangerous(context.Background(), "rm -rf .git")
+	if err != nil || !dangerous {
+		t.Fatalf("expected dangerous true, got %t (err: %v)", dangerous, err)
+	}
+
+	fake.responseContent = " B"
+	dangerous, err = client.IsCommandDangerous(context.Background(), "git status")
+	if err != nil || dangerous {
+		t.Fatalf("expected dangerous false, got %t (err: %v)", dangerous, err)
+	}
+
+	// 6. DisambiguatePath
+	fake.responseContent = " B"
+	chosen, ok, err := client.DisambiguatePath(context.Background(), "flags.go", []string{"pkg/flags.go", "internal/config/flags.go"})
+	if err != nil || !ok || chosen != "internal/config/flags.go" {
+		t.Fatalf("unexpected disambiguate result: chosen=%q ok=%t err=%v", chosen, ok, err)
+	}
+
+	// 7. CheckGoalCompletion
+	fake.responseContent = " A"
+	completed, err := client.CheckGoalCompletion(context.Background(), "pass tests", "all tests passed")
+	if err != nil || !completed {
+		t.Fatalf("expected completed true, got %t (err: %v)", completed, err)
+	}
+
+	// 8. ClassifyFailure
+	fake.responseContent = " A"
+	cat, err := client.ClassifyFailure(context.Background(), "syntax error on line 12")
+	if err != nil || !strings.Contains(cat, "Syntax") {
+		t.Fatalf("expected syntax category, got %q (err: %v)", cat, err)
+	}
+
+	// 9. ClassifyCommit
+	fake.responseContent = " D"
+	commitType, err := client.ClassifyCommit(context.Background(), "+func TestX(t *testing.T)")
+	if err != nil || commitType != "test" {
+		t.Fatalf("expected commit type 'test', got %q (err: %v)", commitType, err)
+	}
 }

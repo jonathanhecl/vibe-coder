@@ -69,6 +69,18 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	logger.Infof("Tool %s Execute completed. is_error=%t, output_len=%d", toolName, result.IsError, len(result.Output))
 	if result.IsError {
 		logger.Errorf("Tool %s execution returned error output: %q", toolName, result.Output)
+		a.mu.RLock()
+		jev := a.jev
+		a.mu.RUnlock()
+		if jev != nil && jev.Enabled() && len(strings.TrimSpace(result.Output)) > 0 {
+			if diag, err := jev.ClassifyFailure(ctx, result.Output); err == nil && diag != "" {
+				logger.Infof("Tool %s failure classified by JEV Style: %s", toolName, diag)
+				if result.HintsForModel != "" {
+					result.HintsForModel += "\n"
+				}
+				result.HintsForModel += fmt.Sprintf("[Failure Diagnosis: %s]", diag)
+			}
+		}
 	}
 	if result.Diff != "" {
 		if toolParams == nil {
@@ -151,16 +163,31 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 	// rescuer is blind on purpose.
 	a.mu.RLock()
 	side := a.side
+	jev := a.jev
 	goal := a.currentGoal
 	a.mu.RUnlock()
-	if side == nil || !side.Enabled() {
-		return
-	}
+
 	cands := a.paths.Candidates(raw)
 	if len(cands) < 2 {
 		return
 	}
 	hint := fmt.Sprintf("model wrote %q while user goal was: %s", raw, goal)
+
+	if jev != nil && jev.Enabled() {
+		a.ui.StartWaiting(fmt.Sprintf("disambiguating %q via %s…",
+			raw, shortModelName(a.cfg.JevstyleModel)))
+		chosen, ok, err := jev.DisambiguatePath(ctx, hint, cands)
+		a.ui.StopWaiting()
+		if err == nil && ok && chosen != "" {
+			params[key] = chosen
+			a.ui.ShowToolResult(toolName, fmt.Sprintf("jevstyle disambiguated %q → %s", raw, chosen), false, nil)
+			return
+		}
+	}
+
+	if side == nil || !side.Enabled() {
+		return
+	}
 	// Same rationale as recordToolObservation: sidecar calls are slow
 	// enough on cold-start that an unannounced 5–20s pause feels like a
 	// hang. A short waiting label tells the user a small model is being

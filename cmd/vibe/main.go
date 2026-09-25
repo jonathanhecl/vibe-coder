@@ -12,6 +12,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
+	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -120,6 +121,10 @@ func main() {
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
+	jevClient := jevstyle.New(cfg, client)
+	if cfg.JevstyleInUse() {
+		perm.SetSafetyDecider(jevClient)
+	}
 	// One shared sidecar pool for the agent and the DescribeImage tool so
 	// vision second-opinions respect the same load controls as summaries.
 	sidePool := sidecar.New(cfg, client)
@@ -144,6 +149,9 @@ func main() {
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	ag.SetContextStore(ctxStore)
 	ag.SetSidecar(sidePool)
+	if cfg.JevstyleInUse() {
+		ag.SetJevstyle(jevClient)
+	}
 	fileWatcher := watcher.New(cfg.Cwd)
 	ag.SetWatcher(fileWatcher)
 	defer fileWatcher.Close()

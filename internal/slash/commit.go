@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
@@ -54,12 +55,38 @@ func runCommitFlow(c *Ctx) (string, string, error) {
 		if err == nil && strings.TrimSpace(resp.Content) != "" {
 			msg = sanitizeCommitMessage(resp.Content)
 		}
+
+		if c.Cfg.JevstyleInUse() {
+			jevCtx, jevCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer jevCancel()
+			jev := jevstyle.New(c.Cfg, c.Client)
+			if cType, err := jev.ClassifyCommit(jevCtx, promptDiff); err == nil && cType != "" {
+				msg = ensureCommitTypePrefix(msg, cType)
+			}
+		}
 	}
 
 	if _, err := runGit(c.Cfg.Cwd, "commit", "-m", msg); err != nil {
 		return "", "", err
 	}
 	return msg, "", nil
+}
+
+func ensureCommitTypePrefix(msg, commitType string) string {
+	msg = strings.TrimSpace(msg)
+	commitType = strings.ToLower(strings.TrimSpace(commitType))
+	if commitType == "" {
+		return msg
+	}
+	parts := strings.SplitN(msg, ":", 2)
+	if len(parts) == 2 {
+		prefix := strings.ToLower(strings.TrimSpace(parts[0]))
+		switch prefix {
+		case "feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert":
+			return msg
+		}
+	}
+	return fmt.Sprintf("%s: %s", commitType, msg)
 }
 
 func runGit(cwd string, args ...string) (string, error) {

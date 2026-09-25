@@ -44,4 +44,30 @@ func TestLiveJevstyleRemote(t *testing.T) {
 	if decResp.Choice != "B" || decResp.Option != "Go" {
 		t.Fatalf("unexpected choice: got %+v, want Choice=B, Option=Go", decResp)
 	}
+
+	// 2. Live Command Safety
+	dangerous, err := jevClient.IsCommandDangerous(ctx, "rm -rf .git")
+	if err != nil || !dangerous {
+		t.Fatalf("expected rm -rf .git to be dangerous, got %t (err: %v)", dangerous, err)
+	}
+	dangerous, err = jevClient.IsCommandDangerous(ctx, "git status")
+	if err != nil || dangerous {
+		t.Fatalf("expected git status to be safe, got %t (err: %v)", dangerous, err)
+	}
+
+	// 3. Live DisambiguatePath
+	cands := []string{
+		"/mnt/cloud/Clouds/Github/vibe-coder/cmd/vibe/main.go",
+		"/mnt/cloud/Clouds/Github/vibe-coder/internal/config/flags.go",
+	}
+	chosen, ok, err := jevClient.DisambiguatePath(ctx, "target file: flags.go for parsing CLI options", cands)
+	if err != nil || !ok || chosen != cands[1] {
+		t.Fatalf("expected flags.go chosen, got chosen=%q ok=%t err=%v", chosen, ok, err)
+	}
+
+	// 4. Live CheckGoalCompletion
+	done, err := jevClient.CheckGoalCompletion(ctx, "add flag --verbose to CLI", "All code written, flag added to flags.go, tests passing.")
+	if err != nil || !done {
+		t.Fatalf("expected goal to be complete, got %t (err: %v)", done, err)
+	}
 }

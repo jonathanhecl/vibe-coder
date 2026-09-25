@@ -383,6 +383,20 @@ At `temperature: 0`, the model emits a single option letter (`A`, `B`, ...) repr
 
 You can test the configured decision model inside the interactive session with `/jevstyle test`.
 
+#### Decision Workflows Powered by JEV Style
+
+When configured, JEV Style acts as a fast, discrete decision engine for key agent operations:
+1. **Assisted Command Execution Mode (`--assisted-yes`, `/yes assisted`, `/jevstyle assisted on`)**:
+   Instead of either prompting on every command or blindly auto-approving everything, JEV Style classifies proposed shell commands as safe or dangerous. Safe commands (e.g. `ls`, `git status`, test runs) are auto-approved, while destructive or risky commands prompt the user.
+2. **Workspace Path Disambiguation**:
+   When the agent references an ambiguous file basename matched across multiple repository paths, JEV Style selects the best matching candidate according to user context and intent.
+3. **Autonomous Mission Completion Verification**:
+   Monitors active autonomous missions and checks whether the goal has been fully fulfilled when pending tasks complete or turn activity idles, preventing unnecessary spin or stall.
+4. **Tool Failure Classification & Diagnosis**:
+   When tool executions fail (e.g. bash commands or test failures), JEV Style diagnoses the primary cause (compile/syntax error, missing dependency, failing test assertion, permission issue, or network timeout) and injects diagnostic hints for recovery.
+5. **Conventional Commit Classification**:
+   Analyzes git diff summaries during `/commit` to categorize changes into standard conventional commit types (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`).
+
 ### Remote Ollama for vibe only
 
 If Ollama runs on another machine in your network, you can configure `vibe` and persist
@@ -423,6 +437,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--no-sidecar` — disable sidecar for this session only; with `--save`, persists `SIDECAR_DISABLED=true`
 - `--jevstyle-model <name>` — JEV Style decision model name (alias: `--jevstyle <name>`)
 - `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)
+- `--assisted-yes` — enable assisted execution mode with JEV Style (auto-approve safe commands, prompt for dangerous commands)
 - `--debug` — enable debug logs
 - `--resume` — resume the last session for this project
 - `--session-id <id>` — resume a specific session
@@ -529,12 +544,15 @@ Pinned context files are injected into the system prompt on every turn, so they 
 - `/jevstyle` — show current JEV Style decision model
 - `/jevstyle <name>` — switch JEV Style model for this session
 - `/jevstyle off` — disable JEV Style model for this session
+- `/jevstyle test` — run an interactive decision test turn
+- `/jevstyle assisted on|off` — toggle assisted command execution mode
 - `/hide-think` — hide model thinking blocks in CLI output
 - `/show-think` — show model thinking blocks in CLI output (default)
 
 ### Mode
 
 - `/yes` — auto-approve subsequent permission prompts
+- `/yes assisted` — enable assisted execution mode (auto-approve safe commands via JEV Style)
 - `/no` — require manual approval (default)
 - `/plan` — enter plan mode (writes restricted to `.vibe-coder/plans/`)
 - `/plan <goal>` — enter plan mode and immediately start planning that goal

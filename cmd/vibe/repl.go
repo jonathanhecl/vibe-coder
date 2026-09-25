@@ -157,6 +157,15 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 		} else {
 			idleStreak = 0
 		}
+		if ag.PendingTodoCount() == 0 || idleStreak > 0 {
+			if completed, checkErr := ag.CheckMissionCompletion(rootCtx); checkErr == nil && completed {
+				ag.CompleteMission("Completed (verified by JEV Style)")
+				fmt.Fprintln(os.Stdout, "[mission] JEV Style verified the goal is accomplished; mission completed.")
+				saveMissionProgress(ag)
+				ag.LogMissionTurn(err)
+				break
+			}
+		}
 		if idleStreak >= 3 {
 			ag.BlockActiveMission("Several consecutive turns ran no tools; mission paused so the agent does not spin.")
 			fmt.Fprintln(os.Stderr, "Mission paused: no tool activity for several turns. The agent needs your input.")

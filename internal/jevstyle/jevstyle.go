@@ -45,14 +45,24 @@ type Decider interface {
 	Decide(ctx context.Context, req DecisionRequest) (*DecisionResponse, error)
 	DecideBool(ctx context.Context, state, question string) (bool, error)
 	DecideChoice(ctx context.Context, state, question string, options ...string) (string, int, error)
+	IsCommandDangerous(ctx context.Context, command string) (bool, error)
+	DisambiguatePath(ctx context.Context, hint string, candidates []string) (string, bool, error)
+	CheckGoalCompletion(ctx context.Context, goal, recentProgress string) (bool, error)
+	ClassifyFailure(ctx context.Context, errorLog string) (string, error)
+	ClassifyCommit(ctx context.Context, diffSummary string) (string, error)
 	Enabled() bool
 	Model() string
+}
+
+// OllamaClient specifies the subset of Ollama client methods required by JEV Style.
+type OllamaClient interface {
+	ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.ChatResponse, error)
 }
 
 // Client coordinates requests to the JEV Style decision model via Ollama.
 type Client struct {
 	cfg     *config.Config
-	client  ollama.Client
+	client  OllamaClient
 	sem     chan struct{}
 	timeout time.Duration
 }
@@ -80,7 +90,7 @@ func WithTimeout(d time.Duration) Option {
 }
 
 // New creates a JEV Style decision client.
-func New(cfg *config.Config, client ollama.Client, opts ...Option) *Client {
+func New(cfg *config.Config, client OllamaClient, opts ...Option) *Client {
 	c := &Client{
 		cfg:     cfg,
 		client:  client,
@@ -183,6 +193,99 @@ func (c *Client) DecideChoice(ctx context.Context, state, question string, optio
 		return "", -1, err
 	}
 	return resp.Option, resp.Index, nil
+}
+
+// IsCommandDangerous evaluates whether a shell command is potentially risky or destructive.
+// Option A indicates dangerous/risky; Option B indicates safe to run automatically.
+func (c *Client) IsCommandDangerous(ctx context.Context, command string) (bool, error) {
+	resp, err := c.Decide(ctx, DecisionRequest{
+		State:    fmt.Sprintf("The agent proposes to run the following shell command:\n`%s`", strings.TrimSpace(command)),
+		Question: "Is this command potentially dangerous, destructive, or risky to the system or repository?",
+		Options:  []string{"Yes, it is dangerous or risky", "No, it is safe to run automatically"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.Index == 0, nil
+}
+
+// DisambiguatePath chooses the best matching path among candidates given a user hint.
+func (c *Client) DisambiguatePath(ctx context.Context, hint string, candidates []string) (string, bool, error) {
+	if !c.Enabled() || len(candidates) == 0 {
+		return "", false, nil
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true, nil
+	}
+	cands := candidates
+	if len(cands) > MaxOptions {
+		cands = cands[:MaxOptions]
+	}
+	req := DecisionRequest{
+		State:    fmt.Sprintf("Context and reference:\n%s", strings.TrimSpace(hint)),
+		Question: "Which candidate path best matches this reference or intent?",
+		Options:  cands,
+	}
+	resp, err := c.Decide(ctx, req)
+	if err != nil {
+		return "", false, err
+	}
+	return cands[resp.Index], true, nil
+}
+
+// CheckGoalCompletion evaluates whether a task or mission goal has been completely achieved
+// based on the goal description and the summary or recent output of actions taken.
+func (c *Client) CheckGoalCompletion(ctx context.Context, goal, recentProgress string) (bool, error) {
+	resp, err := c.Decide(ctx, DecisionRequest{
+		State:    fmt.Sprintf("User goal:\n%s\n\nRecent execution progress and results:\n%s", strings.TrimSpace(goal), strings.TrimSpace(recentProgress)),
+		Question: "Has the user goal been fully accomplished and completed?",
+		Options:  []string{"Yes, the goal is fully fulfilled", "No, further actions or fixes are needed"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.Index == 0, nil
+}
+
+// ClassifyFailure categorizes an error or failure log into actionable classes.
+func (c *Client) ClassifyFailure(ctx context.Context, errorLog string) (string, error) {
+	resp, err := c.Decide(ctx, DecisionRequest{
+		State:    fmt.Sprintf("Error or failure log:\n%s", strings.TrimSpace(errorLog)),
+		Question: "What is the primary cause of this failure?",
+		Options: []string{
+			"Syntax or compile error",
+			"Missing package, module, or dependency",
+			"Failing test assertion or business logic failure",
+			"Permission denied or access error",
+			"Network error, connection failure, or timeout",
+			"Other or unknown cause",
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Option, nil
+}
+
+// ClassifyCommit suggests the primary conventional commit type for a diff.
+func (c *Client) ClassifyCommit(ctx context.Context, diffSummary string) (string, error) {
+	resp, err := c.Decide(ctx, DecisionRequest{
+		State:    fmt.Sprintf("Git diff summary:\n%s", strings.TrimSpace(diffSummary)),
+		Question: "What is the primary conventional commit type for these changes?",
+		Options: []string{
+			"fix (bug fix or error resolution)",
+			"feat (new feature or capability)",
+			"refactor (code reorganization without feature change)",
+			"test (adding or updating test cases)",
+			"docs (documentation only)",
+			"chore (build scripts, dependencies, or maintenance)",
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	word := strings.Fields(resp.Option)[0]
+	return word, nil
 }
 
 // FormatPrompt constructs the exact prompt template expected by JEV Style models.

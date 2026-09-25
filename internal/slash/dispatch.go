@@ -120,20 +120,45 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/yes", "/allow_all":
 		enabled := true
+		assisted := false
 		if len(fields) > 1 {
 			switch strings.ToLower(strings.TrimSpace(fields[1])) {
+			case "assisted", "auto":
+				assisted = true
 			case "true", "on", "yes", "1", "enable":
 				enabled = true
 			case "false", "off", "no", "0", "disable":
 				enabled = false
 			default:
-				fmt.Fprintln(c.Out, "Usage: /allow_all true|false")
+				fmt.Fprintln(c.Out, "Usage: /yes [true|false|assisted]")
 				return true, false, nil
 			}
+		}
+		if assisted {
+			if !c.Cfg.JevstyleInUse() {
+				fmt.Fprintln(c.Out, "JEV Style is not configured. Configure a model first with /jevstyle <model>.")
+				return true, false, nil
+			}
+			c.Cfg.AssistedYes = true
+			c.Cfg.YesMode = false
+			if c.Perm != nil {
+				c.Perm.SetAssistedMode(true)
+				c.Perm.SetYesMode(false)
+			}
+			fmt.Fprintln(c.Out, "Assisted yes mode enabled (JEV Style will auto-approve safe commands).")
+			return true, false, nil
+		}
+		c.Cfg.AssistedYes = false
+		if c.Perm != nil {
+			c.Perm.SetAssistedMode(false)
 		}
 		setYesMode(c, enabled)
 		return true, false, nil
 	case "/no":
+		c.Cfg.AssistedYes = false
+		if c.Perm != nil {
+			c.Perm.SetAssistedMode(false)
+		}
 		setYesMode(c, false)
 		return true, false, nil
 	case "/compact":

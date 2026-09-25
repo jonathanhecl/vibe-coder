@@ -18,6 +18,7 @@ type cliOptions struct {
 	noSidecar     bool
 	jevstyleModel optionalString
 	yesMode       optionalBool
+	assistedYes   optionalBool
 	debug         optionalBool
 	resume        optionalBool
 	sessionID     optionalString
@@ -60,6 +61,8 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.jevstyleModel, "jevstyle", "jevstyle decision model (alias)")
 	fs.Var(&opts.yesMode, "y", "yes mode")
 	fs.Var(&opts.yesMode, "yes", "yes mode")
+	fs.Var(&opts.assistedYes, "assisted-yes", "enable assisted execution mode with JEV Style")
+	fs.Var(&opts.assistedYes, "assisted", "enable assisted execution mode with JEV Style (alias)")
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.resume, "resume", "resume session")
 	fs.Var(&opts.sessionID, "session-id", "session id")
@@ -119,6 +122,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.yesMode.set {
 		cfg.YesMode = cli.yesMode.value
+	}
+	if cli.assistedYes.set {
+		cfg.AssistedYes = cli.assistedYes.value
 	}
 	if cli.debug.set {
 		cfg.Debug = cli.debug.value

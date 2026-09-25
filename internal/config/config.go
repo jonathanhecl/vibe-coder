@@ -21,10 +21,10 @@ const (
 )
 
 type Config struct {
-	OllamaHost       string
-	Model            string
-	UI               string
-	SidecarModel     string
+	OllamaHost   string
+	Model        string
+	UI           string
+	SidecarModel string
 	// JevstyleModel holds the optional JEV Style decision model name.
 	JevstyleModel    string
 	ConfigFileExists bool
@@ -38,6 +38,7 @@ type Config struct {
 	Prompt             string
 	Interactive        bool
 	YesMode            bool
+	AssistedYes        bool
 	Debug              bool
 	Resume             bool
 	SessionID          string
@@ -193,6 +194,7 @@ Flags:
   --jevstyle-model string   JEV Style decision model name
   --jevstyle string         Alias for --jevstyle-model
   -y, --yes                 Enable yes mode
+  --assisted-yes            Enable assisted execution mode with JEV Style (auto-approve safe commands)
   --debug                   Enable debug logs
   --resume                  Resume last session for this project
   --session-id string       Resume specific session id
