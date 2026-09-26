@@ -245,6 +245,10 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return runReviewCommand(c, fields[1:])
 	case "/context":
 		return true, false, runContextCommand(c, trimmed)
+	case "/paste", "/image":
+		// Clipboard paste is handled in repl.go after Dispatch returns,
+		// following the same pattern as /plan and /review.
+		return true, false, nil
 	default:
 		fmt.Fprintf(c.Out, "Unknown command: %s\n", cmd)
 		return true, false, nil
