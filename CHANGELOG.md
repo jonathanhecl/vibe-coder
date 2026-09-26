@@ -11,6 +11,8 @@ Release archives and generated notes are available on the
 
 ### Added
 
+- `/paste` and `/image` slash commands to send clipboard content (text, image, or file) to the agent with an optional prompt. Auto-detects content type and injects images via the vision pipeline, text inline, or file paths for the agent to read. Cross-platform: macOS (pngpaste/pbpaste), Linux (wl-paste/xclip), Windows (PowerShell Get-Clipboard).
+
 - Branded repository assets (`assets/logo.svg`, `assets/logo-mark.svg`) and a
   refreshed README header with badges and a table of contents.
 - Continuous integration workflow (formatting, vet, tests, RAG-tagged tests, and

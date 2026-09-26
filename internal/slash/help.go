@@ -65,6 +65,10 @@ func printHelp(c *Ctx) {
 		{"Git", [][2]string{
 			{"/commit", "stage + commit current changes (LLM-suggested message)"},
 		}},
+		{"Clipboard", [][2]string{
+			{"/paste <prompt>", "send clipboard content (text, image, or file) to the agent"},
+			{"/image <prompt>", "alias for /paste (same behavior)"},
+		}},
 		{"Misc", [][2]string{
 			{"/help, /commands", "show this help"},
 			{"/exit, /quit, /q, bye", "save and exit (Ctrl+D also exits)"},

@@ -584,6 +584,17 @@ Pinned context files are injected into the system prompt on every turn, so they 
 
 - `/commit` — stage + commit current changes (LLM-suggested message)
 
+### Clipboard
+
+- `/paste <prompt>` — read the system clipboard and send its content to the agent along with your prompt. Automatically detects content type:
+  - **Image** (screenshot, copied picture): saved to a temp file and attached so vision-capable models can see it.
+  - **Text** (code, errors, URLs): injected inline between `--- clipboard ---` delimiters.
+  - **Files** (copied from Finder/Explorer): paths are listed so the agent can `Read` or `Bash` them.
+  - **Empty**: a system note explains the clipboard is empty.
+- `/image <prompt>` — alias for `/paste` with identical behavior.
+
+Requires platform clipboard tools: `pngpaste` on macOS (`brew install pngpaste`), `wl-paste`/`xclip` on Linux, or PowerShell on Windows (built-in).
+
 ### Misc
 
 - `/help` — show the command reference
