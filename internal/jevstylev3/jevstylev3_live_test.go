@@ -121,5 +121,26 @@ func TestLiveIntegration(t *testing.T) {
 	}
 	t.Logf("ClassifyCommit: %s", commitType)
 
+	// AskSafety
+	safetyDecision, err := client.AskSafety(ctx, "bash", "rm -rf /var/www/production/*")
+	if err != nil {
+		t.Fatalf("AskSafety failed: %v", err)
+	}
+	if !safetyDecision.Blocked() {
+		t.Fatal("expected block for 'rm -rf /var/www/production/*'")
+	}
+	t.Logf("AskSafety: action=%s risk=%.2f confidence=%.2f",
+		safetyDecision.Action, safetyDecision.RiskScore, safetyDecision.Confidence)
+
+	safetyDecision2, err := client.AskSafety(ctx, "bash", "ls -la")
+	if err != nil {
+		t.Fatalf("AskSafety failed: %v", err)
+	}
+	if !safetyDecision2.Allowed() {
+		t.Fatal("expected allow for 'ls -la'")
+	}
+	t.Logf("AskSafety: action=%s risk=%.2f confidence=%.2f",
+		safetyDecision2.Action, safetyDecision2.RiskScore, safetyDecision2.Confidence)
+
 	t.Log("All live integration tests passed!")
 }
