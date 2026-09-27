@@ -36,6 +36,9 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_JEVSTYLE_MODEL", "VIBEGO_JEVSTYLE_MODEL", "VIBE_JEVSTYLE_MODEL", "JEVSTYLE_MODEL")); v != "" {
 		cfg.JevstyleModel = v
 	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_JEVSTYLE_V3_ENDPOINT", "VIBEGO_JEVSTYLE_V3_ENDPOINT", "JEVSTYLE_V3_ENDPOINT")); v != "" {
+		cfg.JevstyleV3Endpoint = v
+	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_ASSISTED_YES", "VIBEGO_ASSISTED_YES", "ASSISTED_YES")); v != "" {
 		if b, ok := parseBoolish(v); ok {
 			cfg.AssistedYes = b

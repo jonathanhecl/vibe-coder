@@ -201,8 +201,9 @@ Flags:
   -m, --model string        Model name
   --sidecar string          Sidecar model name
   --no-sidecar              Disable sidecar for this session only
-  --jevstyle-model string   JEV Style decision model name
+  --jevstyle-model string   JEV Style decision model name (v1/v2 via Ollama)
   --jevstyle string         Alias for --jevstyle-model
+  --jevstyle-v3-endpoint string   JEV Style v3 endpoint URL (e.g. http://192.168.0.33:8765)
   -y, --yes                 Enable yes mode
   --assisted-yes            Enable assisted execution mode with JEV Style (auto-approve safe commands)
   --debug                   Enable debug logs

@@ -16,7 +16,8 @@ type cliOptions struct {
 	ui            optionalString
 	sidecar       optionalString
 	noSidecar     bool
-	jevstyleModel optionalString
+	jevstyleModel    optionalString
+	jevstyleV3Endpoint optionalString
 	yesMode       optionalBool
 	assistedYes   optionalBool
 	debug         optionalBool
@@ -60,8 +61,9 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ui, "ui", "ui mode (plain|rich)")
 	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
 	fs.BoolVar(&opts.noSidecar, "no-sidecar", false, "disable sidecar for this session only")
-	fs.Var(&opts.jevstyleModel, "jevstyle-model", "jevstyle decision model")
+	fs.Var(&opts.jevstyleModel, "jevstyle-model", "jevstyle decision model (v1/v2 via Ollama)")
 	fs.Var(&opts.jevstyleModel, "jevstyle", "jevstyle decision model (alias)")
+	fs.Var(&opts.jevstyleV3Endpoint, "jevstyle-v3-endpoint", "JEV Style v3 endpoint URL (e.g. http://192.168.0.33:8765)")
 	fs.Var(&opts.yesMode, "y", "yes mode")
 	fs.Var(&opts.yesMode, "yes", "yes mode")
 	fs.Var(&opts.assistedYes, "assisted-yes", "enable assisted execution mode with JEV Style")
@@ -129,6 +131,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.jevstyleModel.set {
 		cfg.JevstyleModel = cli.jevstyleModel.value
+	}
+	if cli.jevstyleV3Endpoint.set {
+		cfg.JevstyleV3Endpoint = cli.jevstyleV3Endpoint.value
 	}
 	if cli.yesMode.set {
 		cfg.YesMode = cli.yesMode.value
