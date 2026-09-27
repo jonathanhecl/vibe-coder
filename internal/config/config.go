@@ -25,8 +25,11 @@ type Config struct {
 	Model        string
 	UI           string
 	SidecarModel string
-	// JevstyleModel holds the optional JEV Style decision model name.
-	JevstyleModel    string
+	// JevstyleModel holds the optional JEV Style decision model name (v1/v2 via Ollama).
+	JevstyleModel string
+	// JevstyleV3Endpoint holds the optional JEV Style v3 endpoint URL.
+	// When set, it takes priority over JevstyleModel.
+	JevstyleV3Endpoint string
 	ConfigFileExists bool
 	// SidecarDisabled, when true, turns off the sidecar until changed in config (SIDECAR_DISABLED / SIDECAR_ENABLED).
 	SidecarDisabled bool
