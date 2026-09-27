@@ -16,6 +16,9 @@ const (
 	// AssistedDangerous: the decision model classified the action as risky, so
 	// the normal permission prompt is shown.
 	AssistedDangerous
+	// AssistedUncertain: the decision model's confidence was below threshold,
+	// so the normal permission prompt is shown (e.g. JEV v3 with low confidence).
+	AssistedUncertain
 	// AssistedUnsupported: the decision model cannot classify this kind of
 	// action, so the normal permission prompt is shown.
 	AssistedUnsupported
@@ -51,6 +54,9 @@ func (u *PlainUI) NotifyAssisted(notice AssistedNotice) {
 	case AssistedDangerous:
 		line = fmt.Sprintf("%s %s %s", u.style.Yellow("⚠"), u.style.BrightWhite(tool),
 			u.style.Dim("flagged as risky by JEV Style"+timing+" · asking for permission"))
+	case AssistedUncertain:
+		line = fmt.Sprintf("%s %s %s", u.style.Yellow("⚠"), u.style.BrightWhite(tool),
+			u.style.Dim("low confidence from JEV Style"+timing+" · asking for permission"))
 	case AssistedUnsupported:
 		line = fmt.Sprintf("%s %s %s", u.style.Yellow("⚠"), u.style.BrightWhite(tool),
 			u.style.Dim("cannot be classified by JEV Style · asking for permission"))

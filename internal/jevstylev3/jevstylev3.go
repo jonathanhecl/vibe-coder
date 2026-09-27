@@ -42,7 +42,30 @@ const (
 	// minConfidence is the minimum confidence for classification results.
 	// Below this, the result is marked as "(uncertain)".
 	minConfidence = 0.5
+
+	// autoApproveConfidence is the confidence threshold for auto-approving or
+	// auto-blocking actions. Below this, the user is asked to decide.
+	autoApproveConfidence = 0.70
 )
+
+// SafetyDecision represents the outcome of an AskSafety query.
+type SafetyDecision struct {
+	Action     string  // "allow", "review", or "block"
+	RiskScore  float64 // 0.0-3.0 ordinal risk level
+	Confidence float64 // 0.0-1.0 model confidence
+}
+
+// Allowed reports whether the decision is to allow the action.
+func (d SafetyDecision) Allowed() bool { return d.Action == "allow" }
+
+// Blocked reports whether the decision is to block the action.
+func (d SafetyDecision) Blocked() bool { return d.Action == "block" }
+
+// NeedsReview reports whether the decision is uncertain and needs user input.
+func (d SafetyDecision) NeedsReview() bool { return d.Action == "review" }
+
+// Confident reports whether the model confidence is high enough to auto-decide.
+func (d SafetyDecision) Confident() bool { return d.Confidence >= autoApproveConfidence }
 
 // Client is a JEV Style v3 HTTP client that implements jevstyle.Decider.
 type Client struct {
@@ -485,4 +508,96 @@ func (c *Client) ClassifyCommit(ctx context.Context, diffSummary string) (string
 		return word + " (uncertain)", nil
 	}
 	return word, nil
+}
+
+// riskScale is the ordinal scale used for AskSafety risk assessment.
+var riskScale = []string{"none", "low", "medium", "high"}
+
+// safetyActionOptions are the possible actions for AskSafety.
+var safetyActionOptions = []string{"allow", "review", "block"}
+
+// AskSafety evaluates a command or action and returns a SafetyDecision with
+// action (allow/review/block), risk score, and model confidence.
+// Uses a single v3 request with both choice and score questions.
+func (c *Client) AskSafety(ctx context.Context, toolName, detail string) (*SafetyDecision, error) {
+	if !c.Enabled() {
+		return nil, errors.New("jevstylev3: endpoint not configured")
+	}
+
+	state := fmt.Sprintf("The agent proposes to use the `%s` tool with these arguments:\n%s",
+		strings.TrimSpace(toolName), strings.TrimSpace(detail))
+
+	payload := v3Request{
+		State: state,
+		Questions: map[string]v3Question{
+			"action": {
+				Type:         "choice",
+				Instructions: "Should this action be allowed, reviewed by the user, or blocked?",
+				Criteria: map[string]interface{}{
+					"allow":  "Safe to run automatically",
+					"review": "Needs user review before proceeding",
+					"block":  "Dangerous, should be blocked",
+				},
+			},
+			"risk": {
+				Type:         "score",
+				Instructions: "What is the risk level of this action?",
+				Criteria:     riskScale,
+			},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("jevstylev3: marshal request: %w", err)
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(callCtx, http.MethodPost,
+		c.endpoint+"/v1/systemone", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("jevstylev3: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("jevstylev3: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("jevstylev3: server returned status %d: %s",
+			resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var result struct {
+		Answers map[string]struct {
+			Type       string  `json:"type"`
+			Choice     string  `json:"choice"`
+			Score      float64 `json:"score"`
+			Confidence float64 `json:"confidence"`
+		} `json:"answers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("jevstylev3: decode response: %w", err)
+	}
+
+	actionAns, ok := result.Answers["action"]
+	if !ok {
+		return nil, errors.New("jevstylev3: response missing 'action' answer")
+	}
+	riskAns, ok := result.Answers["risk"]
+	if !ok {
+		return nil, errors.New("jevstylev3: response missing 'risk' answer")
+	}
+
+	return &SafetyDecision{
+		Action:     actionAns.Choice,
+		RiskScore:  riskAns.Score,
+		Confidence: actionAns.Confidence,
+	}, nil
 }

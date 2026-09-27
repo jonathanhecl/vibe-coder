@@ -440,6 +440,114 @@ func TestTimeout(t *testing.T) {
 	}
 }
 
+func TestAskSafety(t *testing.T) {
+	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&req)
+		questions := req["questions"].(map[string]interface{})
+		// Verify both questions are present
+		if _, ok := questions["action"]; !ok {
+			t.Error("missing 'action' question")
+		}
+		if _, ok := questions["risk"]; !ok {
+			t.Error("missing 'risk' question")
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model": "test",
+			"answers": map[string]interface{}{
+				"action": map[string]interface{}{
+					"type":       "choice",
+					"choice":     "allow",
+					"confidence": 0.9,
+				},
+				"risk": map[string]interface{}{
+					"type":  "score",
+					"score": 0.5,
+				},
+			},
+		})
+	})
+
+	decision, err := client.AskSafety(context.Background(), "bash", "rm -rf /tmp/test")
+	if err != nil {
+		t.Fatalf("AskSafety failed: %v", err)
+	}
+	if !decision.Allowed() {
+		t.Fatal("expected allow")
+	}
+	if !decision.Confident() {
+		t.Fatal("expected confident (0.9 >= 0.70)")
+	}
+	if decision.RiskScore != 0.5 {
+		t.Fatalf("expected risk score 0.5, got %f", decision.RiskScore)
+	}
+}
+
+func TestAskSafety_LowConfidence(t *testing.T) {
+	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model": "test",
+			"answers": map[string]interface{}{
+				"action": map[string]interface{}{
+					"type":       "choice",
+					"choice":     "allow",
+					"confidence": 0.5,
+				},
+				"risk": map[string]interface{}{
+					"type":  "score",
+					"score": 2.5,
+				},
+			},
+		})
+	})
+
+	decision, err := client.AskSafety(context.Background(), "bash", "git push --force")
+	if err != nil {
+		t.Fatalf("AskSafety failed: %v", err)
+	}
+	if !decision.Allowed() {
+		t.Fatal("expected allow")
+	}
+	if decision.Confident() {
+		t.Fatal("expected not confident (0.5 < 0.70)")
+	}
+}
+
+func TestAskSafety_Block(t *testing.T) {
+	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model": "test",
+			"answers": map[string]interface{}{
+				"action": map[string]interface{}{
+					"type":       "choice",
+					"choice":     "block",
+					"confidence": 0.95,
+				},
+				"risk": map[string]interface{}{
+					"type":  "score",
+					"score": 3.0,
+				},
+			},
+		})
+	})
+
+	decision, err := client.AskSafety(context.Background(), "bash", "DROP TABLE users")
+	if err != nil {
+		t.Fatalf("AskSafety failed: %v", err)
+	}
+	if !decision.Blocked() {
+		t.Fatal("expected block")
+	}
+}
+
+func TestAskSafety_NotEnabled(t *testing.T) {
+	client := New("")
+	_, err := client.AskSafety(context.Background(), "bash", "test")
+	if err == nil {
+		t.Fatal("expected error for disabled client")
+	}
+}
+
 func TestIsOrdinalScale(t *testing.T) {
 	tests := []struct {
 		options []string
