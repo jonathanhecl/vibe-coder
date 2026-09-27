@@ -314,12 +314,14 @@ Model keys and overrides:
 - Config file key: `UI=plain|rich`
 - Config file key: `SIDECAR_MODEL=<model-name>`
 - Config file key: `JEVSTYLE_MODEL=<model-name>`
+- Config file key: `JEVSTYLE_V3_ENDPOINT=<url>`
 - Config file key: `ASSISTED_YES=true|false`
 - Config file key: `THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_MODEL=<model-name>`
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
 - Environment: `VIBE_CODER_JEVSTYLE_MODEL=<model-name>`
+- Environment: `VIBE_CODER_JEVSTYLE_V3_ENDPOINT=<url>`
 - Environment: `VIBE_CODER_ASSISTED_YES=true|false`
 - Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_TEMPORAL=true|false` (aliases: `VIBEGO_TEMPORAL`, `TEMPORAL`)
@@ -328,7 +330,8 @@ Model keys and overrides:
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 - CLI: `--sidecar <model-name>`
-- CLI: `--jevstyle-model <model-name>` (or `--jevstyle <model-name>`)
+- CLI: `--jevstyle-model <model-name>` (or `--jevstyle <model-name>`) — v1/v2 mode
+- CLI: `--jevstyle-v3-endpoint <url>` — v3 mode (e.g. `http://192.168.0.33:8765`)
 - CLI: `--assisted-yes` (auto-approve safe commands via JEV Style)
 - CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
 
@@ -410,6 +413,64 @@ When configured, JEV Style acts as a fast, discrete decision engine for key agen
    Analyzes git diff summaries during `/commit` to categorize changes into standard conventional commit types (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`).
 6. **Agent Tool (`JevDecide`)**:
    Exposes JEV Style directly as an agent tool to the main coding model and sidecars. When the agent needs an extra review, second opinion, sanity check, or discrete classification between discrete choices, it calls `JevDecide` with context state, a decision question, and candidate options.
+
+### JEV Style v3 (own endpoint, JSON structured I/O)
+
+JEV Style v3 is a standalone server (`jev-style serve`) that exposes a native JSON API at `POST /v1/systemone`. Unlike v1/v2 (which operates as an Ollama model returning a letter A-Z), v3 accepts typed questions and returns structured answers with probabilities and confidence.
+
+**Key differences from v1/v2:**
+
+| Feature | v1/v2 (Ollama) | v3 (own endpoint) |
+|---------|-----------------|---------------------|
+| Protocol | Ollama `/api/chat` | Native `/v1/systemone` |
+| Input | Text prompt | JSON with typed questions |
+| Output | Letter (A-Z) | Structured JSON with choice/score/noul |
+| Question types | Single (choice) | `noul`, `choice`, `score` |
+| Confidence | No | Yes (0.0-1.0) |
+| Probabilities | No | Yes (per option) |
+| Endpoint | Ollama host | Configurable URL |
+
+**Configuration:**
+
+```bash
+# Via CLI
+./vibe --jevstyle-v3-endpoint http://192.168.0.33:8765
+
+# Via environment
+export VIBE_CODER_JEVSTYLE_V3_ENDPOINT=http://192.168.0.33:8765
+
+# Via config file (vibe-coder.env)
+JEVSTYLE_V3_ENDPOINT=http://192.168.0.33:8765
+
+# Interactive (inside vibe)
+/jevstyle v3
+```
+
+When `JEVSTYLE_V3_ENDPOINT` is set, it takes priority over `JEVSTYLE_MODEL`. Use `/jevstyle ollama` to switch back to v1/v2 mode.
+
+**Question types:**
+
+| Type | Description | Response |
+|------|-------------|----------|
+| `noul` | Yes/no question | `{"noul": 0.0-1.0}` (P(true)) |
+| `choice` | Multiple choice | `{"choice": "option", "probabilities": {...}}` |
+| `score` | Ordinal scale (2-10 levels) | `{"score": 0.0-(K-1), "legend": {...}}` |
+
+**Enhanced decisions with v3:**
+
+- **Danger assessment**: Uses score scale `["safe", "low risk", "medium risk", "high risk", "critical"]` instead of binary yes/no
+- **Goal completion**: Uses score scale `["not started", "in progress", "mostly done", "completed"]` for nuanced progress tracking
+- **Classification confidence**: Low-confidence results are marked with `(uncertain)` suffix
+
+**Testing:**
+
+```bash
+# Test v3 connection and decisions
+/jevstyle test
+
+# Live integration test (requires running server)
+go test -tags live ./internal/jevstylev3/
+```
 
 ### Remote Ollama for vibe only
 
