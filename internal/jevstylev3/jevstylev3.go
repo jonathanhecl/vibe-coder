@@ -48,10 +48,11 @@ type DecisionRequest struct {
 
 // DecisionResponse contains the parsed result of a decision.
 type DecisionResponse struct {
-	Choice      string             // Selected option text
-	Index       int                // 0-based index
-	Option      string             // Same as Choice (for compatibility)
-	Confidence  float64            // 0.0-1.0
+	Choice        string             // Selected option text
+	Index         int                // 0-based index
+	Option        string             // Same as Choice (for compatibility)
+	Score         float64            // 0.0 to len(Options)-1, populated for score-type decisions
+	Confidence    float64            // 0.0-1.0
 	Probabilities map[string]float64 // Option -> probability
 }
 
@@ -264,12 +265,51 @@ func (c *Client) callScore(ctx context.Context, state, question string, options 
 	return c.callV3(ctx, "score", state, question, options)
 }
 
-// Decide executes a choice decision with the provided options.
+// Decide executes a decision with the provided options.
+// Uses choice type for categorical decisions, score type for ordinal scales.
+// The score field in DecisionResponse is populated when score type is used.
 func (c *Client) Decide(ctx context.Context, req DecisionRequest) (*DecisionResponse, error) {
 	if len(req.Options) < 2 {
 		return nil, errors.New("jevstylev3: at least 2 options required")
 	}
 
+	// Use score type for ordinal scales (danger, completion, etc.)
+	// These are detected by checking if options match known scale patterns.
+	if isOrdinalScale(req.Options) {
+		ans, err := c.callScore(ctx, req.State, req.Question, req.Options)
+		if err != nil {
+			return nil, err
+		}
+
+		// Find the closest label from legend
+		scoreIdx := int(ans.Score + 0.5)
+		if scoreIdx < 0 {
+			scoreIdx = 0
+		}
+		if scoreIdx >= len(req.Options) {
+			scoreIdx = len(req.Options) - 1
+		}
+
+		probabilities := make(map[string]float64, len(req.Options))
+		for i, opt := range req.Options {
+			if p, ok := ans.Probabilities[fmt.Sprintf("%d", i)]; ok {
+				probabilities[opt] = p
+			} else {
+				probabilities[opt] = 0
+			}
+		}
+
+		return &DecisionResponse{
+			Choice:        req.Options[scoreIdx],
+			Index:         scoreIdx,
+			Option:        req.Options[scoreIdx],
+			Score:         ans.Score,
+			Confidence:    ans.Confidence,
+			Probabilities: probabilities,
+		}, nil
+	}
+
+	// Use choice type for categorical decisions
 	ans, err := c.callChoice(ctx, req.State, req.Question, req.Options)
 	if err != nil {
 		return nil, err
@@ -290,9 +330,47 @@ func (c *Client) Decide(ctx context.Context, req DecisionRequest) (*DecisionResp
 		Choice:        ans.Choice,
 		Index:         idx,
 		Option:        ans.Choice,
+		Score:         0,
 		Confidence:    ans.Confidence,
 		Probabilities: ans.Probabilities,
 	}, nil
+}
+
+// isOrdinalScale detects if the options look like an ordinal scale.
+// Checks for common scale patterns like danger levels, completion levels, etc.
+func isOrdinalScale(options []string) bool {
+	if len(options) < 2 || len(options) > 10 {
+		return false
+	}
+
+	// Known ordinal scales
+	knownScales := [][]string{
+		{"safe", "low risk", "medium risk", "high risk", "critical"},
+		{"not started", "in progress", "mostly done", "completed"},
+		{"low", "medium", "high"},
+		{"low", "medium", "high", "critical"},
+		{"not urgent", "normal", "urgent", "critical"},
+		{"poor", "fair", "good", "excellent"},
+		{"strongly disagree", "disagree", "neutral", "agree", "strongly agree"},
+	}
+
+	for _, scale := range knownScales {
+		if len(options) != len(scale) {
+			continue
+		}
+		match := true
+		for i, opt := range options {
+			if strings.ToLower(strings.TrimSpace(opt)) != scale[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+
+	return false
 }
 
 // DecideBool executes a binary decision using noul (P(true) >= 0.5).
