@@ -151,13 +151,14 @@ func SaveModelSettings(cfg *Config) error {
 	}
 
 	updates := map[string]string{
-		"MODEL":          strings.TrimSpace(cfg.Model),
-		"SIDECAR_MODEL":  strings.TrimSpace(cfg.SidecarModel),
-		"JEVSTYLE_MODEL": strings.TrimSpace(cfg.JevstyleModel),
-		"ASSISTED_YES":   strconv.FormatBool(cfg.AssistedYes),
-		"OLLAMA_HOST":    strings.TrimSpace(cfg.OllamaHost),
-		"HIDE_THINK":     strconv.FormatBool(cfg.OllamaHideThink),
-		"THINK":          strings.TrimSpace(cfg.OllamaThinkLevel),
+		"MODEL":              strings.TrimSpace(cfg.Model),
+		"SIDECAR_MODEL":      strings.TrimSpace(cfg.SidecarModel),
+		"JEVSTYLE_MODEL":     strings.TrimSpace(cfg.JevstyleModel),
+		"JEVSTYLE_V3_ENDPOINT": strings.TrimSpace(cfg.JevstyleV3Endpoint),
+		"ASSISTED_YES":       strconv.FormatBool(cfg.AssistedYes),
+		"OLLAMA_HOST":        strings.TrimSpace(cfg.OllamaHost),
+		"HIDE_THINK":         strconv.FormatBool(cfg.OllamaHideThink),
+		"THINK":              strings.TrimSpace(cfg.OllamaThinkLevel),
 	}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(lines)+4)
@@ -187,7 +188,7 @@ func SaveModelSettings(cfg *Config) error {
 		}
 		out = append(out, key+"="+value)
 	}
-	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "JEVSTYLE_MODEL", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
+	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "JEVSTYLE_MODEL", "JEVSTYLE_V3_ENDPOINT", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
 		if seen[key] {
 			continue
 		}

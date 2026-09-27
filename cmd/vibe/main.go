@@ -13,6 +13,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
+	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -121,8 +122,15 @@ func main() {
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
-	jevClient := jevstyle.New(cfg, client)
-	if cfg.JevstyleInUse() {
+	var jevClient jevstyle.Decider
+	if cfg.JevstyleV3InUse() {
+		jevClient = jevstylev3.New(cfg.JevstyleV3Endpoint)
+		logger.Infof("JevstyleV3Endpoint: %s", cfg.JevstyleV3Endpoint)
+	} else if cfg.JevstyleInUse() {
+		jevClient = jevstyle.New(cfg, client)
+		logger.Infof("JevstyleModel: %s", cfg.JevstyleModel)
+	}
+	if jevClient != nil && jevClient.Enabled() {
 		perm.SetSafetyDecider(jevClient)
 		reg.Register(tools.NewJevDecideTool(jevClient))
 	}

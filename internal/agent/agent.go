@@ -10,6 +10,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
 	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
+	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -117,7 +118,9 @@ func New(
 		side:     sidecar.New(cfg, client),
 		mission:  tools.NewMissionStore(),
 	}
-	if cfg != nil && cfg.JevstyleInUse() {
+	if cfg != nil && cfg.JevstyleV3InUse() {
+		a.jev = jevstylev3.New(cfg.JevstyleV3Endpoint)
+	} else if cfg != nil && cfg.JevstyleInUse() {
 		a.jev = jevstyle.New(cfg, client)
 	}
 	// Mission tools let the agent own the lifecycle of long-running work:
