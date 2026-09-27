@@ -103,7 +103,7 @@ func TestSidecarCommandDisableOption(t *testing.T) {
 }
 
 func TestJevstyleCommandListsAndSelectsByNumber(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t, "1")
+	ctx, cfg, out := newPickerTestCtx(t, "1", "1")
 
 	handled, shouldExit, err := Dispatch(ctx, "/jevstyle")
 	if err != nil || !handled || shouldExit {

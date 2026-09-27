@@ -295,10 +295,12 @@ func (c *Client) Decide(ctx context.Context, req jevstyle.DecisionRequest) (*jev
 	}
 
 	return &jevstyle.DecisionResponse{
-		Choice: ans.Choice,
-		Index:  idx,
-		Option: ans.Choice,
-		Raw:    fmt.Sprintf("choice=%s confidence=%.2f", ans.Choice, ans.Confidence),
+		Choice:        ans.Choice,
+		Index:         idx,
+		Option:        ans.Choice,
+		Raw:           fmt.Sprintf("choice=%s confidence=%.2f", ans.Choice, ans.Confidence),
+		Confidence:    ans.Confidence,
+		Probabilities: ans.Probabilities,
 	}, nil
 }
 

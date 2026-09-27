@@ -87,6 +87,7 @@ func runJevstyleCommand(c *Ctx, args []string) error {
 }
 
 // pickJevstyleMode asks the user to choose between v1/v2 (Ollama) and v3 (own endpoint).
+// After selecting v1/v2, it continues to the model picker.
 func (c *Ctx) pickJevstyleMode() error {
 	if c.Prompter == nil {
 		fmt.Fprintln(c.Out, "JEV Style mode:")
@@ -115,6 +116,15 @@ func (c *Ctx) pickJevstyleMode() error {
 	case "1", "ollama", "v1", "v2":
 		c.Cfg.JevstyleV3Endpoint = ""
 		fmt.Fprintln(c.Out, "JEV Style mode set to v1/v2 (Ollama). Run /save to persist.")
+		// Continue to model picker
+		chosen, changed, err := c.pickModel(context.Background(), "jevstyle", "JEV Style", c.Cfg.JevstyleModel, true)
+		if err != nil {
+			return err
+		}
+		if changed && chosen != "" {
+			c.Cfg.JevstyleModel = chosen
+			fmt.Fprintf(c.Out, "JEV Style model set to: %s. Run /save to persist.\n", chosen)
+		}
 	case "2", "v3":
 		return c.configureV3()
 	default:
