@@ -4,6 +4,9 @@
 // Unlike JEV Style v1/v2 (which operates as an Ollama model returning a
 // letter A-Z), v3 accepts typed questions (noul, choice, score) and
 // returns structured answers with probabilities and confidence.
+//
+// This package implements jevstyle.Decider so it can be used as a
+// drop-in replacement for jevstyle.Client.
 package jevstylev3
 
 import (
@@ -16,6 +19,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
 )
 
 const (
@@ -39,40 +44,7 @@ const (
 	minConfidence = 0.5
 )
 
-// DecisionRequest holds the inputs for a JEV Style v3 decision.
-type DecisionRequest struct {
-	State    string
-	Question string
-	Options  []string
-}
-
-// DecisionResponse contains the parsed result of a decision.
-type DecisionResponse struct {
-	Choice        string             // Selected option text
-	Index         int                // 0-based index
-	Option        string             // Same as Choice (for compatibility)
-	Score         float64            // 0.0 to len(Options)-1, populated for score-type decisions
-	Confidence    float64            // 0.0-1.0
-	Probabilities map[string]float64 // Option -> probability
-}
-
-// Decider defines the interface for executing discrete decisions.
-// Mirrors jevstyle.Decider so both implementations are interchangeable.
-type Decider interface {
-	Decide(ctx context.Context, req DecisionRequest) (*DecisionResponse, error)
-	DecideBool(ctx context.Context, state, question string) (bool, error)
-	DecideChoice(ctx context.Context, state, question string, options ...string) (string, int, error)
-	IsCommandDangerous(ctx context.Context, command string) (bool, error)
-	IsActionDangerous(ctx context.Context, toolName, summary string) (bool, error)
-	DisambiguatePath(ctx context.Context, hint string, candidates []string) (string, bool, error)
-	CheckGoalCompletion(ctx context.Context, goal, recentProgress string) (bool, error)
-	ClassifyFailure(ctx context.Context, errorLog string) (string, error)
-	ClassifyCommit(ctx context.Context, diffSummary string) (string, error)
-	Enabled() bool
-	Model() string
-}
-
-// Client is a JEV Style v3 HTTP client.
+// Client is a JEV Style v3 HTTP client that implements jevstyle.Decider.
 type Client struct {
 	endpoint string
 	client   *http.Client
@@ -152,14 +124,14 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 
 // v3Request is the JSON body sent to POST /v1/systemone.
 type v3Request struct {
-	State     string                  `json:"state"`
-	Questions map[string]v3Question   `json:"questions"`
+	State     string                `json:"state"`
+	Questions map[string]v3Question `json:"questions"`
 }
 
 type v3Question struct {
-	Type        string      `json:"type"`
-	Instructions string     `json:"instructions"`
-	Criteria    interface{} `json:"criteria,omitempty"`
+	Type         string      `json:"type"`
+	Instructions string      `json:"instructions"`
+	Criteria     interface{} `json:"criteria,omitempty"`
 }
 
 // v3Response is the JSON response from POST /v1/systemone.
@@ -267,21 +239,18 @@ func (c *Client) callScore(ctx context.Context, state, question string, options 
 
 // Decide executes a decision with the provided options.
 // Uses choice type for categorical decisions, score type for ordinal scales.
-// The score field in DecisionResponse is populated when score type is used.
-func (c *Client) Decide(ctx context.Context, req DecisionRequest) (*DecisionResponse, error) {
+func (c *Client) Decide(ctx context.Context, req jevstyle.DecisionRequest) (*jevstyle.DecisionResponse, error) {
 	if len(req.Options) < 2 {
 		return nil, errors.New("jevstylev3: at least 2 options required")
 	}
 
 	// Use score type for ordinal scales (danger, completion, etc.)
-	// These are detected by checking if options match known scale patterns.
 	if isOrdinalScale(req.Options) {
 		ans, err := c.callScore(ctx, req.State, req.Question, req.Options)
 		if err != nil {
 			return nil, err
 		}
 
-		// Find the closest label from legend
 		scoreIdx := int(ans.Score + 0.5)
 		if scoreIdx < 0 {
 			scoreIdx = 0
@@ -299,13 +268,12 @@ func (c *Client) Decide(ctx context.Context, req DecisionRequest) (*DecisionResp
 			}
 		}
 
-		return &DecisionResponse{
-			Choice:        req.Options[scoreIdx],
-			Index:         scoreIdx,
-			Option:        req.Options[scoreIdx],
-			Score:         ans.Score,
-			Confidence:    ans.Confidence,
-			Probabilities: probabilities,
+		return &jevstyle.DecisionResponse{
+			Choice: req.Options[scoreIdx],
+			Index:  scoreIdx,
+			Option: req.Options[scoreIdx],
+			Score:  ans.Score,
+			Raw:    fmt.Sprintf("score=%.2f confidence=%.2f", ans.Score, ans.Confidence),
 		}, nil
 	}
 
@@ -326,24 +294,20 @@ func (c *Client) Decide(ctx context.Context, req DecisionRequest) (*DecisionResp
 		return nil, fmt.Errorf("jevstylev3: choice %q not in options", ans.Choice)
 	}
 
-	return &DecisionResponse{
-		Choice:        ans.Choice,
-		Index:         idx,
-		Option:        ans.Choice,
-		Score:         0,
-		Confidence:    ans.Confidence,
-		Probabilities: ans.Probabilities,
+	return &jevstyle.DecisionResponse{
+		Choice: ans.Choice,
+		Index:  idx,
+		Option: ans.Choice,
+		Raw:    fmt.Sprintf("choice=%s confidence=%.2f", ans.Choice, ans.Confidence),
 	}, nil
 }
 
 // isOrdinalScale detects if the options look like an ordinal scale.
-// Checks for common scale patterns like danger levels, completion levels, etc.
 func isOrdinalScale(options []string) bool {
 	if len(options) < 2 || len(options) > 10 {
 		return false
 	}
 
-	// Known ordinal scales
 	knownScales := [][]string{
 		{"safe", "low risk", "medium risk", "high risk", "critical"},
 		{"not started", "in progress", "mostly done", "completed"},
@@ -384,7 +348,7 @@ func (c *Client) DecideBool(ctx context.Context, state, question string) (bool, 
 
 // DecideChoice executes a choice decision and returns the selected option.
 func (c *Client) DecideChoice(ctx context.Context, state, question string, options ...string) (string, int, error) {
-	resp, err := c.Decide(ctx, DecisionRequest{
+	resp, err := c.Decide(ctx, jevstyle.DecisionRequest{
 		State:    state,
 		Question: question,
 		Options:  options,
@@ -438,7 +402,7 @@ func (c *Client) DisambiguatePath(ctx context.Context, hint string, candidates [
 	state := fmt.Sprintf("Context and reference:\n%s", strings.TrimSpace(hint))
 	question := "Which candidate path best matches this reference or intent?"
 
-	resp, err := c.Decide(ctx, DecisionRequest{
+	resp, err := c.Decide(ctx, jevstyle.DecisionRequest{
 		State:    state,
 		Question: question,
 		Options:  candidates,
@@ -478,7 +442,7 @@ func (c *Client) ClassifyFailure(ctx context.Context, errorLog string) (string, 
 		"Other or unknown cause",
 	}
 
-	resp, err := c.Decide(ctx, DecisionRequest{
+	resp, err := c.Decide(ctx, jevstyle.DecisionRequest{
 		State:    fmt.Sprintf("Error or failure log:\n%s", strings.TrimSpace(errorLog)),
 		Question: "What is the primary cause of this failure?",
 		Options:  options,
@@ -505,7 +469,7 @@ func (c *Client) ClassifyCommit(ctx context.Context, diffSummary string) (string
 		"chore (build scripts, dependencies, or maintenance)",
 	}
 
-	resp, err := c.Decide(ctx, DecisionRequest{
+	resp, err := c.Decide(ctx, jevstyle.DecisionRequest{
 		State:    fmt.Sprintf("Git diff summary:\n%s", strings.TrimSpace(diffSummary)),
 		Question: "What is the primary conventional commit type for these changes?",
 		Options:  options,

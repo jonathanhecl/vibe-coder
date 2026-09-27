@@ -230,7 +230,7 @@ func printJevstyleStatus(c *Ctx) {
 
 func runJevstyleTest(c *Ctx) error {
 	if c.Cfg.JevstyleV3InUse() {
-		return c.runV3Test(c)
+		return c.runV3Test()
 	}
 	if strings.TrimSpace(c.Cfg.JevstyleModel) == "" {
 		fmt.Fprintln(c.Out, "Cannot test JEV Style: no model configured. Use /jevstyle to configure.")
@@ -285,7 +285,7 @@ func runJevstyleTest(c *Ctx) error {
 	return nil
 }
 
-func (c *Ctx) runV3Test(c *Ctx) error {
+func (c *Ctx) runV3Test() error {
 	endpoint := strings.TrimSpace(c.Cfg.JevstyleV3Endpoint)
 	fmt.Fprintf(c.Out, "Testing JEV Style v3 (%s)...\n", endpoint)
 
@@ -323,7 +323,7 @@ func (c *Ctx) runV3Test(c *Ctx) error {
 	fmt.Fprintf(c.Out, "Choice test (intent): %s\n", intent)
 
 	// Test score
-	scoreResp, err := client.Decide(ctx, jevstylev3.DecisionRequest{
+	scoreResp, err := client.Decide(ctx, jevstyle.DecisionRequest{
 		State:    "Ticket: the checkout page returns HTTP 500 for every customer since the last deploy 2 hours ago.",
 		Question: "How urgent is this ticket?",
 		Options:  []string{"not urgent", "normal", "urgent", "critical"},
