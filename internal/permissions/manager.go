@@ -320,16 +320,11 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 
 // handleSafetyDecision processes a SafetyDecision from AskSafety and notifies
 // the UI of the outcome. Auto-approves when action is "allow" and confidence
-// is high enough. Auto-blocks when action is "block". Otherwise prompts the user.
+// is high enough. When action is "block", prompts the user with a notice that
+// JEV is confident the action is dangerous (does not auto-reject).
 func (m *Manager) handleSafetyDecision(ui prompter, toolName string, decision *jevstylev3.SafetyDecision, elapsed time.Duration) bool {
 	if decision == nil {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
-		return false
-	}
-
-	// Always block when action is "block"
-	if decision.Blocked() {
-		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
 		return false
 	}
 
@@ -339,8 +334,12 @@ func (m *Manager) handleSafetyDecision(ui prompter, toolName string, decision *j
 		return true
 	}
 
-	// Low confidence or "review" action: prompt the user
-	notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUncertain, Elapsed: elapsed})
+	// "block" or "review" or low confidence: prompt the user
+	if decision.Blocked() {
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
+	} else {
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUncertain, Elapsed: elapsed})
+	}
 	return false
 }
 
