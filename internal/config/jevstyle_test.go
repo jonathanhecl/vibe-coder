@@ -19,6 +19,9 @@ func TestJevstyleInUse(t *testing.T) {
 	if !cfg.JevstyleInUse() {
 		t.Fatal("expected JevstyleInUse true when model set")
 	}
+	if !cfg.JevstyleOllamaInUse() {
+		t.Fatal("expected JevstyleOllamaInUse true when model set")
+	}
 
 	cfg.JevstyleModel = "   "
 	if cfg.JevstyleInUse() {
@@ -28,6 +31,79 @@ func TestJevstyleInUse(t *testing.T) {
 	var nilCfg *Config
 	if nilCfg.JevstyleInUse() {
 		t.Fatal("expected JevstyleInUse false for nil config")
+	}
+}
+
+func TestJevstyleInUseWithV3Endpoint(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{JevstyleV3Endpoint: "http://mac-mini.local:8765"}
+	if !cfg.JevstyleInUse() {
+		t.Fatal("expected JevstyleInUse true for v3 endpoint")
+	}
+	if !cfg.JevstyleV3InUse() {
+		t.Fatal("expected JevstyleV3InUse true")
+	}
+	if cfg.JevstyleOllamaInUse() {
+		t.Fatal("expected JevstyleOllamaInUse false for v3-only config")
+	}
+
+	cfg.JevstyleV3Endpoint = "  "
+	if cfg.JevstyleInUse() {
+		t.Fatal("expected JevstyleInUse false for whitespace v3 endpoint")
+	}
+}
+
+func TestApplyConfigFileJevstyleV3Endpoint(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "vibe-coder.env")
+	content := strings.Join([]string{
+		"JEVSTYLE_V3_ENDPOINT=http://mac-mini.local:8765",
+		"ASSISTED_YES=true",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg := &Config{}
+	if err := applyConfigFile(cfg, path); err != nil {
+		t.Fatalf("applyConfigFile: %v", err)
+	}
+	if cfg.JevstyleV3Endpoint != "http://mac-mini.local:8765" {
+		t.Fatalf("expected v3 endpoint loaded from file, got %q", cfg.JevstyleV3Endpoint)
+	}
+	if !cfg.JevstyleInUse() {
+		t.Fatal("expected JevstyleInUse true after loading v3 endpoint")
+	}
+	if !cfg.AssistedYes {
+		t.Fatal("expected AssistedYes true from file")
+	}
+}
+
+func TestSaveModelSettingsRoundTripJevstyleV3(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "vibe-coder.env")
+	cfg := &Config{
+		ConfigFile:         path,
+		Model:              "main-m",
+		JevstyleV3Endpoint: "http://mac-mini.local:8765",
+		AssistedYes:        true,
+	}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	loaded := &Config{}
+	if err := applyConfigFile(loaded, path); err != nil {
+		t.Fatalf("applyConfigFile: %v", err)
+	}
+	if loaded.JevstyleV3Endpoint != "http://mac-mini.local:8765" {
+		t.Fatalf("expected round-trip v3 endpoint, got %q", loaded.JevstyleV3Endpoint)
+	}
+	if !loaded.JevstyleInUse() {
+		t.Fatal("expected JevstyleInUse true after round-trip")
 	}
 }
 
@@ -95,4 +171,3 @@ func TestSaveModelSettingsAssistedYes(t *testing.T) {
 		t.Fatalf("expected ASSISTED_YES=false in %s", string(data))
 	}
 }
-

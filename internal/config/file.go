@@ -70,6 +70,8 @@ func applyConfigFile(cfg *Config, path string) error {
 			cfg.SidecarModel = value
 		case "JEVSTYLE_MODEL", "JEV_STYLE_MODEL":
 			cfg.JevstyleModel = value
+		case "JEVSTYLE_V3_ENDPOINT", "JEV_STYLE_V3_ENDPOINT":
+			cfg.JevstyleV3Endpoint = value
 		case "ASSISTED_YES", "ASSISTED_MODE":
 			if b, ok := parseBoolish(value); ok {
 				cfg.AssistedYes = b
@@ -151,14 +153,14 @@ func SaveModelSettings(cfg *Config) error {
 	}
 
 	updates := map[string]string{
-		"MODEL":              strings.TrimSpace(cfg.Model),
-		"SIDECAR_MODEL":      strings.TrimSpace(cfg.SidecarModel),
-		"JEVSTYLE_MODEL":     strings.TrimSpace(cfg.JevstyleModel),
+		"MODEL":                strings.TrimSpace(cfg.Model),
+		"SIDECAR_MODEL":        strings.TrimSpace(cfg.SidecarModel),
+		"JEVSTYLE_MODEL":       strings.TrimSpace(cfg.JevstyleModel),
 		"JEVSTYLE_V3_ENDPOINT": strings.TrimSpace(cfg.JevstyleV3Endpoint),
-		"ASSISTED_YES":       strconv.FormatBool(cfg.AssistedYes),
-		"OLLAMA_HOST":        strings.TrimSpace(cfg.OllamaHost),
-		"HIDE_THINK":         strconv.FormatBool(cfg.OllamaHideThink),
-		"THINK":              strings.TrimSpace(cfg.OllamaThinkLevel),
+		"ASSISTED_YES":         strconv.FormatBool(cfg.AssistedYes),
+		"OLLAMA_HOST":          strings.TrimSpace(cfg.OllamaHost),
+		"HIDE_THINK":           strconv.FormatBool(cfg.OllamaHideThink),
+		"THINK":                strings.TrimSpace(cfg.OllamaThinkLevel),
 	}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(lines)+4)

@@ -47,8 +47,8 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 		{Label: "Sidecar", Value: formatSidecarBanner(cfg)},
 		{Label: "Ollama", Value: host},
 	}
-	if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
-		val := strings.TrimSpace(cfg.JevstyleModel)
+	if cfg != nil && cfg.JevstyleInUse() {
+		val := jevstyleBannerValue(cfg)
 		if cfg.AssistedYes {
 			val = fmt.Sprintf("%s (assisted enabled)", val)
 		} else {
@@ -57,6 +57,18 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 		fields = append(fields, bannerField{Label: "Jevstyle", Value: val})
 	}
 	return fields
+}
+
+// jevstyleBannerValue returns the configured JEV Style target: the v3 endpoint
+// URL when v3 is active, otherwise the v1/v2 decision model name.
+func jevstyleBannerValue(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	if cfg.JevstyleV3InUse() {
+		return strings.TrimSpace(cfg.JevstyleV3Endpoint)
+	}
+	return strings.TrimSpace(cfg.JevstyleModel)
 }
 
 func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style) string {
@@ -73,8 +85,8 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 			"vibe %s\n%s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
 			version.Value, sessionLine, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
 		)
-		if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
-			jevVal := strings.TrimSpace(cfg.JevstyleModel)
+		if cfg != nil && cfg.JevstyleInUse() {
+			jevVal := jevstyleBannerValue(cfg)
 			if cfg.AssistedYes {
 				jevVal = fmt.Sprintf("%s (assisted enabled)", jevVal)
 			} else {
@@ -118,11 +130,11 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 			}
 		} else if f.Label == "Jevstyle" {
 			if cfg != nil && cfg.AssistedYes {
-				b.WriteString(style.BrightWhite(strings.TrimSpace(cfg.JevstyleModel)))
+				b.WriteString(style.BrightWhite(jevstyleBannerValue(cfg)))
 				b.WriteString(" ")
 				b.WriteString(style.Green("(assisted enabled)"))
-			} else if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
-				b.WriteString(style.BrightWhite(strings.TrimSpace(cfg.JevstyleModel)))
+			} else if cfg != nil && cfg.JevstyleInUse() {
+				b.WriteString(style.BrightWhite(jevstyleBannerValue(cfg)))
 				b.WriteString(" ")
 				b.WriteString(style.BrightWhite("(run '/yes assisted' to enable)"))
 			} else {

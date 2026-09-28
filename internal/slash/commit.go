@@ -56,7 +56,7 @@ func runCommitFlow(c *Ctx) (string, string, error) {
 			msg = sanitizeCommitMessage(resp.Content)
 		}
 
-		if c.Cfg.JevstyleInUse() {
+		if c.Cfg.JevstyleOllamaInUse() {
 			jevCtx, jevCancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer jevCancel()
 			jev := jevstyle.New(c.Cfg, c.Client)

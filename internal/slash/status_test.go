@@ -115,6 +115,30 @@ func TestStatusAssistedFallsBackToConfigWithoutManager(t *testing.T) {
 	}
 }
 
+func TestStatusShowsJevstyleV3(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:              "llama3.2:3b",
+		JevstyleV3Endpoint: "http://mac-mini.local:8765",
+		AssistedYes:        true,
+		ContextWindow:      32768,
+		Cwd:                tmp,
+		SessionsDir:        tmp,
+	}
+	s := session.New(cfg)
+	out := &bytes.Buffer{}
+	ctx := &Ctx{Cfg: cfg, Session: s, Agent: &fakePlanAgent{}, Out: out}
+
+	writeStatus(ctx, tui.NewStyleForTest(false))
+	rendered := out.String()
+	if !strings.Contains(rendered, "JEV Style: v3 (http://mac-mini.local:8765)") {
+		t.Fatalf("expected v3 endpoint in status, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "Assisted: on") {
+		t.Fatalf("expected assisted on with v3 configured, got %q", rendered)
+	}
+}
+
 func TestStatusShowsHiddenThinkingAndUI(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{

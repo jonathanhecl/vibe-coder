@@ -116,11 +116,11 @@ func statusRows(c *Ctx) []statusRow {
 	})
 	rows = append(rows, statusRow{Label: "Tools", Plain: toolsStatus(c)})
 	rows = append(rows, statusRow{Label: "Sidecar", Plain: sidecarStatusValue(c)})
-	if strings.TrimSpace(c.Cfg.JevstyleModel) != "" {
+	if c.Cfg.JevstyleInUse() {
 		rows = append(rows, statusRow{
-			Label: "JEV Style model",
+			Label: "JEV Style",
 			Short: "Jevstyle",
-			Plain: strings.TrimSpace(c.Cfg.JevstyleModel),
+			Plain: jevstyleStatusValue(c),
 		})
 	}
 	rows = append(rows, statusRow{
@@ -234,6 +234,15 @@ func planModeValue(c *Ctx) string {
 	default:
 		return "off"
 	}
+}
+
+// jevstyleStatusValue renders the configured JEV Style target for /info,
+// showing the v3 endpoint when v3 is active and the model name otherwise.
+func jevstyleStatusValue(c *Ctx) string {
+	if c.Cfg.JevstyleV3InUse() {
+		return fmt.Sprintf("v3 (%s)", strings.TrimSpace(c.Cfg.JevstyleV3Endpoint))
+	}
+	return strings.TrimSpace(c.Cfg.JevstyleModel)
 }
 
 // sidecarStatusValue condenses the sidecar state into one line, matching the

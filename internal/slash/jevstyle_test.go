@@ -71,7 +71,7 @@ func TestJevstyleSlashCommand(t *testing.T) {
 	if err != nil || !handled || shouldExit {
 		t.Fatalf("unexpected /status result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
-	if !strings.Contains(out.String(), "JEV Style model: jev-decision:v1") {
+	if !strings.Contains(out.String(), "JEV Style: jev-decision:v1") {
 		t.Fatalf("expected /status to include JEV Style model, got %q", out.String())
 	}
 

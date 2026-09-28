@@ -126,7 +126,7 @@ func main() {
 	if cfg.JevstyleV3InUse() {
 		jevClient = jevstylev3.New(cfg.JevstyleV3Endpoint)
 		logger.Infof("JevstyleV3Endpoint: %s", cfg.JevstyleV3Endpoint)
-	} else if cfg.JevstyleInUse() {
+	} else if cfg.JevstyleOllamaInUse() {
 		jevClient = jevstyle.New(cfg, client)
 		logger.Infof("JevstyleModel: %s", cfg.JevstyleModel)
 	}

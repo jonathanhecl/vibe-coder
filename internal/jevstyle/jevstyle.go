@@ -34,12 +34,12 @@ type DecisionRequest struct {
 // DecisionResponse contains the parsed result of a decision function turn.
 // The model only returns a single choice letter (A-Z).
 type DecisionResponse struct {
-	Choice      string             // Selected letter: "A", "B", ... (v1/v2) or option text (v3)
-	Index       int                // 0-based index corresponding to Choice
-	Option      string             // Text of the selected option
-	Raw         string             // Raw content returned by the model
-	Score       float64            // 0.0 to len(Options)-1, populated only by v3 score-type decisions
-	Confidence  float64            // 0.0-1.0, populated only by v3
+	Choice        string             // Selected letter: "A", "B", ... (v1/v2) or option text (v3)
+	Index         int                // 0-based index corresponding to Choice
+	Option        string             // Text of the selected option
+	Raw           string             // Raw content returned by the model
+	Score         float64            // 0.0 to len(Options)-1, populated only by v3 score-type decisions
+	Confidence    float64            // 0.0-1.0, populated only by v3
 	Probabilities map[string]float64 // Option -> probability, populated only by v3
 }
 
@@ -108,7 +108,7 @@ func New(cfg *config.Config, client OllamaClient, opts ...Option) *Client {
 
 // Enabled reports whether JEV Style is configured and ready.
 func (c *Client) Enabled() bool {
-	return c != nil && c.cfg != nil && c.cfg.JevstyleInUse() && c.client != nil
+	return c != nil && c.cfg != nil && c.cfg.JevstyleOllamaInUse() && c.client != nil
 }
 
 // Model returns the configured JEV Style model name.

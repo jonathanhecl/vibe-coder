@@ -182,6 +182,38 @@ func TestStartupBannerJevstyleWithoutAssisted(t *testing.T) {
 	}
 }
 
+func TestBannerFieldsWithJevstyleV3(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:              "llama3.2:3b",
+		JevstyleV3Endpoint: "http://mac-mini.local:8765",
+		OllamaHost:         "http://localhost:11434",
+	}
+	fields := bannerFields(cfg, "session-123", false)
+	found := false
+	for _, f := range fields {
+		if f.Label == "Jevstyle" {
+			found = true
+			if !strings.Contains(f.Value, "http://mac-mini.local:8765") {
+				t.Fatalf("expected v3 endpoint in banner, got %q", f.Value)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected Jevstyle field for v3 endpoint, got %#v", fields)
+	}
+
+	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	if !strings.Contains(styled, "http://mac-mini.local:8765") {
+		t.Fatalf("expected v3 endpoint in styled banner, got:\n%s", styled)
+	}
+	plain := startupBanner(cfg, "session-123", false, tui.Style{})
+	if !strings.Contains(plain, "http://mac-mini.local:8765") {
+		t.Fatalf("expected v3 endpoint in plain banner, got:\n%s", plain)
+	}
+}
+
 func TestBannerFieldsNilConfig(t *testing.T) {
 	t.Parallel()
 
