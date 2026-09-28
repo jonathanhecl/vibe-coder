@@ -101,7 +101,7 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
 		}
-		if task, ok := slash.PasteTaskFromSlash(line); ok {
+		if task, ok := slash.PasteTaskFromSlash(slashCtx, line); ok {
 			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/clipboard"
+	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
@@ -15,7 +16,7 @@ import (
 // The returned message is ready to send to the agent. For images it
 // contains the vision marker; for text and files it contains the raw
 // content inline.
-func PasteTaskFromSlash(line string) (string, bool) {
+func PasteTaskFromSlash(c *Ctx, line string) (string, bool) {
 	trimmed := strings.TrimSpace(line)
 	fields := strings.Fields(trimmed)
 	if len(fields) == 0 {
@@ -30,19 +31,38 @@ func PasteTaskFromSlash(line string) (string, bool) {
 	// Everything after the command is the user's prompt.
 	userPrompt := strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
 
-	content, err := clipboard.Paste()
+	content, err := clipboard.Paste(clipboardMediaDir(c))
 	if err != nil {
 		return fmt.Sprintf("[System Note] Failed to read clipboard: %v", err), true
 	}
-	defer content.Cleanup()
 
+	// The image file is intentionally NOT deleted here. The marker built
+	// below is a plain-text path that the agent resolves to real bytes only
+	// at send time, and the transcript keeps referencing it on every later
+	// turn. Deleting it now would leave the model pointing at a file that
+	// never existed. The image lives in the session media dir instead and
+	// goes away together with the session.
 	return buildPasteMessage(userPrompt, content), true
+}
+
+// clipboardMediaDir returns the directory that receives pasted clipboard
+// images, creating it on demand. It returns "" when no session storage is
+// available, which makes clipboard.Paste fall back to the OS temp dir.
+func clipboardMediaDir(c *Ctx) string {
+	if c == nil || c.Cfg == nil || c.Session == nil {
+		return ""
+	}
+	dir, err := session.EnsureMediaDir(c.Cfg.SessionsDir, c.Session.ID())
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 // buildPasteMessage constructs the user message from clipboard content.
 // It is a pure function (no I/O) so it can be tested without a real
-// clipboard. The caller is responsible for calling content.Cleanup()
-// when the content holds a temp file.
+// clipboard. Any image file referenced by the message is owned by the
+// caller and must stay readable for the lifetime of the session transcript.
 func buildPasteMessage(userPrompt string, content *clipboard.Content) string {
 	switch content.Type {
 	case clipboard.ContentEmpty:
@@ -54,22 +74,22 @@ func buildPasteMessage(userPrompt string, content *clipboard.Content) string {
 	case clipboard.ContentImage:
 		marker := vision.MarkerFor(content.ImagePath)
 		if userPrompt != "" {
-			return fmt.Sprintf("%s\n\nHe pegado una imagen desde el clipboard. %s", userPrompt, marker)
+			return fmt.Sprintf("%s\n\nI pasted an image from the clipboard. %s", userPrompt, marker)
 		}
-		return fmt.Sprintf("He pegado una imagen desde el clipboard. Analiza su contenido.\n%s", marker)
+		return fmt.Sprintf("I pasted an image from the clipboard. Analyze its content.\n%s", marker)
 
 	case clipboard.ContentText:
 		if userPrompt != "" {
 			return fmt.Sprintf("%s\n\n--- clipboard ---\n%s\n--- end clipboard ---", userPrompt, content.Text)
 		}
-		return fmt.Sprintf("Contenido del clipboard:\n\n%s", content.Text)
+		return fmt.Sprintf("Clipboard content:\n\n%s", content.Text)
 
 	case clipboard.ContentFile:
 		paths := strings.Join(content.FilePaths, "\n")
 		if userPrompt != "" {
-			return fmt.Sprintf("%s\n\nArchivos copiados al clipboard:\n%s\n(Usa Read o Bash para acceder a ellos)", userPrompt, paths)
+			return fmt.Sprintf("%s\n\nFiles copied to the clipboard:\n%s\n(Use Read or Bash to access them)", userPrompt, paths)
 		}
-		return fmt.Sprintf("Archivos copiados al clipboard:\n%s\n(Usa Read o Bash para acceder a ellos)", paths)
+		return fmt.Sprintf("Files copied to the clipboard:\n%s\n(Use Read or Bash to access them)", paths)
 
 	default:
 		return "[System Note] Unknown clipboard content type."

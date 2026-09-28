@@ -1,11 +1,110 @@
 package slash
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/clipboard"
+	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
+
+// TestPasteTaskFromSlash_ImageFileOutlivesTheCall is the regression test for
+// the bug where /paste deleted the image before the agent ever read it: the
+// message only carries a plain-text path marker, resolved to bytes at send
+// time, so removing the file here made the marker dangle.
+// TestPasteTaskFromSlash_DeletedImageIsDetected pins the agent-side
+// behaviour: when the image is gone, resolveImageAttachments must degrade to
+// a visible note instead of silently dropping the marker.
+func TestPasteTaskFromSlash_DeletedImageIsDetected(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "vibe_clipboard_gone.png")
+
+	content := &clipboard.Content{Type: clipboard.ContentImage, ImagePath: missing, MIME: "image/png"}
+	msg := buildPasteMessage("", content)
+
+	if _, err := os.Stat(missing); err == nil {
+		t.Fatal("precondition failed: the image should not exist")
+	}
+	paths := vision.ParseMarkers(msg)
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 marker even for a missing file, got %d", len(paths))
+	}
+	if _, err := vision.CacheKey(paths[0]); err == nil {
+		t.Error("CacheKey should fail for a missing image so the agent can report it")
+	}
+}
+
+func TestPasteTaskFromSlash_ImageFileOutlivesTheCall(t *testing.T) {
+	tmp := t.TempDir()
+	img := filepath.Join(tmp, "vibe_clipboard_test.png")
+	if err := os.WriteFile(img, []byte("fake png bytes"), 0o600); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	// Simulate the state buildPasteMessage leaves behind: a message holding
+	// a marker for a real file. Nothing in this flow may delete the file.
+	content := &clipboard.Content{Type: clipboard.ContentImage, ImagePath: img, MIME: "image/png"}
+	msg := buildPasteMessage("look at this", content)
+
+	paths := vision.ParseMarkers(msg)
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 image marker in message, got %d: %s", len(paths), msg)
+	}
+	if paths[0] != img {
+		t.Fatalf("marker path = %q, want %q", paths[0], img)
+	}
+	if _, err := os.Stat(paths[0]); err != nil {
+		t.Fatalf("image referenced by the message is not readable: %v", err)
+	}
+}
+
+func TestClipboardMediaDir_CreatesAndScopesToSession(t *testing.T) {
+	sessionsDir := t.TempDir()
+	sess := session.New(&config.Config{Cwd: t.TempDir(), SessionsDir: sessionsDir})
+
+	dir := clipboardMediaDir(&Ctx{Cfg: &config.Config{SessionsDir: sessionsDir}, Session: sess})
+	if dir == "" {
+		t.Fatal("clipboardMediaDir returned empty, want the session media dir")
+	}
+
+	want, err := session.EnsureMediaDir(sessionsDir, sess.ID())
+	if err != nil {
+		t.Fatalf("EnsureMediaDir: %v", err)
+	}
+	if dir != want {
+		t.Errorf("clipboardMediaDir = %q, want %q", dir, want)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("media dir not created: %v", err)
+	}
+	// Media lives under SessionsDir/media/<id>, never beside the transcript
+	// and never relative to the process cwd.
+	root := filepath.Dir(dir)
+	if root != filepath.Join(sessionsDir, "media") {
+		t.Errorf("media root = %q, want %q", root, filepath.Join(sessionsDir, "media"))
+	}
+	if filepath.Base(dir) != sess.ID() {
+		t.Errorf("media dir name = %q, want the session id %q", filepath.Base(dir), sess.ID())
+	}
+}
+
+func TestClipboardMediaDir_FallsBackToEmpty(t *testing.T) {
+	cases := map[string]*Ctx{
+		"nil ctx":         nil,
+		"nil cfg":         {Session: session.New(&config.Config{SessionsDir: t.TempDir()})},
+		"nil session":     {Cfg: &config.Config{SessionsDir: t.TempDir()}},
+		"empty sessionsd": {Cfg: &config.Config{}, Session: session.New(&config.Config{})},
+	}
+
+	for name, c := range cases {
+		if got := clipboardMediaDir(c); got != "" {
+			t.Errorf("%s: clipboardMediaDir = %q, want empty fallback", name, got)
+		}
+	}
+}
 
 func TestPasteTaskFromSlash_NotAPasteCommand(t *testing.T) {
 	tests := []string{
@@ -22,7 +121,7 @@ func TestPasteTaskFromSlash_NotAPasteCommand(t *testing.T) {
 		if line == "/paste" {
 			continue
 		}
-		msg, ok := PasteTaskFromSlash(line)
+		msg, ok := PasteTaskFromSlash(nil, line)
 		if ok {
 			t.Errorf("PasteTaskFromSlash(%q) = (%q, true), want (_, false)", line, msg)
 		}
@@ -40,7 +139,7 @@ func TestPasteTaskFromSlash_InvalidCommands(t *testing.T) {
 	}
 
 	for _, line := range lines {
-		msg, ok := PasteTaskFromSlash(line)
+		msg, ok := PasteTaskFromSlash(nil, line)
 		if ok {
 			t.Errorf("PasteTaskFromSlash(%q) = (%q, true), want (_, false)", line, msg)
 		}
@@ -80,7 +179,7 @@ func TestBuildPasteMessage_TextWithoutPrompt(t *testing.T) {
 	if !strings.Contains(msg, "some code snippet") {
 		t.Errorf("buildPasteMessage missing clipboard text, got: %s", msg)
 	}
-	if !strings.Contains(msg, "Contenido del clipboard") {
+	if !strings.Contains(msg, "Clipboard content") {
 		t.Errorf("buildPasteMessage missing default label, got: %s", msg)
 	}
 }
@@ -111,7 +210,7 @@ func TestBuildPasteMessage_ImageWithoutPrompt(t *testing.T) {
 
 	msg := buildPasteMessage("", content)
 
-	if !strings.Contains(msg, "imagen desde el clipboard") {
+	if !strings.Contains(msg, "image from the clipboard") {
 		t.Errorf("buildPasteMessage missing default image label, got: %s", msg)
 	}
 	if !strings.Contains(msg, "/tmp/vibe_clipboard_456.png") {
@@ -136,7 +235,7 @@ func TestBuildPasteMessage_FileWithPrompt(t *testing.T) {
 	if !strings.Contains(msg, "/Users/hide/project/util.go") {
 		t.Errorf("buildPasteMessage missing second file path, got: %s", msg)
 	}
-	if !strings.Contains(msg, "Archivos copiados al clipboard") {
+	if !strings.Contains(msg, "Files copied to the clipboard") {
 		t.Errorf("buildPasteMessage missing file label, got: %s", msg)
 	}
 }
@@ -152,7 +251,7 @@ func TestBuildPasteMessage_FileWithoutPrompt(t *testing.T) {
 	if !strings.Contains(msg, "/home/user/doc.txt") {
 		t.Errorf("buildPasteMessage missing file path, got: %s", msg)
 	}
-	if !strings.Contains(msg, "Archivos copiados al clipboard") {
+	if !strings.Contains(msg, "Files copied to the clipboard") {
 		t.Errorf("buildPasteMessage missing file label, got: %s", msg)
 	}
 }

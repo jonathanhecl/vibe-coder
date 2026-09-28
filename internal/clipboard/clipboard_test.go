@@ -27,33 +27,40 @@ func TestContentType_String(t *testing.T) {
 	}
 }
 
-func TestContent_Cleanup_RemovesImageTempFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("temp file cleanup test skipped on windows")
+func TestImagePath_UsesProvidedDir(t *testing.T) {
+	dir := t.TempDir()
+
+	got := imagePath(dir)
+
+	if filepath.Dir(got) != dir {
+		t.Errorf("imagePath(%q) = %q, want it inside %q", dir, got, dir)
 	}
-
-	tmp := filepath.Join(os.TempDir(), "vibe_clipboard_test_cleanup.png")
-	if err := os.WriteFile(tmp, []byte("fake image data"), 0o600); err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
+	if !strings.HasPrefix(filepath.Base(got), "vibe_clipboard_") {
+		t.Errorf("imagePath(%q) base = %q, want vibe_clipboard_ prefix", dir, filepath.Base(got))
 	}
-
-	content := &Content{
-		Type:      ContentImage,
-		ImagePath: tmp,
-	}
-
-	content.Cleanup()
-
-	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
-		t.Errorf("expected temp file %s to be removed after Cleanup()", tmp)
+	if ext := filepath.Ext(got); ext != ".png" {
+		t.Errorf("imagePath(%q) ext = %q, want .png", dir, ext)
 	}
 }
 
-func TestContent_Cleanup_NoTempFile(t *testing.T) {
-	content := &Content{Type: ContentText, Text: "hello"}
+func TestImagePath_EmptyDirFallsBackToTempDir(t *testing.T) {
+	for _, dir := range []string{"", "   "} {
+		got := imagePath(dir)
+		if filepath.Dir(got) != filepath.Clean(os.TempDir()) {
+			t.Errorf("imagePath(%q) = %q, want it in the OS temp dir %q", dir, got, os.TempDir())
+		}
+	}
+}
 
-	// Should not panic
-	content.Cleanup()
+func TestImagePath_UniquePerCall(t *testing.T) {
+	dir := t.TempDir()
+
+	first := imagePath(dir)
+	second := imagePath(dir)
+
+	if first == second {
+		t.Errorf("imagePath returned the same path twice: %q", first)
+	}
 }
 
 func TestParseFileURLs_SingleFile(t *testing.T) {
@@ -170,7 +177,7 @@ func TestPaste_UnsupportedPlatform(t *testing.T) {
 	// but we can verify that Paste() returns ContentEmpty on the current
 	// platform when clipboard tools are missing or clipboard is empty.
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
-		_, err := Paste()
+		_, err := Paste(t.TempDir())
 		if err == nil {
 			t.Error("Paste() on unsupported platform should return error")
 		}
@@ -184,7 +191,7 @@ func TestPaste_Darwin_NoToolsInstalled(t *testing.T) {
 
 	// On a system without pngpaste, Paste() should still work via pbpaste
 	// or return ContentEmpty. It should never panic.
-	content, err := Paste()
+	content, err := Paste(t.TempDir())
 	if err != nil {
 		t.Logf("Paste() returned error (expected if pbpaste missing): %v", err)
 		return
@@ -201,32 +208,13 @@ func TestPaste_Linux_NoToolsInstalled(t *testing.T) {
 	}
 
 	// Without wl-paste or xclip, Paste() should return ContentEmpty.
-	content, err := Paste()
+	content, err := Paste(t.TempDir())
 	if err != nil {
 		t.Logf("Paste() returned error: %v", err)
 		return
 	}
 	// Content may be empty or may have content if tools are installed.
 	_ = content
-}
-
-func TestContent_Cleanup_Idempotent(t *testing.T) {
-	tmp := filepath.Join(os.TempDir(), "vibe_clipboard_test_idempotent.png")
-	if err := os.WriteFile(tmp, []byte("data"), 0o600); err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
-
-	content := &Content{
-		Type:      ContentImage,
-		ImagePath: tmp,
-	}
-
-	content.Cleanup()
-	content.Cleanup() // second call should not panic
-
-	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
-		t.Error("temp file should not exist after Cleanup()")
-	}
 }
 
 func TestParseFileURLs_WindowsPath(t *testing.T) {

@@ -67,6 +67,11 @@ func DeleteSession(cfg *config.Config, id string) error {
 			return fmt.Errorf("remove work state sidecar: %w", err)
 		}
 	}
+	// Pasted images live in the session media dir and are referenced by
+	// absolute path from the transcript, so they go away with the session.
+	if err := RemoveMediaDir(dir, sanitized); err != nil {
+		return err
+	}
 	if err := pruneProjectIndex(dir, sanitized); err != nil {
 		return err
 	}
@@ -97,7 +102,14 @@ func DeleteAllSessions(cfg *config.Config) (int, error) {
 	}
 	removed := 0
 	for _, entry := range entries {
+		// The media tree holds pasted images for every session; dropping it
+		// here keeps the dir scan free of per-file cleanup.
 		if entry.IsDir() {
+			if entry.Name() == mediaRootName {
+				if err := os.RemoveAll(filepath.Join(dir, mediaRootName)); err != nil {
+					return removed, fmt.Errorf("remove media dir: %w", err)
+				}
+			}
 			continue
 		}
 		name := entry.Name()
@@ -270,6 +282,7 @@ func ListSessions(cfg *config.Config) ([]SessionInfo, error) {
 			if sidecar, err := workStatePath(dir, id); err == nil {
 				_ = os.Remove(sidecar)
 			}
+			_ = RemoveMediaDir(dir, id)
 			_ = pruneProjectIndex(dir, id)
 			_ = pruneSessionProject(dir, id)
 			continue

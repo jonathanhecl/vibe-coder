@@ -670,6 +670,69 @@ func workStatePath(sessionsDir, id string) (string, error) {
 	return path, nil
 }
 
+// mediaRootName is the subdirectory of SessionsDir that holds per-session
+// attachment directories.
+const mediaRootName = "media"
+
+// MediaDir returns the directory holding session-owned attachments, such as
+// images pasted from the clipboard. Image markers stored in the transcript
+// point at files in here, so these files must outlive the turn that created
+// them; they are removed together with the session.
+//
+// The directory is returned without being created: callers decide when to
+// pay for the mkdir, and read-only lookups stay side-effect free.
+func MediaDir(sessionsDir, id string) (string, error) {
+	sanitized := sanitizeSessionID(id)
+	if sanitized == "" {
+		return "", fmt.Errorf("invalid session id: %q", id)
+	}
+	// An unset sessions dir would resolve relative to the process cwd and
+	// scatter media next to the user's project files.
+	if strings.TrimSpace(sessionsDir) == "" {
+		return "", fmt.Errorf("sessions dir not configured")
+	}
+	sessionsDirAbs, err := absPath(sessionsDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve sessions dir: %w", err)
+	}
+	dir := filepath.Join(sessionsDir, mediaRootName, sanitized)
+	dirAbs, err := absPath(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve media dir: %w", err)
+	}
+	if !strings.HasPrefix(dirAbs, sessionsDirAbs+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid media dir outside sessions dir")
+	}
+	return dir, nil
+}
+
+// EnsureMediaDir returns the session media directory, creating it when
+// missing. Images pasted from the clipboard land here so the transcript
+// marker keeps resolving on later turns and after a resume.
+func EnsureMediaDir(sessionsDir, id string) (string, error) {
+	dir, err := MediaDir(sessionsDir, id)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create media dir: %w", err)
+	}
+	return dir, nil
+}
+
+// RemoveMediaDir deletes the session media directory and everything in it.
+// A missing directory is not an error, so repeated deletes are safe.
+func RemoveMediaDir(sessionsDir, id string) error {
+	dir, err := MediaDir(sessionsDir, id)
+	if err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("remove media dir: %w", err)
+	}
+	return nil
+}
+
 // writeWorkStateFor persists the opaque work-state blob. An empty blob
 // removes any stale sidecar so a reset checklist does not resurrect on the
 // next resume.
