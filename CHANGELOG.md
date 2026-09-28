@@ -35,6 +35,7 @@ Release archives and generated notes are available on the
 
 ### Changed
 
+- Autonomous mission verification now feeds the JEV Style verdict back to the model: when JEV Style judges the mission goal as not yet complete, the runtime injects an explicit reminder telling the model not to call `MissionComplete` and to keep executing the checklist. Works with any configured JEV Style decision model (v1/v2 or v3) and does not require assisted permission mode.
 - `/status` (aliases `/info` and `/stats`) now renders a colored, banner-style summary of the current configuration — session, model, sidecar, JEV Style, Ollama host, UI, vision/thinking/tools, whether thinking output is hidden, JEV Style assisted state (from the effective runtime mode, which can auto-disable), yes/plan mode, and context usage. Plain output stays line-based for logs and pipes.
 - `/save` now persists model/thinking settings and no longer promotes a temporal session automatically; use `/promote` to keep a temporal session. Settings changed by `/model`, `/sidecar`, `/jevstyle`, `/think`, and `/hide-think` are still persisted with `/save`.
 - First-run onboarding lists the installed models only once and reuses the same numbering for the primary, optional sidecar, and optional JEV Style prompts (previously the tool-capable list was printed again for each role). Entries are tagged `recommended`/`tools`/`vision`/`thinking`, and the primary selection rejects models that do not report tool support.

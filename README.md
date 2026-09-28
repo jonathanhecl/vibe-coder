@@ -406,7 +406,7 @@ When configured, JEV Style acts as a fast, discrete decision engine for key agen
 2. **Workspace Path Disambiguation**:
    When the agent references an ambiguous file basename matched across multiple repository paths, JEV Style selects the best matching candidate according to user context and intent.
 3. **Autonomous Mission Completion Verification**:
-   Monitors active autonomous missions and checks whether the goal has been fully fulfilled when pending tasks complete or turn activity idles, preventing unnecessary spin or stall.
+   Monitors active autonomous missions and checks whether the goal has been fully fulfilled when pending tasks complete or turn activity idles, preventing unnecessary spin or stall. When JEV Style reports the goal as **not yet complete**, the runtime feeds that verdict back to the model as an explicit reminder (do not call `MissionComplete` yet; address the remaining checklist) instead of silently continuing. This works with any configured JEV Style model (v1/v2 or v3) and does not require assisted permission mode (`--assisted-yes`).
 4. **Tool Failure Classification & Diagnosis**:
    When tool executions fail (e.g. bash commands or test failures), JEV Style diagnoses the primary cause (compile/syntax error, missing dependency, failing test assertion, permission issue, or network timeout) and injects diagnostic hints for recovery.
 5. **Conventional Commit Classification**:
