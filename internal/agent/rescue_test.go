@@ -1,9 +1,15 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/permissions"
+	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
 func TestPathMemoryCandidatesReturnsSortedAbsPaths(t *testing.T) {
@@ -179,6 +185,53 @@ func TestPathMemoryRescuesWrongAbsoluteSameBasename(t *testing.T) {
 	abs, rescued, ok := mem.Resolve(wrongAbs)
 	if !ok || !rescued || abs != target {
 		t.Fatalf("Resolve(%q) = %q rescued=%v ok=%v want %q", wrongAbs, abs, rescued, ok, target)
+	}
+}
+
+func TestPathParamKeyForTool(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"Read", "Write", "Edit", "NotebookEdit", "DescribeImage"} {
+		if got := pathParamKeyForTool(name); got != "file_path" {
+			t.Fatalf("pathParamKeyForTool(%q) = %q, want file_path", name, got)
+		}
+	}
+	for _, name := range []string{"Bash", "Glob", "Grep", ""} {
+		if got := pathParamKeyForTool(name); got != "" {
+			t.Fatalf("pathParamKeyForTool(%q) = %q, want empty", name, got)
+		}
+	}
+}
+
+func TestRescuePathParamDescribeImageResolvesRelative(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "foto.png"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cfg := &config.Config{Cwd: tmp, Model: "main-model"}
+	ag := New(cfg, nil, tools.NewRegistry(), permissions.NewManager(cfg), session.New(cfg), &fakeUI{})
+
+	// Relative path to a file in the project working directory.
+	params := map[string]any{"file_path": "foto.png"}
+	ag.rescuePathParam(context.Background(), "DescribeImage", params)
+	want := filepath.Join(tmp, "foto.png")
+	if params["file_path"] != want {
+		t.Fatalf("relative DescribeImage path not rescued: got %v want %q", params["file_path"], want)
+	}
+
+	// Unique basename in a subdirectory, remembered from an earlier tool result.
+	nested := filepath.Join(tmp, "images", "personaje.png")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(nested, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed nested: %v", err)
+	}
+	ag.paths.RememberToolResult("Glob", nil, nested+"\n", false)
+	params = map[string]any{"file_path": "personaje.png"}
+	ag.rescuePathParam(context.Background(), "DescribeImage", params)
+	if params["file_path"] != nested {
+		t.Fatalf("basename DescribeImage path not rescued: got %v want %q", params["file_path"], nested)
 	}
 }
 

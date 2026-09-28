@@ -239,11 +239,16 @@ func sortStrings(xs []string) {
 // pathParamKeyForTool returns the parameter name that holds a file path for
 // the given tool, or "" if the tool doesn't take a path we should rescue.
 //
+// DescribeImage is included so it shares the same path rescue as Read:
+// a relative path anchors to the project working directory and a unique
+// basename is resolved from path memory, instead of failing outright with
+// "path must be an absolute filesystem path".
+//
 // Bash and Glob deliberately return "" — Bash takes a free-form command and
 // Glob takes a directory which is allowed to be relative.
 func pathParamKeyForTool(toolName string) string {
 	switch toolName {
-	case "Read", "Write", "Edit", "NotebookEdit":
+	case "Read", "Write", "Edit", "NotebookEdit", "DescribeImage":
 		return "file_path"
 	}
 	return ""
