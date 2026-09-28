@@ -124,6 +124,11 @@ func describeWithMain(ctx context.Context, client ollama.Client, cfg *config.Con
 			{Role: "system", Content: sidecar.VisualAssistantSystem},
 			{Role: "user", Content: fmt.Sprintf("%s\n\n[image file: %s]", question, filepath.Base(path)), Images: []string{payload}},
 		},
+		// Thinking must be off, not merely omitted: Ollama enables it by default
+		// on capable models, and reasoning tokens would consume the small
+		// NumPredict budget, leaving Content empty ("model returned empty
+		// description"). A description needs the answer, not the reasoning.
+		Think:   ollama.ThinkOff(),
 		Options: ollama.ChatOptions{Temperature: 0, NumPredict: 512},
 	})
 	if err != nil {

@@ -63,6 +63,12 @@ func TestDescribeImageSendsPixelsAndCaches(t *testing.T) {
 	if !strings.Contains(req.Messages[1].Content, "What vehicle is this?") {
 		t.Fatalf("expected custom question, got %q", req.Messages[1].Content)
 	}
+	// Thinking must be explicitly disabled on the describe call: on a thinking
+	// sidecar the reasoning would consume the small NumPredict budget and
+	// return an empty description.
+	if req.Think == nil || req.Think.IsActive() {
+		t.Fatalf("expected thinking disabled for the sidecar describe call, got %+v", req.Think)
+	}
 
 	// Second call serves from cache: no new request.
 	if _, err := pool.DescribeImage(context.Background(), photo, "What vehicle is this?"); err != nil {

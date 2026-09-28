@@ -105,6 +105,12 @@ func TestDescribeImageFallsBackToMain(t *testing.T) {
 	if !strings.Contains(res.Output, "A dog.") || !strings.Contains(res.Output, "llava") {
 		t.Fatalf("expected main-model answer, got %q", res.Output)
 	}
+	// Thinking must be explicitly disabled on the vision call: on a thinking
+	// model the reasoning would consume the small NumPredict budget and return
+	// an empty description (the bug this guards against).
+	if fc.last.Think == nil || fc.last.Think.IsActive() {
+		t.Fatalf("expected thinking disabled for the main-model vision call, got %+v", fc.last.Think)
+	}
 }
 
 func TestDescribeImageFailsHonestly(t *testing.T) {

@@ -89,6 +89,10 @@ func (p *Pool) chatWithImages(ctx context.Context, system, question, imagePath, 
 			{Role: "system", Content: system},
 			{Role: "user", Content: fmt.Sprintf("%s\n\n[image file: %s]", question, filepath.Base(imagePath)), Images: []string{payload}},
 		},
+		// Thinking must be off, not merely omitted: Ollama enables it by default
+		// on capable models, and reasoning tokens would eat the small
+		// NumPredict budget, returning an empty Content instead of a description.
+		Think: ollama.ThinkOff(),
 		Options: ollama.ChatOptions{
 			Temperature: 0,
 			NumPredict:  describeNumPredict,
