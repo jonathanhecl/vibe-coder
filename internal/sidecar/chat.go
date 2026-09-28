@@ -31,6 +31,11 @@ func (p *Pool) chat(ctx context.Context, system, user string, numPredict int) (s
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
+		// Thinking must be off, not merely omitted: Ollama enables it by default
+		// on capable models, and the reasoning would consume the small
+		// NumPredict budget, returning an empty Content for these short,
+		// structured sidecar tasks (summary bullets, path picks).
+		Think: ollama.ThinkOff(),
 		Options: ollama.ChatOptions{
 			Temperature: 0,
 			NumPredict:  numPredict,

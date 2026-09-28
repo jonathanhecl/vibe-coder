@@ -148,6 +148,11 @@ func TestSummariseWrapsAndCaches(t *testing.T) {
 	if atomic.LoadInt32(&fc.calls) != 1 {
 		t.Fatalf("expected 1 client call thanks to cache, got %d", fc.calls)
 	}
+	// Thinking must be explicitly disabled: a thinking sidecar would spend the
+	// small summary budget on reasoning and return empty content.
+	if len(fc.lastReqs) == 0 || fc.lastReqs[0].Think == nil || fc.lastReqs[0].Think.IsActive() {
+		t.Fatalf("expected thinking disabled for the sidecar summary call, got %+v", fc.lastReqs)
+	}
 }
 
 func TestSummariseSingleflightDeduplicates(t *testing.T) {
