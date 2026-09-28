@@ -11,7 +11,7 @@ Release archives and generated notes are available on the
 
 ### Added
 
-- `DescribeImage` now accepts project-relative image paths (and unique basenames) like `Read`: relative paths are anchored to the working directory and unique basenames are resolved from path memory, with JEV Style/sidecar disambiguation when ambiguous, instead of failing with `path must be an absolute filesystem path`.
+- File tools (`Read`, `Write`, `Edit`, `NotebookEdit`, `DescribeImage`) resolve relative paths against the session working directory by default, so the agent can edit session files without hardcoding absolute paths. A unique basename is resolved from path memory, ambiguous ones go through JEV Style/sidecar disambiguation, and a full path is only needed for files outside the session. The model-facing prompt and path-error hints now state this rule instead of requiring absolute paths.
 - JEV Style v3 support with own endpoint and JSON structured I/O: `--jevstyle-v3-endpoint`, `VIBE_CODER_JEVSTYLE_V3_ENDPOINT`, `JEVSTYLE_V3_ENDPOINT` config, `/jevstyle v3` slash command with interactive mode selection and connection validation. v3 uses typed questions (`noul`, `choice`, `score`) with structured answers including probabilities and confidence. Danger assessment and goal completion use ordinal score scales for nuanced decisions. Low-confidence classifications are marked with `(uncertain)` suffix.
 - `/paste` and `/image` slash commands to send clipboard content (text, image, or file) to the agent with an optional prompt. Auto-detects content type and injects images via the vision pipeline, text inline, or file paths for the agent to read. Cross-platform: macOS (pngpaste/pbpaste), Linux (wl-paste/xclip), Windows (PowerShell Get-Clipboard).
 

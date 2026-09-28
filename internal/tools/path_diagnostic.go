@@ -27,7 +27,7 @@ func validateExistingFileForRead(path string) validationResult {
 		return validationResult{UserError: "PATH ERROR: path is empty.", AssistantHints: assistantPathHints(path, "read", nil)}
 	}
 	if !filepath.IsAbs(path) {
-		return validationResult{UserError: "PATH ERROR: path must be an absolute filesystem path.", AssistantHints: assistantPathHints(path, "read", nil)}
+		return validationResult{UserError: fmt.Sprintf("PATH ERROR: %q is not absolute and does not exist under the session working directory.", path), AssistantHints: assistantPathHints(path, "read", nil)}
 	}
 	if safety.IsProtectedPath(path) {
 		return validationResult{UserError: "path is protected"}
@@ -52,7 +52,7 @@ func validateWriteTargetPath(path string) validationResult {
 		return validationResult{UserError: "PATH ERROR: path is empty.", AssistantHints: assistantPathHints(path, "write", nil)}
 	}
 	if !filepath.IsAbs(path) {
-		return validationResult{UserError: "PATH ERROR: path must be an absolute filesystem path.", AssistantHints: assistantPathHints(path, "write", nil)}
+		return validationResult{UserError: fmt.Sprintf("PATH ERROR: %q is not absolute and cannot be anchored to the session working directory.", path), AssistantHints: assistantPathHints(path, "write", nil)}
 	}
 	if safety.IsProtectedPath(path) {
 		return validationResult{UserError: "path is protected"}
@@ -95,7 +95,9 @@ func agentPathPreamble(summary string) string {
 func assistantPathHints(path string, ctx string, osErr error) string {
 	var b strings.Builder
 	b.WriteString("For the assistant (fix the path and retry):\n")
-	b.WriteString("- Use a real absolute path that exists on disk under the workspace (from Glob, Grep, or earlier tool output).\n")
+	b.WriteString("- Paths resolve against the session working directory: pass a relative path\n")
+	b.WriteString("  (e.g. src/main.go) for files inside the session, and a full path only for\n")
+	b.WriteString("  files outside it (from Glob, Grep, or earlier tool output).\n")
 	if strings.Contains(path, "://") {
 		b.WriteString("- The path contains \"://\" (URL or engine resource scheme). Those are not OS paths here; resolve to the actual file path on disk.\n")
 	}

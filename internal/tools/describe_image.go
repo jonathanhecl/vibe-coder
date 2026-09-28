@@ -44,7 +44,7 @@ func (t *DescribeImageTool) Schema() Schema {
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"file_path": map[string]any{"type": "string", "description": "Absolute path to a JPEG, PNG, GIF or BMP image."},
+					"file_path": map[string]any{"type": "string", "description": "Path to a JPEG, PNG, GIF or BMP image, relative to the session working directory (or absolute for files outside it)."},
 					"question":  map[string]any{"type": "string", "description": "What to look for. Defaults to a thorough general description."},
 				},
 				"required": []string{"file_path"},

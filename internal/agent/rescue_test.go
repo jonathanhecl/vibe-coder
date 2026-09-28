@@ -190,10 +190,13 @@ func TestPathMemoryRescuesWrongAbsoluteSameBasename(t *testing.T) {
 
 func TestPathParamKeyForTool(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"Read", "Write", "Edit", "NotebookEdit", "DescribeImage"} {
+	for _, name := range []string{"Read", "Write", "Edit", "DescribeImage"} {
 		if got := pathParamKeyForTool(name); got != "file_path" {
 			t.Fatalf("pathParamKeyForTool(%q) = %q, want file_path", name, got)
 		}
+	}
+	if got := pathParamKeyForTool("NotebookEdit"); got != "notebook_path" {
+		t.Fatalf("pathParamKeyForTool(NotebookEdit) = %q, want notebook_path", got)
 	}
 	for _, name := range []string{"Bash", "Glob", "Grep", ""} {
 		if got := pathParamKeyForTool(name); got != "" {
@@ -232,6 +235,23 @@ func TestRescuePathParamDescribeImageResolvesRelative(t *testing.T) {
 	ag.rescuePathParam(context.Background(), "DescribeImage", params)
 	if params["file_path"] != nested {
 		t.Fatalf("basename DescribeImage path not rescued: got %v want %q", params["file_path"], nested)
+	}
+}
+
+func TestRescuePathParamNotebookEditUsesNotebookPath(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "analysis.ipynb"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cfg := &config.Config{Cwd: tmp, Model: "main-model"}
+	ag := New(cfg, nil, tools.NewRegistry(), permissions.NewManager(cfg), session.New(cfg), &fakeUI{})
+
+	params := map[string]any{"notebook_path": "analysis.ipynb"}
+	ag.rescuePathParam(context.Background(), "NotebookEdit", params)
+	want := filepath.Join(tmp, "analysis.ipynb")
+	if params["notebook_path"] != want {
+		t.Fatalf("relative notebook_path not rescued: got %v want %q", params["notebook_path"], want)
 	}
 }
 
