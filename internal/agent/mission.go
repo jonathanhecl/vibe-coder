@@ -175,11 +175,12 @@ func (a *Agent) MissionContinuationPrompt() string {
 	)
 }
 
-// CheckMissionCompletion evaluates whether the active mission goal has been achieved
-// using JEV Style, if configured and enabled.
-func (a *Agent) CheckMissionCompletion(ctx context.Context) (bool, error) {
+// missionCompletionVerdict asks JEV Style whether the active mission goal has
+// been achieved. consulted is true only when JEV Style is configured and
+// enabled and an active mission with a goal exists; done carries JEV's verdict.
+func (a *Agent) missionCompletionVerdict(ctx context.Context) (consulted, done bool, err error) {
 	if a == nil || !a.MissionActive() {
-		return false, nil
+		return false, false, nil
 	}
 	a.mu.RLock()
 	jev := a.jev
@@ -187,11 +188,47 @@ func (a *Agent) CheckMissionCompletion(ctx context.Context) (bool, error) {
 	a.mu.RUnlock()
 
 	if jev == nil || !jev.Enabled() || strings.TrimSpace(goal) == "" {
-		return false, nil
+		return false, false, nil
 	}
 
 	progress := a.recentProgressSummary()
-	return jev.CheckGoalCompletion(ctx, goal, progress)
+	done, err = jev.CheckGoalCompletion(ctx, goal, progress)
+	if err != nil {
+		return true, false, err
+	}
+	return true, done, nil
+}
+
+// CheckMissionCompletion evaluates whether the active mission goal has been achieved
+// using JEV Style, if configured and enabled. It is read-only: it never injects
+// feedback into the session. Use ReviewMissionCompletion when the runtime wants
+// the model to hear JEV Style's verdict.
+func (a *Agent) CheckMissionCompletion(ctx context.Context) (bool, error) {
+	_, done, err := a.missionCompletionVerdict(ctx)
+	return done, err
+}
+
+// jevIncompleteReminder is the explicit feedback injected when JEV Style
+// reviews an active mission and reports that the goal is not yet complete.
+const jevIncompleteReminder = "JEV Style review: the mission goal is not yet complete. " +
+	"Do not call MissionComplete yet. Re-check the checklist, add any missing step as a pending TODO, " +
+	"and keep working with concrete tool calls until JEV Style verifies completion."
+
+// ReviewMissionCompletion verifies the active mission goal with JEV Style and,
+// when JEV is configured and reports the goal as incomplete, injects an
+// explicit runtime reminder so the model knows the mission must keep going.
+// reviewed reports whether JEV was consulted. This never depends on assisted
+// permission mode (--assisted-yes); it activates whenever a JEV Style decision
+// model (v1/v2 or v3) is configured.
+func (a *Agent) ReviewMissionCompletion(ctx context.Context) (done, reviewed bool, err error) {
+	consulted, completed, err := a.missionCompletionVerdict(ctx)
+	if err != nil || !consulted {
+		return completed, consulted, err
+	}
+	if !completed && a.sess != nil {
+		a.sess.AddRuntimeReminder(jevIncompleteReminder)
+	}
+	return completed, true, nil
 }
 
 // CompleteMission ends the active mission successfully from the runtime.

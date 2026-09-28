@@ -173,12 +173,19 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 			idleStreak = 0
 		}
 		if ag.PendingTodoCount() == 0 || idleStreak > 0 {
-			if completed, checkErr := ag.CheckMissionCompletion(rootCtx); checkErr == nil && completed {
+			completed, reviewed, checkErr := ag.ReviewMissionCompletion(rootCtx)
+			if checkErr == nil && completed {
 				ag.CompleteMission("Completed (verified by JEV Style)")
 				fmt.Fprintln(os.Stdout, "[mission] JEV Style verified the goal is accomplished; mission completed.")
 				saveMissionProgress(ag)
 				ag.LogMissionTurn(err)
 				break
+			}
+			if checkErr == nil && reviewed {
+				// JEV Style judged the goal incomplete: the runtime injected an
+				// explicit reminder so the model keeps working instead of
+				// closing the mission on its own.
+				fmt.Fprintln(os.Stdout, "[mission] JEV Style review: goal not yet complete; continuing with the checklist.")
 			}
 		}
 		if idleStreak >= 3 {
