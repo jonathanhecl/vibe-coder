@@ -39,8 +39,13 @@ func (a *Agent) resolveImageAttachments(msgs []ollama.Message) []ollama.Message 
 				continue
 			}
 			images = append(images, payload)
+			// Keep the full path in the note. A bare basename is unusable
+			// for any later tool call: pasted clipboard images live in the
+			// session media dir, outside the session working directory, so
+			// the model would resolve the basename against the cwd and miss
+			// the file (or ask, needlessly, whether it may inspect it).
 			content = strings.Replace(content, marker,
-				"(image attached: "+filepath.Base(p)+")", 1)
+				"(image attached: "+filepath.ToSlash(p)+")", 1)
 		}
 		out[i].Content = content
 		out[i].Images = append(out[i].Images, images...)

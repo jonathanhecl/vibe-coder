@@ -1,6 +1,7 @@
 package slash
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/clipboard"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
+	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
@@ -104,6 +107,58 @@ func TestClipboardMediaDir_FallsBackToEmpty(t *testing.T) {
 			t.Errorf("%s: clipboardMediaDir = %q, want empty fallback", name, got)
 		}
 	}
+}
+
+// spyDecisionMaker records the runtime context note the permission layer sends
+// to the decision model.
+type spyDecisionMaker struct {
+	note string
+}
+
+func (s *spyDecisionMaker) Enabled() bool { return true }
+
+func (s *spyDecisionMaker) IsCommandDangerous(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (s *spyDecisionMaker) AskSafetyWithContext(_ context.Context, _, _, note string) (*jevstylev3.SafetyDecision, error) {
+	s.note = note
+	return &jevstylev3.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
+}
+
+// TestNoteUserProvidedPaths_ReachesDecisionModel proves the wiring end to end:
+// a path the user pasted is registered on the permission manager, and assisted
+// mode forwards it as context when the agent inspects that file.
+func TestNoteUserProvidedPaths_ReachesDecisionModel(t *testing.T) {
+	spy := &spyDecisionMaker{}
+	perm := permissions.NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	perm.SetSafetyDecider(spy)
+
+	img := filepath.Join(t.TempDir(), "vibe_clipboard_555.png")
+	doc := filepath.Join(t.TempDir(), "notes.txt")
+	noteUserProvidedPaths(&Ctx{Perm: perm}, &clipboard.Content{
+		Type:      clipboard.ContentImage,
+		ImagePath: img,
+		FilePaths: []string{doc},
+	})
+
+	for _, p := range []string{img, doc} {
+		spy.note = ""
+		if !perm.Check("Bash", map[string]any{"command": "ls -l " + p}, nil) {
+			t.Fatalf("expected assisted mode to approve inspecting %q", p)
+		}
+		if !strings.Contains(spy.note, p) {
+			t.Errorf("path %q never reached the decision model, note = %q", p, spy.note)
+		}
+	}
+}
+
+func TestNoteUserProvidedPaths_ToleratesMissingInputs(t *testing.T) {
+	// Must never panic: /paste can run without a session or permission layer.
+	noteUserProvidedPaths(nil, &clipboard.Content{Type: clipboard.ContentImage, ImagePath: "/tmp/x.png"})
+	noteUserProvidedPaths(&Ctx{}, &clipboard.Content{Type: clipboard.ContentImage, ImagePath: "/tmp/x.png"})
+	noteUserProvidedPaths(&Ctx{Perm: permissions.NewManager(&config.Config{})}, nil)
+	noteUserProvidedPaths(&Ctx{Perm: permissions.NewManager(&config.Config{})}, &clipboard.Content{Type: clipboard.ContentText, Text: "hi"})
 }
 
 func TestPasteTaskFromSlash_NotAPasteCommand(t *testing.T) {

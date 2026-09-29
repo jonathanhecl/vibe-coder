@@ -104,7 +104,7 @@ func (a *Agent) resolveViaSidecar(ctx context.Context, msgs []ollama.Message) []
 				continue
 			}
 			content = strings.Replace(content, marker,
-				"[sidecar-vision file="+filepath.Base(p)+"]\n"+desc+"\n[/sidecar-vision]", 1)
+				"[sidecar-vision file="+filepath.ToSlash(p)+"]\n"+desc+"\n[/sidecar-vision]", 1)
 		}
 		out[i].Content = content
 	}

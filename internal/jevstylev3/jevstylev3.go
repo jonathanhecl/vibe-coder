@@ -520,12 +520,25 @@ var safetyActionOptions = []string{"allow", "review", "block"}
 // action (allow/review/block), risk score, and model confidence.
 // Uses a single v3 request with both choice and score questions.
 func (c *Client) AskSafety(ctx context.Context, toolName, detail string) (*SafetyDecision, error) {
+	return c.AskSafetyWithContext(ctx, toolName, detail, "")
+}
+
+// AskSafetyWithContext is AskSafety plus a runtime context note. The note
+// carries facts the model cannot infer from the arguments alone — most
+// importantly that a path was supplied by the user (a clipboard paste) rather
+// than chosen by the agent. Without it an opaque filename such as
+// vibe_clipboard_<random>.png reads as unknown and the decision drops to
+// "review", prompting the user for a file they just handed over.
+func (c *Client) AskSafetyWithContext(ctx context.Context, toolName, detail, contextNote string) (*SafetyDecision, error) {
 	if !c.Enabled() {
 		return nil, errors.New("jevstylev3: endpoint not configured")
 	}
 
 	state := fmt.Sprintf("The agent proposes to use the `%s` tool with these arguments:\n%s",
 		strings.TrimSpace(toolName), strings.TrimSpace(detail))
+	if note := strings.TrimSpace(contextNote); note != "" {
+		state += "\n\nRuntime context (not chosen by the agent):\n" + note
+	}
 
 	payload := v3Request{
 		State: state,

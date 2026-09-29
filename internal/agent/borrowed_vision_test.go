@@ -40,7 +40,7 @@ func TestBorrowedVisionSubstitutesDescription(t *testing.T) {
 	if len(last.Images) != 0 {
 		t.Fatalf("expected no raw images for a blind main model, got %d", len(last.Images))
 	}
-	if !strings.Contains(last.Content, "[sidecar-vision file=jacket.png]") {
+	if !strings.Contains(last.Content, "[sidecar-vision file="+filepath.ToSlash(photo)+"]") {
 		t.Fatalf("expected sidecar-vision block, got %q", last.Content)
 	}
 	if !strings.Contains(last.Content, "A blue jacket with red buttons.") {

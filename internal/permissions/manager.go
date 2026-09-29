@@ -3,6 +3,7 @@ package permissions
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -37,6 +38,14 @@ type safetyDecisionMaker interface {
 	AskSafety(ctx context.Context, toolName, detail string) (*jevstylev3.SafetyDecision, error)
 }
 
+// safetyContextDecisionMaker is an optional extension for deciders that can
+// take a runtime context note alongside the action. The note tells the model
+// about facts it cannot read from the arguments, such as "this path was
+// supplied by the user".
+type safetyContextDecisionMaker interface {
+	AskSafetyWithContext(ctx context.Context, toolName, detail, contextNote string) (*jevstylev3.SafetyDecision, error)
+}
+
 // approvalNotifier is implemented by the UI to surface assisted-mode review
 // outcomes, so the user can see why an action ran without a prompt, or why the
 // normal permission prompt is being shown.
@@ -63,6 +72,13 @@ type Manager struct {
 	// It does not change the user's own yes-mode setting.
 	unattended bool
 
+	// userProvided maps a lookup key (a user-supplied absolute path, and its
+	// basename) to that absolute path. The decision model has no way to tell
+	// such a file apart from an opaque name the agent invented, so assisted
+	// mode is told about them explicitly instead of prompting for a file the
+	// user just supplied.
+	userProvided map[string]string
+
 	// permissionCancelled is set when the user picks Cancel in the permission UI.
 	permissionCancelled bool
 }
@@ -84,9 +100,70 @@ func NewManager(cfg *config.Config) *Manager {
 		deny:         map[string]struct{}{},
 		file:         permFile,
 		persistent:   map[string]string{},
+		userProvided: map[string]string{},
 	}
 	m.loadPersistent()
 	return m
+}
+
+// NoteUserProvidedPath records a path the user handed to the session directly,
+// such as an image pasted from the clipboard. Assisted mode reports these to
+// the decision model so a file the user just supplied is not mistaken for an
+// unknown path chosen by the agent.
+//
+// Both the absolute path and its basename are matched, because the model may
+// refer to the file either way. Callers should only register paths whose
+// basename is not generic: clipboard temp names are unique per paste.
+func (m *Manager) NoteUserProvidedPath(path string) {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return
+	}
+	if abs, err := filepath.Abs(p); err == nil && abs != "" {
+		p = abs
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.userProvided == nil {
+		m.userProvided = map[string]string{}
+	}
+	m.userProvided[p] = p
+	if base := filepath.Base(p); base != "" && base != "." && base != string(filepath.Separator) {
+		m.userProvided[base] = p
+	}
+}
+
+// userProvidedNote returns a decision-model context line naming any
+// user-provided path mentioned in detail, or "" when none apply. Paths are
+// always reported in full, even when the match came from a basename, so the
+// model knows where the file actually lives.
+func (m *Manager) userProvidedNote(detail string) string {
+	if strings.TrimSpace(detail) == "" {
+		return ""
+	}
+	m.mu.Lock()
+	canonical := make(map[string]struct{})
+	for key, full := range m.userProvided {
+		if strings.Contains(detail, key) {
+			canonical[full] = struct{}{}
+		}
+	}
+	m.mu.Unlock()
+	if len(canonical) == 0 {
+		return ""
+	}
+	hits := make([]string, 0, len(canonical))
+	for p := range canonical {
+		hits = append(hits, p)
+	}
+	sort.Strings(hits)
+	var b strings.Builder
+	b.WriteString("The user supplied the following path(s) from their own clipboard via /paste ")
+	b.WriteString("(not chosen by the agent), so inspecting or reading them is expected work:\n")
+	for _, p := range hits {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m *Manager) SetYesMode(on bool) {
@@ -291,8 +368,7 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 	start := time.Now()
 
 	// Try AskSafety first (v3 multi-question with confidence)
-	if sdm, ok := dec.(safetyDecisionMaker); ok {
-		decision, err := sdm.AskSafety(context.Background(), toolName, command)
+	if decision, handled, err := askSafety(context.Background(), dec, toolName, command, m.userProvidedNote(command)); handled {
 		elapsed := time.Since(start)
 		if err != nil {
 			m.SetAssistedMode(false)
@@ -316,6 +392,21 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 	}
 	notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedApproved, Elapsed: elapsed})
 	return true
+}
+
+// askSafety queries a decider that supports AskSafety, preferring the
+// context-aware variant when available. handled is false when the decider
+// supports neither, so callers fall through to the binary decider.
+func askSafety(ctx context.Context, dec SafetyDecider, toolName, detail, note string) (decision *jevstylev3.SafetyDecision, handled bool, err error) {
+	if scm, ok := dec.(safetyContextDecisionMaker); ok {
+		d, err := scm.AskSafetyWithContext(ctx, toolName, detail, note)
+		return d, true, err
+	}
+	if sdm, ok := dec.(safetyDecisionMaker); ok {
+		d, err := sdm.AskSafety(ctx, toolName, detail)
+		return d, true, err
+	}
+	return nil, false, nil
 }
 
 // handleSafetyDecision processes a SafetyDecision from AskSafety and notifies
@@ -357,8 +448,8 @@ func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolNam
 	start := time.Now()
 
 	// Try AskSafety first (v3 multi-question with confidence)
-	if sdm, ok := dec.(safetyDecisionMaker); ok {
-		decision, err := sdm.AskSafety(context.Background(), toolName, actionSummary(params))
+	summary := actionSummary(params)
+	if decision, handled, err := askSafety(context.Background(), dec, toolName, summary, m.userProvidedNote(summary)); handled {
 		elapsed := time.Since(start)
 		if err != nil {
 			m.SetAssistedMode(false)

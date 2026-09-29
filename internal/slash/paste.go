@@ -35,6 +35,7 @@ func PasteTaskFromSlash(c *Ctx, line string) (string, bool) {
 	if err != nil {
 		return fmt.Sprintf("[System Note] Failed to read clipboard: %v", err), true
 	}
+	noteUserProvidedPaths(c, content)
 
 	// The image file is intentionally NOT deleted here. The marker built
 	// below is a plain-text path that the agent resolves to real bytes only
@@ -43,6 +44,23 @@ func PasteTaskFromSlash(c *Ctx, line string) (string, bool) {
 	// never existed. The image lives in the session media dir instead and
 	// goes away together with the session.
 	return buildPasteMessage(userPrompt, content), true
+}
+
+// noteUserProvidedPaths tells the permission layer which files the user handed
+// over themselves. Assisted mode (JEV Style) forwards this to the decision
+// model so an opaque clipboard filename is not mistaken for a path the agent
+// invented, which would otherwise drop the decision to "review" and prompt the
+// user for a file they just pasted.
+func noteUserProvidedPaths(c *Ctx, content *clipboard.Content) {
+	if c == nil || c.Perm == nil || content == nil {
+		return
+	}
+	if content.Type == clipboard.ContentImage && content.ImagePath != "" {
+		c.Perm.NoteUserProvidedPath(content.ImagePath)
+	}
+	for _, p := range content.FilePaths {
+		c.Perm.NoteUserProvidedPath(p)
+	}
 }
 
 // clipboardMediaDir returns the directory that receives pasted clipboard

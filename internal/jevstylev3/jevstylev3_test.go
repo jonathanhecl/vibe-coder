@@ -440,6 +440,86 @@ func TestTimeout(t *testing.T) {
 	}
 }
 
+func TestAskSafetyWithContext_IncludesNote(t *testing.T) {
+	var gotState string
+	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&req)
+		gotState, _ = req["state"].(string)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model": "test",
+			"answers": map[string]interface{}{
+				"action": map[string]interface{}{"type": "choice", "choice": "allow", "confidence": 0.9},
+				"risk":   map[string]interface{}{"type": "score", "score": 0.2},
+			},
+		})
+	})
+
+	note := "The user supplied /tmp/vibe_clipboard_1.png from their own clipboard."
+	if _, err := client.AskSafetyWithContext(context.Background(), "bash", "ls -l /tmp/vibe_clipboard_1.png", note); err != nil {
+		t.Fatalf("AskSafetyWithContext failed: %v", err)
+	}
+
+	if !strings.Contains(gotState, "ls -l /tmp/vibe_clipboard_1.png") {
+		t.Errorf("state missing the action detail: %q", gotState)
+	}
+	if !strings.Contains(gotState, note) {
+		t.Errorf("state missing the runtime context note: %q", gotState)
+	}
+	if !strings.Contains(gotState, "not chosen by the agent") {
+		t.Errorf("state should mark the context as not agent-chosen: %q", gotState)
+	}
+}
+
+func TestAskSafetyWithContext_EmptyNoteKeepsStateClean(t *testing.T) {
+	var gotState string
+	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&req)
+		gotState, _ = req["state"].(string)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model": "test",
+			"answers": map[string]interface{}{
+				"action": map[string]interface{}{"type": "choice", "choice": "allow", "confidence": 0.9},
+				"risk":   map[string]interface{}{"type": "score", "score": 0.2},
+			},
+		})
+	})
+
+	if _, err := client.AskSafetyWithContext(context.Background(), "bash", "ls", "   "); err != nil {
+		t.Fatalf("AskSafetyWithContext failed: %v", err)
+	}
+	if strings.Contains(gotState, "Runtime context") {
+		t.Errorf("blank note should not add a context section: %q", gotState)
+	}
+}
+
+func TestAskSafety_DelegatesToContextVariant(t *testing.T) {
+	var gotState string
+	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&req)
+		gotState, _ = req["state"].(string)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model": "test",
+			"answers": map[string]interface{}{
+				"action": map[string]interface{}{"type": "choice", "choice": "allow", "confidence": 0.9},
+				"risk":   map[string]interface{}{"type": "score", "score": 0.2},
+			},
+		})
+	})
+
+	if _, err := client.AskSafety(context.Background(), "bash", "ls"); err != nil {
+		t.Fatalf("AskSafety failed: %v", err)
+	}
+	if !strings.Contains(gotState, "ls") {
+		t.Errorf("AskSafety state missing detail: %q", gotState)
+	}
+	if strings.Contains(gotState, "Runtime context") {
+		t.Errorf("AskSafety must not add context: %q", gotState)
+	}
+}
+
 func TestAskSafety(t *testing.T) {
 	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]interface{}

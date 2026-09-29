@@ -74,7 +74,7 @@ func TestResolveImageAttachmentsAttaches(t *testing.T) {
 	if strings.Contains(last.Content, "[image path=") {
 		t.Fatalf("expected marker to be replaced, got %q", last.Content)
 	}
-	if !strings.Contains(last.Content, "(image attached: photo.png)") {
+	if !strings.Contains(last.Content, "(image attached: "+filepath.ToSlash(photo)+")") {
 		t.Fatalf("expected attached note, got %q", last.Content)
 	}
 	if ag.imgCache == nil || ag.imageCache().Size() != 1 {
