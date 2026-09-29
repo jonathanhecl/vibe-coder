@@ -93,6 +93,49 @@ func TestResolveImageAttachmentsAttaches(t *testing.T) {
 	}
 }
 
+func TestStaleClipboardNamesAreScrubbedAndRedirected(t *testing.T) {
+	t.Parallel()
+	ag := newVisionTestAgent(t)
+	dir := t.TempDir()
+	old := filepath.Join(dir, "vibe_clipboard_1.png")
+	fresh := filepath.Join(dir, "vibe_clipboard_2.png")
+	writeTestPNG(t, old)
+	writeTestPNG(t, fresh)
+
+	ag.sess.AddUser("first\n\n" + vision.MarkerFor(old))
+	ag.sess.AddAssistant("I looked at vibe_clipboard_1.png")
+	ag.sess.AddUser("second\n\n" + vision.MarkerFor(fresh))
+	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+
+	for _, m := range msgs {
+		if strings.Contains(m.Content, "vibe_clipboard_") {
+			t.Errorf("history leaks a clipboard name: %q", m.Content)
+		}
+	}
+	params := map[string]any{"file_path": "vibe_clipboard_1.png"}
+	ag.rescuePathParam(context.Background(), "DescribeImage", params)
+	if params["file_path"] != fresh {
+		t.Fatalf("expected redirect to %q, got %v", fresh, params["file_path"])
+	}
+}
+
+func TestDescribeImageWithBogusPathFallsBackToNewestImage(t *testing.T) {
+	t.Parallel()
+	ag := newVisionTestAgent(t)
+	fresh := filepath.Join(t.TempDir(), "vibe_clipboard_9.png")
+	writeTestPNG(t, fresh)
+	ag.sess.AddUser("q\n\n" + vision.MarkerFor(fresh))
+	ag.buildOllamaMessages(context.Background(), "SYSTEM")
+
+	for _, raw := range []any{"(pasted image)", "nope.png", "", nil} {
+		params := map[string]any{"file_path": raw}
+		ag.rescuePathParam(context.Background(), "DescribeImage", params)
+		if params["file_path"] != fresh {
+			t.Errorf("file_path %v: got %v, want %q", raw, params["file_path"], fresh)
+		}
+	}
+}
+
 func TestAttachedImageBasenameIsRescuable(t *testing.T) {
 	t.Parallel()
 	ag := newVisionTestAgent(t)

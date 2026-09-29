@@ -133,8 +133,25 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 		return
 	}
 	raw, ok := params[key].(string)
+	if toolName == "DescribeImage" && (!ok || strings.TrimSpace(raw) == "" || strings.Contains(raw, pastedImagePlaceholder)) {
+		if img := a.newestImage(); img != "" {
+			params[key] = img
+			return
+		}
+	}
 	if !ok || strings.TrimSpace(raw) == "" {
 		return
+	}
+	if (toolName == "DescribeImage" || toolName == "Read") && isPastedImageName(raw) {
+		// The model is chasing a pasted image by name. The newest attached
+		// image is what the user means; older names are stale history.
+		if img := a.newestImage(); img != "" {
+			if img != raw {
+				params[key] = img
+				a.ui.ShowToolResult(toolName, fmt.Sprintf("using the newest pasted image instead of %q", raw), false, nil)
+			}
+			return
+		}
 	}
 	if abs, rescued, ok := a.paths.Resolve(raw); ok {
 		if abs != raw {
@@ -144,6 +161,15 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 			}
 		}
 		return
+	}
+	// A DescribeImage call on a path that resolves to nothing almost always
+	// means "the image the user just sent"; look at that one.
+	if toolName == "DescribeImage" {
+		if img := a.newestImage(); img != "" {
+			params[key] = img
+			a.ui.ShowToolResult(toolName, fmt.Sprintf("using the newest pasted image instead of %q", raw), false, nil)
+			return
+		}
 	}
 	// A Write target usually does not exist yet, so Resolve declines it; still
 	// anchor a relative path to the working directory instead of rejecting it

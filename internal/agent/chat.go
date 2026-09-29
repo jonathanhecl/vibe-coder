@@ -55,7 +55,8 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) []
 	}
 	// Markers become image bytes (or sidecar descriptions, or honest notes)
 	// only here, at send time. The transcript keeps the cheap text form.
-	return a.resolveOutgoingImages(ctx, out)
+	a.setLastImage(out)
+	return scrubPastedImagePaths(a.resolveOutgoingImages(ctx, out))
 }
 func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 	var lastErr error

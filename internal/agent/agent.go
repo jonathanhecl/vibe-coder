@@ -49,6 +49,7 @@ type Agent struct {
 	currentGoal string // verbatim text of the user's request for this Run()
 	ctxStore    *contextfiles.Store
 	imgCache    *vision.Cache
+	lastImage   string // newest user-attached image path; guarded by mu
 	// mission is the agent-declared long-running goal. While active, the
 	// runtime keeps starting turns until the agent completes or blocks it.
 	mission *tools.MissionStore
