@@ -251,8 +251,10 @@ func TestBuildPasteMessage_ImageWithPrompt(t *testing.T) {
 	if !strings.Contains(msg, "mira esta imagen") {
 		t.Errorf("buildPasteMessage missing user prompt, got: %s", msg)
 	}
-	if !strings.Contains(msg, "/tmp/vibe_clipboard_123.png") {
-		t.Errorf("buildPasteMessage missing image path in marker, got: %s", msg)
+	// The marker carries the path for the vision layer, but the model must not
+	// be told to go look at a file: the image is attached, not referenced.
+	if msg != "mira esta imagen\n\n"+vision.MarkerFor("/tmp/vibe_clipboard_123.png") {
+		t.Errorf("unexpected image message: %q", msg)
 	}
 }
 
@@ -265,11 +267,13 @@ func TestBuildPasteMessage_ImageWithoutPrompt(t *testing.T) {
 
 	msg := buildPasteMessage("", content)
 
-	if !strings.Contains(msg, "image from the clipboard") {
-		t.Errorf("buildPasteMessage missing default image label, got: %s", msg)
+	// With no prompt the message is just the marker: the image is the whole
+	// message, and the marker already carries the path for the vision layer.
+	if msg != vision.MarkerFor("/tmp/vibe_clipboard_456.png") {
+		t.Errorf("buildPasteMessage without prompt = %q, want the bare marker", msg)
 	}
-	if !strings.Contains(msg, "/tmp/vibe_clipboard_456.png") {
-		t.Errorf("buildPasteMessage missing image path in marker, got: %s", msg)
+	if strings.Contains(msg, "Analyze") || strings.Contains(msg, "Read") {
+		t.Errorf("buildPasteMessage must not instruct the model about a file, got: %s", msg)
 	}
 }
 

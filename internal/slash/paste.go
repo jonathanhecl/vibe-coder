@@ -90,11 +90,16 @@ func buildPasteMessage(userPrompt string, content *clipboard.Content) string {
 		return "[System Note] The clipboard is empty or contains no supported content (text, image, or file)."
 
 	case clipboard.ContentImage:
+		// The marker carries the image; at send time it becomes real pixels in
+		// the message's images field behind a pathless "(image attached)" note.
+		// Deliberately no filename and no "look at file X" instruction: the
+		// user's own prompt is the question, and naming a path only made the
+		// model go Read/DescribeImage a file it did not need.
 		marker := vision.MarkerFor(content.ImagePath)
 		if userPrompt != "" {
-			return fmt.Sprintf("%s\n\nI pasted an image from the clipboard. %s", userPrompt, marker)
+			return fmt.Sprintf("%s\n\n%s", userPrompt, marker)
 		}
-		return fmt.Sprintf("I pasted an image from the clipboard. Analyze its content.\n%s", marker)
+		return marker
 
 	case clipboard.ContentText:
 		if userPrompt != "" {

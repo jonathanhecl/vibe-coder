@@ -40,8 +40,13 @@ func TestBorrowedVisionSubstitutesDescription(t *testing.T) {
 	if len(last.Images) != 0 {
 		t.Fatalf("expected no raw images for a blind main model, got %d", len(last.Images))
 	}
-	if !strings.Contains(last.Content, "[sidecar-vision file="+filepath.ToSlash(photo)+"]") {
+	if !strings.Contains(last.Content, "[sidecar-vision]") {
 		t.Fatalf("expected sidecar-vision block, got %q", last.Content)
+	}
+	// The description is what matters; the path would only tempt the model to
+	// chase a file the sidecar already looked at.
+	if strings.Contains(last.Content, "jacket.png") {
+		t.Fatalf("sidecar-vision block must not leak the file path, got %q", last.Content)
 	}
 	if !strings.Contains(last.Content, "A blue jacket with red buttons.") {
 		t.Fatalf("expected sidecar description, got %q", last.Content)

@@ -74,8 +74,13 @@ func TestResolveImageAttachmentsAttaches(t *testing.T) {
 	if strings.Contains(last.Content, "[image path=") {
 		t.Fatalf("expected marker to be replaced, got %q", last.Content)
 	}
-	if !strings.Contains(last.Content, "(image attached: "+filepath.ToSlash(photo)+")") {
+	if !strings.Contains(last.Content, "(image attached)") {
 		t.Fatalf("expected attached note, got %q", last.Content)
+	}
+	// The note must not name a file: a path invites the model to go Read or
+	// DescribeImage the image it already has as pixels.
+	if strings.Contains(last.Content, "photo.png") {
+		t.Fatalf("attached note must not leak the file path, got %q", last.Content)
 	}
 	if ag.imgCache == nil || ag.imageCache().Size() != 1 {
 		t.Fatal("expected the encoded image to be cached")
@@ -85,6 +90,55 @@ func TestResolveImageAttachmentsAttaches(t *testing.T) {
 	again := ag.resolveImageAttachments([]ollama.Message{{Role: "user", Content: vision.MarkerFor(photo)}})
 	if len(again[0].Images) != 1 || again[0].Images[0] != last.Images[0] {
 		t.Fatal("expected cached payload reuse")
+	}
+}
+
+// TestOutgoingMessagesNeverLeakTheImagePath is the regression test for the
+// paste flow that kept derailing: the model received the image bytes but also
+// text naming a file, so it went Read/DescribeImage/ls on a path it did not
+// need and then asked permission to inspect it. The image is attached; the
+// model must have no path to chase.
+func TestOutgoingMessagesNeverLeakTheImagePath(t *testing.T) {
+	t.Parallel()
+	ag := newVisionTestAgent(t)
+	dir := t.TempDir()
+	photo := filepath.Join(dir, "vibe_clipboard_1790641130569185389.png")
+	writeTestPNG(t, photo)
+
+	ag.sess.AddUser("que ves?\n\n" + vision.MarkerFor(photo))
+	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+
+	last := msgs[len(msgs)-1]
+	if len(last.Images) != 1 {
+		t.Fatalf("expected the image to be attached natively, got %d images", len(last.Images))
+	}
+	if !strings.Contains(last.Content, "que ves?") {
+		t.Fatalf("expected the user's question to survive, got %q", last.Content)
+	}
+	for _, forbidden := range []string{photo, "vibe_clipboard_", "DescribeImage", "[image path="} {
+		if strings.Contains(last.Content, forbidden) {
+			t.Errorf("model-visible message must not contain %q, got %q", forbidden, last.Content)
+		}
+	}
+}
+
+// TestOutgoingMessagesSidecarNeverLeakTheImagePath mirrors the check for a
+// blind main model borrowing the sidecar's sight.
+func TestOutgoingMessagesSidecarNeverLeakTheImagePath(t *testing.T) {
+	t.Parallel()
+	a, _ := newBorrowedVisionAgent(t, true, false, true, true)
+	dir := t.TempDir()
+	photo := filepath.Join(dir, "vibe_clipboard_1790641130569185389.png")
+	writeTestPNG(t, photo)
+
+	a.sess.AddUser("que ves?\n\n" + vision.MarkerFor(photo))
+	msgs := a.buildOllamaMessages(context.Background(), "SYS")
+
+	last := msgs[len(msgs)-1]
+	for _, forbidden := range []string{photo, "vibe_clipboard_", "file="} {
+		if strings.Contains(last.Content, forbidden) {
+			t.Errorf("model-visible message must not contain %q, got %q", forbidden, last.Content)
+		}
 	}
 }
 
