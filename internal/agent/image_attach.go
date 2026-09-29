@@ -38,6 +38,7 @@ func (a *Agent) resolveImageAttachments(msgs []ollama.Message) []ollama.Message 
 				continue
 			}
 			images = append(images, payload)
+			a.paths.add(p)
 			// Replace the marker with a pathless note. The image bytes are
 			// already in the message; naming a file only invites the model to
 			// go Read/DescribeImage a path it does not need, which is how a

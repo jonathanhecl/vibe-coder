@@ -93,6 +93,21 @@ func TestResolveImageAttachmentsAttaches(t *testing.T) {
 	}
 }
 
+func TestAttachedImageBasenameIsRescuable(t *testing.T) {
+	t.Parallel()
+	ag := newVisionTestAgent(t)
+	photo := filepath.Join(t.TempDir(), "vibe_clipboard_42.png")
+	writeTestPNG(t, photo)
+
+	ag.sess.AddUser("que ves?\n\n" + vision.MarkerFor(photo))
+	ag.buildOllamaMessages(context.Background(), "SYSTEM")
+
+	got, rescued, ok := ag.paths.Resolve("vibe_clipboard_42.png")
+	if !ok || !rescued || got != photo {
+		t.Fatalf("expected basename to resolve to %q, got %q rescued=%v ok=%v", photo, got, rescued, ok)
+	}
+}
+
 // TestOutgoingMessagesNeverLeakTheImagePath is the regression test for the
 // paste flow that kept derailing: the model received the image bytes but also
 // text naming a file, so it went Read/DescribeImage/ls on a path it did not
