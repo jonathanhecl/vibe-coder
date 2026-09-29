@@ -14,6 +14,12 @@ import (
 // persist, summarize and resume) and become bytes only here, at send time.
 func (a *Agent) resolveImageAttachments(msgs []ollama.Message) []ollama.Message {
 	out := make([]ollama.Message, len(msgs))
+	latest := -1
+	for i, m := range msgs {
+		if m.Role == "user" && len(vision.ParseMarkers(m.Content)) > 0 {
+			latest = i
+		}
+	}
 	for i, m := range msgs {
 		out[i] = m
 		if m.Role != "user" {
@@ -24,6 +30,13 @@ func (a *Agent) resolveImageAttachments(msgs []ollama.Message) []ollama.Message 
 			continue
 		}
 		content := m.Content
+		if i != latest {
+			// Only the newest image travels as pixels. Re-sending every past
+			// image made the model answer about an older screenshot instead
+			// of the one the user just sent.
+			out[i].Content = replaceAllMarkers(content, "(earlier image, no longer attached)")
+			continue
+		}
 		var images []string
 		for idx, p := range paths {
 			marker := vision.MarkerFor(p)

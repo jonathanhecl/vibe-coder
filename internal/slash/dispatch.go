@@ -74,6 +74,12 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	}
 
 	if !strings.HasPrefix(trimmed, "/") {
+		// Trailing form ("what do you see? /image") is handled in repl.go.
+		if f := strings.Fields(trimmed); len(f) > 1 {
+			if last := strings.ToLower(f[len(f)-1]); last == "/image" || last == "/paste" {
+				return true, false, nil
+			}
+		}
 		return false, false, nil
 	}
 

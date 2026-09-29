@@ -183,6 +183,14 @@ func TestPasteTaskFromSlash_NotAPasteCommand(t *testing.T) {
 	}
 }
 
+func TestPasteTaskFromSlash_TrailingCommandIsRecognized(t *testing.T) {
+	for _, line := range []string{"que ves? /image", "que ves? /paste", "que ves? /IMAGE  "} {
+		if _, ok := PasteTaskFromSlash(nil, line); !ok {
+			t.Errorf("PasteTaskFromSlash(%q) not recognized", line)
+		}
+	}
+}
+
 func TestPasteTaskFromSlash_InvalidCommands(t *testing.T) {
 	lines := []string{
 		"",

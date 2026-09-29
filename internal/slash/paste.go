@@ -23,13 +23,22 @@ func PasteTaskFromSlash(c *Ctx, line string) (string, bool) {
 		return "", false
 	}
 
-	cmd := strings.ToLower(fields[0])
-	if cmd != "/paste" && cmd != "/image" && cmd != "paste" && cmd != "image" {
+	isPaste := func(s string) bool {
+		s = strings.ToLower(s)
+		return s == "/paste" || s == "/image"
+	}
+	var userPrompt string
+	switch cmd := strings.ToLower(fields[0]); {
+	case cmd == "/paste" || cmd == "/image" || cmd == "paste" || cmd == "image":
+		// Everything after the command is the user's prompt.
+		userPrompt = strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+	case isPaste(fields[len(fields)-1]):
+		// Trailing form: "what do you see? /image".
+		last := fields[len(fields)-1]
+		userPrompt = strings.TrimSpace(strings.TrimSuffix(trimmed, last))
+	default:
 		return "", false
 	}
-
-	// Everything after the command is the user's prompt.
-	userPrompt := strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
 
 	content, err := clipboard.Paste(clipboardMediaDir(c))
 	if err != nil {
