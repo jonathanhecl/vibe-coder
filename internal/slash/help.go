@@ -60,6 +60,9 @@ func printHelp(c *Ctx) {
 			{"/plan <goal>", "enter plan mode and immediately start planning that goal"},
 			{"/code", "exit plan mode and return to coding mode"},
 			{"/approve", "exit plan mode and resume act mode in the same chat"},
+			{"/mission", "show the agent's active mission (goal, status, turns)"},
+			{"/mission done [summary]", "mark the mission complete (e.g. you did the work yourself)"},
+			{"/mission cancel [reason]", "stop the mission without completing it"},
 			{"/review <prompt>", "ask the model in read-only mode (no edits, no commands)"},
 		}},
 		{"Git", [][2]string{

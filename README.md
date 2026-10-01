@@ -72,8 +72,12 @@ agent itself decides to run a **mission**:
 3. The agent ends the mission itself: `MissionComplete` with a summary when the
    goal is done, or `MissionBlocked` with a reason when it needs the user.
 
-There is no user command to enable this and no arbitrary turn budget; the agent
-owns the lifecycle. While a mission is active the run is **unattended**: Ask and
+There is no command to *enable* a mission and no arbitrary turn budget; the agent
+owns the lifecycle. You can still **end** one from your side with `/mission`:
+`/mission` shows the mission (goal, status, turns), `/mission done [summary]`
+marks it complete (for example when you did the work yourself), and
+`/mission cancel [reason]` stops it without completing. While a mission is
+active the run is **unattended**: Ask and
 Network tools are auto-approved so nothing blocks waiting for the user, while
 mandatory dangerous-command confirmations are denied (never prompted) so the
 agent gets a denial and can adapt or call `MissionBlocked`. Empty responses are
@@ -602,7 +606,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status`, `/info`, `/stats` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, context usage)
+- `/status`, `/info`, `/stats` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, mission, context usage)
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
 - `/context replace <file...>` — drop all pinned files and pin these instead
@@ -640,6 +644,9 @@ Pinned context files are injected into the system prompt on every turn, so they 
 - `/plan <goal>` — enter plan mode and immediately start planning that goal
 - `/code` — exit plan mode and return to coding mode
 - `/approve` — exit plan mode and resume act mode in the same chat
+- `/mission` — show the agent's active mission (goal, status, continuation turns)
+- `/mission done [summary]` — mark the active mission complete from your side (e.g. you did the work yourself)
+- `/mission cancel [reason]` — stop the mission without completing it (pauses the autonomous run)
 
 ### Git
 
