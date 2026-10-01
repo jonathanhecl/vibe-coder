@@ -116,6 +116,11 @@ func (m Model) SupportsThinking() bool {
 // model-name to vision-support map (as built from Tags). It tolerates a
 // missing or extra ":latest" tag, and a tagless name that matches exactly
 // one model base. Known is false when the model is absent or ambiguous.
+//
+// A name that pins an explicit tag (other than ":latest") refers to one
+// specific installed model. A different tag is a different model with its
+// own capabilities, so it never borrows a sibling tag's value: doing so
+// turned a genuinely unknown tag into a confident (and wrong) yes/no.
 func LookupVision(byModel map[string]bool, name string) (available, known bool) {
 	want := strings.ToLower(strings.TrimSpace(name))
 	if want == "" {
@@ -128,11 +133,15 @@ func LookupVision(byModel map[string]bool, name string) (available, known bool) 
 		return v, true
 	}
 	base := want
+	tag := ""
 	if idx := strings.LastIndex(want, ":"); idx > 0 {
-		base = want[:idx]
-		if v, ok := byModel[base]; ok {
-			return v, true
-		}
+		base, tag = want[:idx], want[idx+1:]
+	}
+	if tag != "" && tag != "latest" {
+		return false, false
+	}
+	if v, ok := byModel[base]; ok {
+		return v, true
 	}
 	var match *bool
 	for key, v := range byModel {

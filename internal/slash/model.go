@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -120,14 +121,57 @@ func runModelCommand(c *Ctx, args []string) error {
 // tool-calling flags for the session.
 func applyModelSwitch(c *Ctx, next string) {
 	c.Cfg.Model = next
-	// Refresh vision support from the cached Tags map so the system prompt
-	// and /status stay honest after a switch. Unknown models report unknown.
+	// The startup capability maps are a frozen snapshot, but a model can be
+	// installed, re-created, or re-quantized during a session. Re-check the
+	// selected model live so the reported flags match this exact tag; fall
+	// back to the cached maps when /api/show is unavailable.
+	probeCapabilities(c, next)
 	available, known := ollama.LookupVision(c.Cfg.VisionByModel, c.Cfg.Model)
 	c.Cfg.VisionAvailable, c.Cfg.VisionKnown = available, known
 	refreshThinkingFlags(c)
 	refreshToolsFlags(c)
 	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s, thinking: %s, tools: %s). Run /save to persist.\n",
 		c.Cfg.Model, visionWord(known, available), thinkingWord(c), toolsWord(c))
+}
+
+// probeCapabilities asks /api/show for one model's capabilities and caches
+// them in the per-model maps, so a switch reports the truth for that exact
+// tag instead of a stale snapshot (or a sibling tag). It is a no-op when the
+// client cannot inspect models or the probe fails, leaving the cached values
+// in place (unknown when absent).
+func probeCapabilities(c *Ctx, name string) {
+	if c == nil || c.Cfg == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	inspector, ok := c.Models.(interface {
+		Show(context.Context, string) (ollama.Model, error)
+	})
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	info, err := inspector.Show(ctx, name)
+	if err != nil || !info.CapabilitiesKnown {
+		return
+	}
+	key := strings.ToLower(name)
+	if c.Cfg.VisionByModel == nil {
+		c.Cfg.VisionByModel = map[string]bool{}
+	}
+	if c.Cfg.ThinkingByModel == nil {
+		c.Cfg.ThinkingByModel = map[string]bool{}
+	}
+	if c.Cfg.ToolsByModel == nil {
+		c.Cfg.ToolsByModel = map[string]bool{}
+	}
+	c.Cfg.VisionByModel[key] = info.SupportsVision()
+	c.Cfg.ThinkingByModel[key] = info.SupportsThinking()
+	c.Cfg.ToolsByModel[key] = info.SupportsTools()
 }
 
 func refreshToolsFlags(c *Ctx) {

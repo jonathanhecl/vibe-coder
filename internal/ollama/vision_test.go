@@ -49,6 +49,14 @@ func TestLookupVision(t *testing.T) {
 	if _, known := LookupVision(map[string]bool{"m:1": true, "m:2": false}, "m"); known {
 		t.Fatal("expected ambiguous base to be unknown")
 	}
+	// An explicit tag must never borrow a sibling tag's capability: a missing
+	// tag is unknown, not the value of a different quantization of the model.
+	if _, known := LookupVision(map[string]bool{"gemma:q4_k_m": false}, "gemma:fixed"); known {
+		t.Fatal("expected a missing explicit tag to be unknown, not the sibling's value")
+	}
+	if _, known := LookupVision(map[string]bool{"gemma:q4_k_m": false}, "gemma"); !known {
+		t.Fatal("expected a tagless name to still resolve against one installed tag")
+	}
 }
 
 func TestMatchModelToleratesTags(t *testing.T) {
