@@ -49,4 +49,6 @@ doc/
 
 # Isolated sessions
 .vibe-isolated.jsonl
-*.isolated.tmp
+*.isolated.tmp
+.engram/
+.atl/
