@@ -231,6 +231,14 @@ func (a *Agent) ReviewMissionCompletion(ctx context.Context) (done, reviewed boo
 	return completed, true, nil
 }
 
+// StartMission activates an autonomous mission from the runtime or user command.
+func (a *Agent) StartMission(goal string) {
+	if a == nil || a.mission == nil {
+		return
+	}
+	a.mission.Start(goal)
+}
+
 // CompleteMission ends the active mission successfully from the runtime.
 func (a *Agent) CompleteMission(summary string) {
 	if a == nil || a.mission == nil {

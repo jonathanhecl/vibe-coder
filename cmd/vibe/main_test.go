@@ -14,6 +14,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/slash"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
@@ -257,6 +258,28 @@ func TestPlanTaskFromSlash(t *testing.T) {
 		got, ok := planTaskFromSlash(tc.in)
 		if ok != tc.ok || got != tc.want {
 			t.Fatalf("planTaskFromSlash(%q) => (%q,%t), want (%q,%t)", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestGoalTaskFromSlash(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{in: "/goal", want: "", ok: false},
+		{in: "/goal deploy backend", want: "deploy backend", ok: true},
+		{in: "   /goal   fix bug   ", want: "fix bug", ok: true},
+		{in: "/mission start add feature", want: "add feature", ok: true},
+	}
+
+	for _, tc := range cases {
+		got, ok := slash.GoalTaskFromSlash(tc.in)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("GoalTaskFromSlash(%q) => (%q,%t), want (%q,%t)", tc.in, got, ok, tc.want, tc.ok)
 		}
 	}
 }

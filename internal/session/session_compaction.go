@@ -52,19 +52,27 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 	s.mu.RUnlock()
 
 	var summary string
-	if client != nil && cfg.SidecarInUse() {
-		compactCtx, cancel := context.WithTimeout(ctx, compactionTimeout)
-		resp, err := client.ChatSync(compactCtx, ollama.ChatRequest{
-			Model: cfg.SidecarModel,
-			Messages: []ollama.Message{
-				{Role: "system", Content: compactionSummaryPrompt},
-				{Role: "user", Content: renderMessagesForSummary(old)},
-			},
-			Stream: false,
-		})
-		cancel()
-		if err == nil && strings.TrimSpace(resp.Content) != "" {
-			summary = resp.Content
+	if client != nil {
+		model := ""
+		if cfg.SidecarInUse() {
+			model = cfg.SidecarModel
+		} else if strings.TrimSpace(cfg.Model) != "" {
+			model = cfg.Model
+		}
+		if model != "" {
+			compactCtx, cancel := context.WithTimeout(ctx, compactionTimeout)
+			resp, err := client.ChatSync(compactCtx, ollama.ChatRequest{
+				Model: model,
+				Messages: []ollama.Message{
+					{Role: "system", Content: compactionSummaryPrompt},
+					{Role: "user", Content: renderMessagesForSummary(old)},
+				},
+				Stream: false,
+			})
+			cancel()
+			if err == nil && strings.TrimSpace(resp.Content) != "" {
+				summary = resp.Content
+			}
 		}
 	}
 	if summary == "" {

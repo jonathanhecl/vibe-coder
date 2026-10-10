@@ -247,6 +247,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		exitPlanMode(c, "[System Note] Plan approved. Returning to act mode.")
 		fmt.Fprintln(c.Out, "Plan approved. Act mode restored; you can continue in the same conversation.")
 		return true, false, nil
+	case "/goal":
+		return true, false, runGoalCommand(c, fields[1:])
 	case "/mission":
 		return true, false, runMissionCommand(c, fields[1:])
 	case "/review":

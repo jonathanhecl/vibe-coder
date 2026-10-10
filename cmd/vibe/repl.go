@@ -109,6 +109,16 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
 		}
+		if task, ok := slash.GoalTaskFromSlash(line); ok {
+			if ag.MissionActive() && ag.MissionSnapshot().Goal == task {
+				prompt := slash.FormatGoalPrompt(task)
+				if err := runPrompt(rootCtx, ag, ui, prompt); err != nil {
+					fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				}
+				_ = slashCtx.Session.Save()
+				return false
+			}
+		}
 		return false
 	}
 

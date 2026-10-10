@@ -212,6 +212,43 @@ func TestCompactSummaryPromptPreservesTask(t *testing.T) {
 	}
 }
 
+// TestCompactFallsBackToMainModelWhenSidecarUnset verifies that when no sidecar
+// is configured, compaction falls back to querying the main model for summary.
+func TestCompactFallsBackToMainModelWhenSidecarUnset(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 32,
+		Model:         "main-model:latest",
+		SidecarModel:  "",
+	}
+	s := New(cfg)
+
+	var capturedModel string
+	client := capturingSidecarClient{
+		summary: "summary from main model",
+		onChat: func(req ollama.ChatRequest) {
+			capturedModel = req.Model
+		},
+	}
+	s.SetClient(client)
+
+	for i := 0; i < 80; i++ {
+		s.AddUser(strings.Repeat("w", 40))
+	}
+
+	if err := s.Compact(context.Background(), false); err != nil {
+		t.Fatalf("compact failed: %v", err)
+	}
+	if capturedModel != "main-model:latest" {
+		t.Fatalf("expected compaction with main model, got %q", capturedModel)
+	}
+	if s.MessageCount() == 0 || !strings.Contains(s.messages[0].Content, "summary from main model") {
+		t.Fatalf("expected main model summary in first message, got %#v", s.messages)
+	}
+}
+
 type capturingSidecarClient struct {
 	summary string
 	onChat  func(ollama.ChatRequest)

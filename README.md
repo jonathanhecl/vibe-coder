@@ -72,8 +72,12 @@ agent itself decides to run a **mission**:
 3. The agent ends the mission itself: `MissionComplete` with a summary when the
    goal is done, or `MissionBlocked` with a reason when it needs the user.
 
-There is no command to *enable* a mission and no arbitrary turn budget; the agent
-owns the lifecycle. You can still **end** one from your side with `/mission`:
+You can initiate an autonomous mission directly with `/goal <objective>` (or
+`/mission start <goal>`), or let the agent declare one itself via `MissionStart`.
+When started with `/goal`, the agent follows a phased protocol: Phase 1 plans the
+step-by-step approach and verification strategy via `TodoWrite` (clarifying any
+ambiguities with `AskUserQuestion`), and Phase 2 executes the plan autonomously.
+You can also inspect and end one from your side with `/mission`:
 `/mission` shows the mission (goal, status, turns), `/mission done [summary]`
 marks it complete (for example when you did the work yourself), and
 `/mission cancel [reason]` stops it without completing. While a mission is
@@ -109,7 +113,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **Project-aware indexing & auto-resume** — sessions are keyed by `sha256(cwd)[:16]` so running `vibe` automatically resumes where you left off in that directory (tagged as `(resumed)` in the banner). Use `/new` or `-n`/`--new` to start fresh.
 - **Temporal (ephemeral) sessions** — run with `-t`, `--temporal`, or `--temp`. Chat transcript and session indexes are completely discarded on exit, while files and code modifications made by the agent remain intact (tagged as `(temporal)` in red in the banner). Running `/promote` within a temporal session keeps it by promoting it to permanent.
 - **Isolated sessions** — run with `--isolated` or `--isolate` (or configured via `VIBE_CODER_ISOLATED=true` or `ISOLATED=true`). Saves a single `.vibe-isolated.jsonl` file strictly inside the current folder without registering in global state or indexes. Other directories cannot access it. Running `vibe` in a directory containing an isolated session automatically detects and loads it (tagged as `(isolated)` in yellow in the banner). Running `/new` resets and truncates the isolated session file to start fresh.
-- **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model summarizes the oldest messages while keeping the last 30 verbatim.
+- **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model (falling back to the primary model when unconfigured) summarizes the oldest messages while keeping the last 30 verbatim.
 - **Token estimate** — maintained incrementally so compaction checks are O(1).
 
 ### Safety and permissions
@@ -644,7 +648,9 @@ Pinned context files are injected into the system prompt on every turn, so they 
 - `/plan <goal>` — enter plan mode and immediately start planning that goal
 - `/code` — exit plan mode and return to coding mode
 - `/approve` — exit plan mode and resume act mode in the same chat
+- `/goal <objective>` — start an autonomous mission (the agent plans step-by-step with verification criteria, asks clarifying questions, and executes autonomously)
 - `/mission` — show the agent's active mission (goal, status, continuation turns)
+- `/mission start <goal>` — alias for `/goal <objective>`
 - `/mission done [summary]` — mark the active mission complete from your side (e.g. you did the work yourself)
 - `/mission cancel [reason]` — stop the mission without completing it (pauses the autonomous run)
 

@@ -12,15 +12,16 @@ import (
 // fakes without mission support keep compiling.
 type missionController interface {
 	missionReporter
+	StartMission(goal string)
 	CompleteMission(summary string)
 	BlockActiveMission(reason string)
 }
 
-// runMissionCommand implements /mission: inspect and end the agent-managed
+// runMissionCommand implements /mission: inspect, start, and end the agent-managed
 // mission from the user's side. While a mission is active the runtime keeps
-// starting turns for the agent, so this is the user's way to say "I did it
-// myself" (done) or "stop working on this" (cancel) without waiting for the
-// model to end the mission on its own.
+// starting turns for the agent, so this is the user's way to start a goal,
+// say "I did it myself" (done) or "stop working on this" (cancel) without waiting
+// for the model to end the mission on its own.
 func runMissionCommand(c *Ctx, args []string) error {
 	mc, ok := c.Agent.(missionController)
 	if !ok {
@@ -34,6 +35,12 @@ func runMissionCommand(c *Ctx, args []string) error {
 	switch sub {
 	case "", "status":
 		printMissionStatus(c, mc.MissionSnapshot())
+	case "start":
+		if len(args) < 2 {
+			fmt.Fprintln(c.Out, "Usage: /mission start <goal>")
+			return nil
+		}
+		return runGoalCommand(c, args[1:])
 	case "done", "complete", "finish":
 		m := mc.MissionSnapshot()
 		if m.Status != tools.MissionStatusActive {
@@ -65,7 +72,7 @@ func runMissionCommand(c *Ctx, args []string) error {
 		}
 		fmt.Fprintf(c.Out, "Mission cancelled: %s\n", reason)
 	default:
-		fmt.Fprintln(c.Out, "Usage: /mission [status | done [summary] | cancel [reason]]")
+		fmt.Fprintln(c.Out, "Usage: /mission [status | start <goal> | done [summary] | cancel [reason]]")
 	}
 	return nil
 }

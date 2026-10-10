@@ -24,6 +24,11 @@ type fakeMissionAgent struct {
 }
 
 func (f *fakeMissionAgent) MissionSnapshot() tools.Mission { return f.mission }
+func (f *fakeMissionAgent) StartMission(goal string) {
+	f.mission.Goal = goal
+	f.mission.Status = tools.MissionStatusActive
+	f.mission.Turns = 0
+}
 func (f *fakeMissionAgent) CompleteMission(summary string) {
 	f.mission.Status = tools.MissionStatusCompleted
 	f.mission.Summary = summary
