@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -60,50 +61,83 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) []
 }
 func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 	var lastErr error
-	for attempt := 0; attempt <= MaxRetries; attempt++ {
-		ctx, cancel := context.WithTimeout(rootCtx, a.cfg.EffectiveChatTimeout())
-		messages := a.buildOllamaMessages(ctx, a.buildSystemPrompt())
-		a.ui.StartWaiting(fmt.Sprintf("waiting for %s…", shortModelName(a.cfg.Model)))
-		stream, err := a.client.Chat(ctx, ollama.ChatRequest{
-			Model:    a.cfg.Model,
-			Messages: messages,
-			Stream:   true,
-			Think:    ollama.ResolveThinkSetting(a.cfg.OllamaThinkLevel, a.cfg.OllamaNoThink, a.cfg.ThinkingKnown, a.cfg.ThinkingSupported),
-			Tools:    a.nativeChatTools(),
-			Options: ollama.ChatOptions{
-				NumCtx:      a.cfg.ContextWindow,
-				NumPredict:  a.cfg.MaxTokens,
-				Temperature: a.cfg.Temperature,
-			},
-		})
-		if err != nil {
-			a.ui.StopWaiting()
-			cancel()
-			if isCancelledByUser(rootCtx, err) {
-				return "[Cancelled by user]", nil, nil
+	thinkingLoopRetries := 0
+
+	for {
+		for attempt := 0; attempt <= MaxRetries; attempt++ {
+			ctx, cancel := context.WithTimeout(rootCtx, a.cfg.EffectiveChatTimeout())
+			messages := a.buildOllamaMessages(ctx, a.buildSystemPrompt())
+			if thinkingLoopRetries > 0 {
+				a.ui.StartWaiting(fmt.Sprintf("restarting thinking after loop (attempt %d/%d)…", thinkingLoopRetries+1, maxThinkingLoopRetries))
+			} else {
+				a.ui.StartWaiting(fmt.Sprintf("waiting for %s…", shortModelName(a.cfg.Model)))
 			}
-			if strings.Contains(strings.ToLower(err.Error()), "model not found") {
-				if pulled := a.tryAutoPullModel(rootCtx); pulled {
-					attempt--
-					continue
+			stream, err := a.client.Chat(ctx, ollama.ChatRequest{
+				Model:    a.cfg.Model,
+				Messages: messages,
+				Stream:   true,
+				Think:    ollama.ResolveThinkSetting(a.cfg.OllamaThinkLevel, a.cfg.OllamaNoThink, a.cfg.ThinkingKnown, a.cfg.ThinkingSupported),
+				Tools:    a.nativeChatTools(),
+				Options: ollama.ChatOptions{
+					NumCtx:      a.cfg.ContextWindow,
+					NumPredict:  a.cfg.MaxTokens,
+					Temperature: a.cfg.Temperature,
+				},
+			})
+			if err != nil {
+				a.ui.StopWaiting()
+				cancel()
+				if isCancelledByUser(rootCtx, err) {
+					return "[Cancelled by user]", nil, nil
+				}
+				if strings.Contains(strings.ToLower(err.Error()), "model not found") {
+					if pulled := a.tryAutoPullModel(rootCtx); pulled {
+						attempt--
+						continue
+					}
+				}
+				lastErr = err
+			} else if reply, toolCalls, err := a.streamAssistantResponse(rootCtx, cancel, stream); err != nil {
+				if errors.Is(err, ErrThinkingLoopDetected) {
+					cancel()
+					thinkingLoopRetries++
+					if thinkingLoopRetries < maxThinkingLoopRetries {
+						lastErr = err
+						// Re-send the operation so thinking restarts from scratch
+						break
+					}
+					return "", nil, &ThinkingLoopLimitError{Retries: thinkingLoopRetries}
+				}
+				if errors.Is(err, ErrThinkingTimeoutNoJev) {
+					cancel()
+					return "", nil, err
+				}
+				lastErr = err
+			} else if reply != "" || len(toolCalls) > 0 {
+				// A native-only turn (tool calls with blank visible text)
+				// is a valid tool turn, not an empty response.
+				cancel()
+				return reply, toolCalls, nil
+			}
+			cancel()
+			if attempt < MaxRetries {
+				select {
+				case <-rootCtx.Done():
+					return "", nil, rootCtx.Err()
+				case <-time.After(time.Duration(1+attempt) * time.Second):
 				}
 			}
-			lastErr = err
-		} else if reply, toolCalls, err := a.streamAssistantResponse(rootCtx, cancel, stream); err != nil {
-			lastErr = err
-		} else if reply != "" || len(toolCalls) > 0 {
-			// A native-only turn (tool calls with blank visible text)
-			// is a valid tool turn, not an empty response.
-			return reply, toolCalls, nil
 		}
-		cancel()
-		if attempt < MaxRetries {
+
+		if thinkingLoopRetries > 0 && thinkingLoopRetries < maxThinkingLoopRetries && errors.Is(lastErr, ErrThinkingLoopDetected) {
 			select {
 			case <-rootCtx.Done():
 				return "", nil, rootCtx.Err()
-			case <-time.After(time.Duration(1+attempt) * time.Second):
+			case <-time.After(500 * time.Millisecond):
 			}
+			continue
 		}
+		break
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("empty assistant response")
@@ -189,12 +223,45 @@ var streamIdleProgressInterval = 20 * time.Second
 func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.CancelFunc, stream <-chan ollama.Chunk) (string, []ToolCall, error) {
 	var buf []byte
 	var toolCalls []ollama.MessageToolCall
+	var thinkingBuf strings.Builder
 	thinkingSeen := false
+	thinkingActive := false
+	inBandThinking := false
+	var thinkingTimer *time.Timer
 	lastShown := 0 // bytes of assistant text already streamed to the terminal (hides tool XML)
+
+	stopThinkingTimer := func() {
+		if thinkingTimer != nil {
+			if !thinkingTimer.Stop() {
+				select {
+				case <-thinkingTimer.C:
+				default:
+				}
+			}
+			thinkingTimer = nil
+		}
+	}
+	defer stopThinkingTimer()
+
+	startThinkingTimer := func() {
+		if thinkingTimer != nil {
+			return
+		}
+		if a.jev != nil && a.jev.Enabled() {
+			thinkingTimer = time.NewTimer(thinkingCheckInterval)
+		} else {
+			thinkingTimer = time.NewTimer(thinkingNoJevTimeout)
+		}
+	}
+
 	endThinking := func() {
 		if thinkingSeen {
 			a.ui.EndThinking()
 			thinkingSeen = false
+		}
+		if thinkingActive {
+			thinkingActive = false
+			stopThinkingTimer()
 		}
 	}
 	finishAssistant := func() {
@@ -242,7 +309,31 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		idle.Reset(streamIdleProgressInterval)
 	}
 	for {
+		var timerChan <-chan time.Time
+		if thinkingTimer != nil {
+			timerChan = thinkingTimer.C
+		}
+
 		select {
+		case <-timerChan:
+			if thinkingActive {
+				if a.jev != nil && a.jev.Enabled() {
+					lastParas := extractLastParagraphs(thinkingBuf.String(), thinkingParagraphCount)
+					checkCtx, checkCancel := context.WithTimeout(rootCtx, 30*time.Second)
+					isLoop, err := a.jev.CheckThinkingLoop(checkCtx, lastParas)
+					checkCancel()
+					if err == nil && isLoop {
+						finishAssistant()
+						return "", nil, ErrThinkingLoopDetected
+					}
+					// Not a loop or JEV check failure: continue thinking and check again after interval
+					thinkingTimer.Reset(thinkingCheckInterval)
+				} else {
+					// 15 minutes of continuous thinking exceeded without JEV: cancel operation without retries
+					finishAssistant()
+					return "", nil, ErrThinkingTimeoutNoJev
+				}
+			}
 		case <-idle.C:
 			// Silence mid-turn: re-show the spinner with its elapsed
 			// counter so the wait is visibly alive. Skipped while a
@@ -283,12 +374,55 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			toolCalls = ollama.MergeToolCalls(toolCalls, chunk.ToolCalls)
 			if chunk.Thinking != "" {
 				thinkingSeen = true
+				thinkingBuf.WriteString(chunk.Thinking)
+				if !thinkingActive {
+					thinkingActive = true
+					startThinkingTimer()
+				}
 				a.ui.StreamThinking(chunk.Thinking)
 			}
 			if chunk.Delta != "" {
-				endThinking()
-				a.ui.StopWaiting()
-				buf = append(buf, chunk.Delta...)
+				if inBandThinking {
+					closeIdx := -1
+					for _, tag := range []string{"</think>", "</thinking>"} {
+						if idx := strings.Index(strings.ToLower(chunk.Delta), tag); idx >= 0 {
+							if closeIdx < 0 || idx < closeIdx {
+								closeIdx = idx + len(tag)
+							}
+						}
+					}
+					if closeIdx >= 0 {
+						thinkingBuf.WriteString(chunk.Delta[:closeIdx])
+						inBandThinking = false
+						endThinking()
+						a.ui.StopWaiting()
+						buf = append(buf, chunk.Delta[closeIdx:]...)
+					} else {
+						thinkingBuf.WriteString(chunk.Delta)
+					}
+				} else {
+					openIdx := -1
+					for _, tag := range []string{"<think>", "<thinking>"} {
+						if idx := strings.Index(strings.ToLower(chunk.Delta), tag); idx >= 0 {
+							if openIdx < 0 || idx < openIdx {
+								openIdx = idx
+							}
+						}
+					}
+					if openIdx >= 0 && !strings.Contains(strings.ToLower(chunk.Delta[openIdx:]), "</think>") && !strings.Contains(strings.ToLower(chunk.Delta[openIdx:]), "</thinking>") {
+						inBandThinking = true
+						if !thinkingActive {
+							thinkingActive = true
+							startThinkingTimer()
+						}
+						thinkingBuf.WriteString(chunk.Delta[openIdx:])
+						buf = append(buf, chunk.Delta[:openIdx]...)
+					} else {
+						endThinking()
+						a.ui.StopWaiting()
+						buf = append(buf, chunk.Delta...)
+					}
+				}
 
 				// Tool XML is parsed after the stream completes. Until then, show
 				// only the natural-language prefix so users do not see raw envelopes.

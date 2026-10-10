@@ -53,6 +53,7 @@ type Decider interface {
 	CheckGoalCompletion(ctx context.Context, goal, recentProgress string) (bool, error)
 	ClassifyFailure(ctx context.Context, errorLog string) (string, error)
 	ClassifyCommit(ctx context.Context, diffSummary string) (string, error)
+	CheckThinkingLoop(ctx context.Context, thinkingText string) (bool, error)
 	Enabled() bool
 	Model() string
 }
@@ -305,6 +306,23 @@ func (c *Client) ClassifyCommit(ctx context.Context, diffSummary string) (string
 	}
 	word := strings.Fields(resp.Option)[0]
 	return word, nil
+}
+
+// CheckThinkingLoop evaluates whether recent reasoning paragraphs from a model
+// indicate that the model is stuck in a repetitive or cyclical thinking loop.
+func (c *Client) CheckThinkingLoop(ctx context.Context, thinkingText string) (bool, error) {
+	if strings.TrimSpace(thinkingText) == "" {
+		return false, nil
+	}
+	resp, err := c.Decide(ctx, DecisionRequest{
+		State:    fmt.Sprintf("Recent reasoning paragraphs from the model:\n\n%s", strings.TrimSpace(thinkingText)),
+		Question: "Is the model stuck in a repetitive or cyclical thinking loop without making progress?",
+		Options:  []string{"Yes, it is stuck in a cyclical loop", "No, it is making progress or exploring new ideas"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.Index == 0, nil
 }
 
 // FormatPrompt constructs the exact prompt template expected by JEV Style models.

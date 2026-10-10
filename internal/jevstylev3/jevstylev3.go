@@ -510,6 +510,16 @@ func (c *Client) ClassifyCommit(ctx context.Context, diffSummary string) (string
 	return word, nil
 }
 
+// CheckThinkingLoop evaluates whether recent reasoning paragraphs are stuck in a cyclical loop.
+func (c *Client) CheckThinkingLoop(ctx context.Context, thinkingText string) (bool, error) {
+	if strings.TrimSpace(thinkingText) == "" {
+		return false, nil
+	}
+	state := fmt.Sprintf("Recent reasoning paragraphs from the model:\n\n%s", strings.TrimSpace(thinkingText))
+	question := "Is the model repeating itself or stuck in a cyclical thinking loop without making progress?"
+	return c.DecideBool(ctx, state, question)
+}
+
 // riskScale is the ordinal scale used for AskSafety risk assessment.
 var riskScale = []string{"none", "low", "medium", "high"}
 

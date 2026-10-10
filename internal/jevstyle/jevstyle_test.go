@@ -237,4 +237,24 @@ func TestClientDecide(t *testing.T) {
 	if err != nil || commitType != "test" {
 		t.Fatalf("expected commit type 'test', got %q (err: %v)", commitType, err)
 	}
+
+	// 10. CheckThinkingLoop
+	fake.responseContent = " A"
+	isLoop, err := client.CheckThinkingLoop(context.Background(), "thinking loop paragraph")
+	if err != nil || !isLoop {
+		t.Fatalf("expected thinking loop true, got %t (err: %v)", isLoop, err)
+	}
+
+	fake.responseContent = " B"
+	isLoop, err = client.CheckThinkingLoop(context.Background(), "progressing normally")
+	if err != nil || isLoop {
+		t.Fatalf("expected thinking loop false, got %t (err: %v)", isLoop, err)
+	}
+
+	// Empty thinking text should return false without calling the model
+	isLoop, err = client.CheckThinkingLoop(context.Background(), "   ")
+	if err != nil || isLoop {
+		t.Fatalf("expected thinking loop false for empty text, got %t (err: %v)", isLoop, err)
+	}
 }
+

@@ -26,6 +26,8 @@ type stubJevDecider struct {
 	failureClassErr    error
 	commitClassResult  string
 	commitClassErr     error
+	thinkingLoopResult bool
+	thinkingLoopErr    error
 	enabled            bool
 	model              string
 }
@@ -53,6 +55,9 @@ func (s *stubJevDecider) ClassifyFailure(ctx context.Context, errorLog string) (
 }
 func (s *stubJevDecider) ClassifyCommit(ctx context.Context, diffSummary string) (string, error) {
 	return s.commitClassResult, s.commitClassErr
+}
+func (s *stubJevDecider) CheckThinkingLoop(ctx context.Context, thinkingText string) (bool, error) {
+	return s.thinkingLoopResult, s.thinkingLoopErr
 }
 func (s *stubJevDecider) Enabled() bool {
 	return s.enabled

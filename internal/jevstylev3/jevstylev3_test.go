@@ -648,3 +648,29 @@ func TestIsOrdinalScale(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckThinkingLoop(t *testing.T) {
+	client, _ := newMockV3Server(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model": "test",
+			"answers": map[string]interface{}{
+				"decision": map[string]interface{}{
+					"type": "noul",
+					"noul": 0.85,
+				},
+			},
+		})
+	})
+
+	isLoop, err := client.CheckThinkingLoop(context.Background(), "repeated thinking paragraphs")
+	if err != nil || !isLoop {
+		t.Fatalf("expected loop=true, got %v, err=%v", isLoop, err)
+	}
+
+	// Empty text should return false without error
+	isLoop, err = client.CheckThinkingLoop(context.Background(), "   ")
+	if err != nil || isLoop {
+		t.Fatalf("expected loop=false for empty text, got %v, err=%v", isLoop, err)
+	}
+}
+

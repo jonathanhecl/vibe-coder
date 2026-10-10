@@ -39,6 +39,9 @@ func (m *mockJevDecider) ClassifyFailure(ctx context.Context, errorLog string) (
 func (m *mockJevDecider) ClassifyCommit(ctx context.Context, diffSummary string) (string, error) {
 	return "", nil
 }
+func (m *mockJevDecider) CheckThinkingLoop(ctx context.Context, thinkingText string) (bool, error) {
+	return false, nil
+}
 func (m *mockJevDecider) Enabled() bool {
 	return m.on
 }

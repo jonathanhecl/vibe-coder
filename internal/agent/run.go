@@ -82,6 +82,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		a.addTodoProgressNoteIfChanged()
 		reply, nativeCalls, err := a.chatOnce(ctx)
 		if err != nil {
+			if IsThinkingLoopLimitErr(err) {
+				emptyChatErrRetries = 0
+				a.sess.AddRuntimeReminder("Thinking loop error: The thinking process was interrupted because a cyclical reasoning loop was detected 3 consecutive times in this step. Please rethink the task using an alternative approach or different strategy.")
+				a.compactBestEffort(ctx)
+				continue
+			}
 			if IsEmptyAssistantResponseErr(err) {
 				done, err := a.handleEmptyChatResponse(ctx, &emptyChatErrRetries)
 				if done {
