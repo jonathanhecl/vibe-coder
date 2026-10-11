@@ -674,3 +674,73 @@ func TestIsolatedConfigPrecedence(t *testing.T) {
 	}
 }
 
+func TestIsOpenAIEndpoint(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"http://127.0.0.1:8080/v1", true},
+		{"http://127.0.0.1:8080/v1/", true},
+		{"https://api.openai.com/v1", true},
+		{"http://localhost:11434", false},
+		{"http://localhost:11434/api", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := IsOpenAIEndpoint(tt.url); got != tt.want {
+			t.Errorf("IsOpenAIEndpoint(%q) = %t, want %t", tt.url, got, tt.want)
+		}
+	}
+}
+
+func TestEndpointAndProviderPrecedence(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("VIBE_CODER_CONFIG", filepath.Join(tmp, "nonexistent.env"))
+	t.Setenv("OLLAMA_HOST", "")
+	t.Setenv("MODEL_ENDPOINT", "")
+	t.Setenv("SIDECAR_ENDPOINT", "")
+
+	// 1. Defaults
+	cfg, err := Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.EffectiveModelEndpoint() != "http://localhost:11434" {
+		t.Errorf("expected default ollama host, got %q", cfg.EffectiveModelEndpoint())
+	}
+	if cfg.IsModelOpenAI() {
+		t.Errorf("expected default not to be OpenAI")
+	}
+
+	// 2. Env variable
+	t.Setenv("MODEL_ENDPOINT", "http://127.0.0.1:8080/v1")
+	cfg, err = Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.EffectiveModelEndpoint() != "http://127.0.0.1:8080/v1" {
+		t.Errorf("expected env endpoint, got %q", cfg.EffectiveModelEndpoint())
+	}
+	if !cfg.IsModelOpenAI() {
+		t.Errorf("expected auto-detected OpenAI endpoint")
+	}
+
+	// 3. CLI override
+	cfg, err = Load([]string{"--endpoint", "http://my-host:9000/v1", "--sidecar-endpoint", "http://side-host:11434"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.EffectiveModelEndpoint() != "http://my-host:9000/v1" {
+		t.Errorf("expected CLI endpoint, got %q", cfg.EffectiveModelEndpoint())
+	}
+	if !cfg.IsModelOpenAI() {
+		t.Errorf("expected CLI endpoint to be OpenAI")
+	}
+	if cfg.EffectiveSidecarEndpoint() != "http://side-host:11434" {
+		t.Errorf("expected CLI sidecar endpoint, got %q", cfg.EffectiveSidecarEndpoint())
+	}
+	if cfg.IsSidecarOpenAI() {
+		t.Errorf("expected sidecar endpoint not to be OpenAI")
+	}
+}
+

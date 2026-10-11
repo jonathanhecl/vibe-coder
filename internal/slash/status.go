@@ -94,7 +94,11 @@ func statusRows(c *Ctx) []statusRow {
 	}
 	rows = append(rows, statusRow{Label: "Session", Plain: sessionPlain, Render: sessionRender})
 	rows = append(rows, statusRow{Label: "CWD", Plain: c.Cfg.Cwd})
-	rows = append(rows, statusRow{Label: "Ollama", Plain: c.Cfg.OllamaHost})
+	hostLabel := "Ollama"
+	if c.Cfg.IsModelOpenAI() {
+		hostLabel = "Endpoint"
+	}
+	rows = append(rows, statusRow{Label: hostLabel, Plain: c.Cfg.EffectiveModelEndpoint()})
 	ui := strings.TrimSpace(c.Cfg.UI)
 	if ui == "" {
 		ui = "plain"

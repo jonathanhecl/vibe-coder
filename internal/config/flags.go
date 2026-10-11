@@ -28,8 +28,12 @@ type cliOptions struct {
 	isolated      optionalBool
 	sessionID     optionalString
 	listSessions  optionalBool
-	ollamaHost    optionalString
-	maxTokens     optionalInt
+	ollamaHost      optionalString
+	endpoint        optionalString
+	modelProvider   optionalString
+	sidecarEndpoint optionalString
+	sidecarProvider optionalString
+	maxTokens       optionalInt
 	temperature   optionalFloat
 	contextWindow optionalInt
 	rag           optionalBool
@@ -82,6 +86,12 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.sessionID, "session-id", "session id")
 	fs.Var(&opts.listSessions, "list-sessions", "list sessions")
 	fs.Var(&opts.ollamaHost, "ollama-host", "ollama host")
+	fs.Var(&opts.endpoint, "endpoint", "main model endpoint URL (Ollama or OpenAI-compatible /v1)")
+	fs.Var(&opts.endpoint, "model-endpoint", "main model endpoint URL (alias)")
+	fs.Var(&opts.modelProvider, "provider", "main model provider: ollama|openai (auto-detected by default)")
+	fs.Var(&opts.modelProvider, "model-provider", "main model provider (alias)")
+	fs.Var(&opts.sidecarEndpoint, "sidecar-endpoint", "sidecar model endpoint URL")
+	fs.Var(&opts.sidecarProvider, "sidecar-provider", "sidecar model provider: ollama|openai")
 	fs.Var(&opts.maxTokens, "max-tokens", "max tokens")
 	fs.Var(&opts.temperature, "temperature", "temperature")
 	fs.Var(&opts.contextWindow, "context-window", "context window")
@@ -172,6 +182,18 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.ollamaHost.set {
 		cfg.OllamaHost = cli.ollamaHost.value
+	}
+	if cli.endpoint.set {
+		cfg.ModelEndpoint = cli.endpoint.value
+	}
+	if cli.modelProvider.set {
+		cfg.ModelProvider = cli.modelProvider.value
+	}
+	if cli.sidecarEndpoint.set {
+		cfg.SidecarEndpoint = cli.sidecarEndpoint.value
+	}
+	if cli.sidecarProvider.set {
+		cfg.SidecarProvider = cli.sidecarProvider.value
 	}
 	if cli.maxTokens.set {
 		cfg.MaxTokens = cli.maxTokens.value

@@ -29,9 +29,13 @@ type bannerField struct {
 func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerField {
 	model := ""
 	host := ""
+	hostLabel := "Ollama"
 	if cfg != nil {
 		model = cfg.Model
-		host = cfg.OllamaHost
+		host = cfg.EffectiveModelEndpoint()
+		if cfg.IsModelOpenAI() {
+			hostLabel = "Endpoint"
+		}
 	}
 	sessVal := sessionID
 	if cfg != nil && cfg.Temporal {
@@ -45,7 +49,7 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 		{Label: "Session", Value: sessVal},
 		{Label: "Model", Value: model},
 		{Label: "Sidecar", Value: formatSidecarBanner(cfg)},
-		{Label: "Ollama", Value: host},
+		{Label: hostLabel, Value: host},
 	}
 	if cfg != nil && cfg.JevstyleInUse() {
 		val := jevstyleBannerValue(cfg)

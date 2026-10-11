@@ -25,6 +25,18 @@ type Config struct {
 	Model        string
 	UI           string
 	SidecarModel string
+	// ModelEndpoint overrides the host/endpoint for the main model (defaults to OllamaHost).
+	ModelEndpoint string
+	// ModelApiKey holds an optional API key for the main model endpoint.
+	ModelApiKey string
+	// ModelProvider explicitly specifies "ollama" or "openai" for the main model (auto-detected if unset).
+	ModelProvider string
+	// SidecarEndpoint overrides the host/endpoint for the sidecar model.
+	SidecarEndpoint string
+	// SidecarApiKey holds an optional API key for the sidecar endpoint.
+	SidecarApiKey string
+	// SidecarProvider explicitly specifies "ollama" or "openai" for the sidecar model (auto-detected if unset).
+	SidecarProvider string
 	// JevstyleModel holds the optional JEV Style decision model name (v1/v2 via Ollama).
 	JevstyleModel string
 	// JevstyleV3Endpoint holds the optional JEV Style v3 endpoint URL.
@@ -214,6 +226,10 @@ Flags:
   --resume                  Resume last session for this project
   --session-id string       Resume specific session id
   --list-sessions           List known sessions
+  --endpoint string         Main model endpoint URL (Ollama or OpenAI-compatible /v1)
+  --provider string         Main model provider: ollama|openai (auto-detected by default)
+  --sidecar-endpoint string Sidecar model endpoint URL
+  --sidecar-provider string Sidecar model provider: ollama|openai
   --ollama-host string      Ollama base URL
   --max-tokens int          Max generated tokens
   --temperature float       Sampling temperature
@@ -250,4 +266,73 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 		PermFile:    "",
 		HistoryFile: filepath.Join(stateDir, "history.txt"),
 	}
+}
+
+// EffectiveModelEndpoint returns the resolved endpoint URL for the main model.
+func (c *Config) EffectiveModelEndpoint() string {
+	if c != nil && strings.TrimSpace(c.ModelEndpoint) != "" {
+		return strings.TrimSpace(c.ModelEndpoint)
+	}
+	if c != nil && strings.TrimSpace(c.OllamaHost) != "" {
+		return strings.TrimSpace(c.OllamaHost)
+	}
+	return defaultOllamaHost
+}
+
+// EffectiveSidecarEndpoint returns the resolved endpoint URL for the sidecar model.
+func (c *Config) EffectiveSidecarEndpoint() string {
+	if c != nil && strings.TrimSpace(c.SidecarEndpoint) != "" {
+		return strings.TrimSpace(c.SidecarEndpoint)
+	}
+	return c.EffectiveModelEndpoint()
+}
+
+// IsModelOpenAI reports whether the main model endpoint uses the OpenAI-compatible protocol.
+func (c *Config) IsModelOpenAI() bool {
+	if c == nil {
+		return false
+	}
+	p := strings.ToLower(strings.TrimSpace(c.ModelProvider))
+	if p == "openai" || p == "openai-compatible" {
+		return true
+	}
+	if p == "ollama" {
+		return false
+	}
+	return IsOpenAIEndpoint(c.EffectiveModelEndpoint())
+}
+
+// IsSidecarOpenAI reports whether the sidecar model endpoint uses the OpenAI-compatible protocol.
+func (c *Config) IsSidecarOpenAI() bool {
+	if c == nil {
+		return false
+	}
+	p := strings.ToLower(strings.TrimSpace(c.SidecarProvider))
+	if p == "openai" || p == "openai-compatible" {
+		return true
+	}
+	if p == "ollama" {
+		return false
+	}
+	return IsOpenAIEndpoint(c.EffectiveSidecarEndpoint())
+}
+
+// IsOpenAIEndpoint reports whether an endpoint URL matches OpenAI-compatible (/v1) conventions.
+func IsOpenAIEndpoint(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	trimmed := strings.TrimRight(strings.ToLower(raw), "/")
+	if strings.HasSuffix(trimmed, "/v1") {
+		return true
+	}
+	u, err := url.Parse(raw)
+	if err == nil {
+		p := strings.TrimRight(strings.ToLower(u.Path), "/")
+		if strings.HasSuffix(p, "/v1") {
+			return true
+		}
+	}
+	return false
 }

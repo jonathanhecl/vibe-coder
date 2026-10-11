@@ -42,6 +42,9 @@ func (m *mockJevDecider) ClassifyCommit(ctx context.Context, diffSummary string)
 func (m *mockJevDecider) CheckThinkingLoop(ctx context.Context, thinkingText string) (bool, error) {
 	return false, nil
 }
+func (m *mockJevDecider) IsCommandNetworkAccess(ctx context.Context, command string) (bool, error) {
+	return false, nil
+}
 func (m *mockJevDecider) Enabled() bool {
 	return m.on
 }

@@ -3,6 +3,7 @@ package jevstyle
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,9 @@ func TestLiveJevstyleRemote(t *testing.T) {
 		Options:  []string{"Python", "Go", "Rust"},
 	})
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "model not found") {
+			t.Skipf("skipping live test: model not installed on remote host: %v", err)
+		}
 		t.Fatalf("live decide error: %v", err)
 	}
 

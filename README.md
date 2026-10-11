@@ -509,6 +509,27 @@ If you use PowerShell and want to run from source with the same flags:
 .\run.ps1 -model "qwen3.5:9b" -sidecar "qwen3.5:4b" -ollama-host "http://192.168.1.50:11434" -save
 ```
 
+### OpenAI-compatible endpoints (llama.cpp, vLLM, LM Studio, etc.)
+
+`vibe` natively supports OpenAI-compatible endpoints (`/v1`). You can configure independent endpoints for the main model and sidecar model. Any URL ending in `/v1` (such as `http://127.0.0.1:8080/v1`) is automatically detected as an OpenAI-compatible endpoint.
+
+Run with a custom endpoint via CLI:
+
+```bash
+vibe --endpoint http://127.0.0.1:8080/v1 --model my-model
+```
+
+Or configure via `vibe-coder.env`:
+
+```env
+MODEL=my-model
+MODEL_ENDPOINT=http://127.0.0.1:8080/v1
+
+# Optional: keep sidecar on local Ollama, or point it to another endpoint
+SIDECAR_MODEL=qwen3.5:4b
+SIDECAR_ENDPOINT=http://localhost:11434
+```
+
 ## CLI Flags
 
 - `--version` — print version and exit
@@ -517,7 +538,11 @@ If you use PowerShell and want to run from source with the same flags:
 - `-p, --prompt <text>` — one-shot prompt
 - `-i, --interactive` — interactive mode (combine with `-p` to send an initial prompt and keep chatting)
 - `-m, --model <name>` — model name
+- `--endpoint <url>` — main model endpoint URL (Ollama or OpenAI-compatible `/v1`, auto-detected; alias: `--model-endpoint`)
+- `--provider <name>` — main model provider (`ollama` or `openai`, auto-detected by default; alias: `--model-provider`)
 - `--sidecar <name>` — sidecar model name
+- `--sidecar-endpoint <url>` — sidecar model endpoint URL
+- `--sidecar-provider <name>` — sidecar model provider (`ollama` or `openai`)
 - `--no-sidecar` — disable sidecar for this session only; with `--save`, persists `SIDECAR_DISABLED=true`
 - `--jevstyle-model <name>` — JEV Style decision model name (alias: `--jevstyle <name>`)
 - `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)

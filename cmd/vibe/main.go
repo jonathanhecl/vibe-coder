@@ -18,6 +18,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/onboarding"
+	"github.com/jonathanhecl/vibe-coder/internal/openai"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
@@ -69,7 +70,10 @@ func main() {
 	// Args are redacted: --env values and other secrets must never land in the log.
 	logger.Infof("CLI args: %v", logger.RedactArgs(os.Args))
 	logger.Infof("ConfigDir: %s, ConfigFile: %s", cfg.ConfigDir, cfg.ConfigFile)
-	logger.Infof("OllamaHost: %s, Model: %s, UI: %s", cfg.OllamaHost, cfg.Model, cfg.UI)
+	logger.Infof("ModelEndpoint: %s (openai=%t), Model: %s, UI: %s", cfg.EffectiveModelEndpoint(), cfg.IsModelOpenAI(), cfg.Model, cfg.UI)
+	if cfg.SidecarInUse() {
+		logger.Infof("SidecarEndpoint: %s (openai=%t), SidecarModel: %s", cfg.EffectiveSidecarEndpoint(), cfg.IsSidecarOpenAI(), cfg.SidecarModel)
+	}
 	if strings.TrimSpace(cfg.JevstyleModel) != "" {
 		logger.Infof("JevstyleModel: %s", cfg.JevstyleModel)
 	}
@@ -106,10 +110,17 @@ func main() {
 		logger.Infof("Onboarding flow completed successfully.")
 	}
 
-	client := ollama.NewHTTP(cfg.OllamaHost)
+	client := createLLMClient(cfg.EffectiveModelEndpoint(), cfg.ModelApiKey, cfg.IsModelOpenAI())
+	var sideClient ollama.Client
+	if cfg.EffectiveSidecarEndpoint() == cfg.EffectiveModelEndpoint() && cfg.IsSidecarOpenAI() == cfg.IsModelOpenAI() {
+		sideClient = client
+	} else {
+		sideClient = createLLMClient(cfg.EffectiveSidecarEndpoint(), cfg.SidecarApiKey, cfg.IsSidecarOpenAI())
+	}
+
 	sess := session.New(cfg)
 	sess.SetClient(client)
-	resolveVisionSupport(cfg, client)
+	resolveVisionSupport(cfg, client, sideClient)
 	ctxStore := contextfiles.NewStore()
 	preloadSessionContexts(cfg, ctxStore)
 	ui, err := tui.NewFromMode(cfg)
@@ -136,7 +147,7 @@ func main() {
 	}
 	// One shared sidecar pool for the agent and the DescribeImage tool so
 	// vision second-opinions respect the same load controls as summaries.
-	sidePool := sidecar.New(cfg, client)
+	sidePool := sidecar.New(cfg, sideClient)
 	if cfg.JevstyleInUse() {
 		sidePool.SetJevstyle(jevClient)
 	}
@@ -321,10 +332,21 @@ func resolveSession(cfg *config.Config, sess *session.Session) (bool, error) {
 	return false, nil
 }
 
+func createLLMClient(endpoint, apiKey string, isOpenAI bool) ollama.Client {
+	if isOpenAI {
+		var opts []openai.Option
+		if apiKey != "" {
+			opts = append(opts, openai.WithAPIKey(apiKey))
+		}
+		return openai.New(endpoint, opts...)
+	}
+	return ollama.NewHTTP(endpoint)
+}
+
 // resolveVisionSupport detects once, at startup, whether the active model
 // advertises vision capability. It is best-effort: on any failure the agent
 // runs with VisionKnown=false and stays honest about trying.
-func resolveVisionSupport(cfg *config.Config, client ollama.Client) {
+func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients ...ollama.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	models, err := client.Tags(ctx)
@@ -347,6 +369,23 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client) {
 		cfg.ToolsByModel[name] = m.SupportsTools()
 	}
 	probeModelCapabilities(ctx, cfg, client, models)
+	for _, extra := range extraClients {
+		if extra == nil || extra == client || strings.TrimSpace(cfg.SidecarModel) == "" {
+			continue
+		}
+		if extraModels, err := extra.Tags(ctx); err == nil {
+			for _, m := range extraModels {
+				name := strings.ToLower(strings.TrimSpace(m.Name))
+				if name == "" || !m.CapabilitiesKnown {
+					continue
+				}
+				cfg.VisionByModel[name] = m.SupportsVision()
+				cfg.ThinkingByModel[name] = m.SupportsThinking()
+				cfg.ToolsByModel[name] = m.SupportsTools()
+			}
+			probeModelCapabilities(ctx, cfg, extra, extraModels)
+		}
+	}
 	applyVisionForModel(cfg)
 	applyThinkingForModel(cfg)
 	applyToolsForModel(cfg)

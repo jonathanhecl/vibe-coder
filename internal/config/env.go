@@ -24,6 +24,24 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("OLLAMA_HOST")); v != "" {
 		cfg.OllamaHost = v
 	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL_ENDPOINT", "VIBE_CODER_ENDPOINT", "MODEL_ENDPOINT", "ENDPOINT")); v != "" {
+		cfg.ModelEndpoint = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL_API_KEY", "MODEL_API_KEY", "OPENAI_API_KEY")); v != "" {
+		cfg.ModelApiKey = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL_PROVIDER", "MODEL_PROVIDER", "PROVIDER")); v != "" {
+		cfg.ModelProvider = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_ENDPOINT", "SIDECAR_ENDPOINT")); v != "" {
+		cfg.SidecarEndpoint = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_API_KEY", "SIDECAR_API_KEY")); v != "" {
+		cfg.SidecarApiKey = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_PROVIDER", "SIDECAR_PROVIDER")); v != "" {
+		cfg.SidecarProvider = v
+	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL", "VIBEGO_MODEL")); v != "" {
 		cfg.Model = v
 	}

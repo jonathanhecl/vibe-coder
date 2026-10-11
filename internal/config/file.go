@@ -84,6 +84,18 @@ func applyConfigFile(cfg *Config, path string) error {
 			if b, ok := parseBoolish(value); ok {
 				cfg.SidecarDisabled = !b
 			}
+		case "MODEL_ENDPOINT", "ENDPOINT":
+			cfg.ModelEndpoint = value
+		case "MODEL_API_KEY":
+			cfg.ModelApiKey = value
+		case "MODEL_PROVIDER", "PROVIDER":
+			cfg.ModelProvider = value
+		case "SIDECAR_ENDPOINT":
+			cfg.SidecarEndpoint = value
+		case "SIDECAR_API_KEY":
+			cfg.SidecarApiKey = value
+		case "SIDECAR_PROVIDER":
+			cfg.SidecarProvider = value
 		case "OLLAMA_HOST":
 			cfg.OllamaHost = value
 		case "MAX_TOKENS":
@@ -155,6 +167,10 @@ func SaveModelSettings(cfg *Config) error {
 	updates := map[string]string{
 		"MODEL":                strings.TrimSpace(cfg.Model),
 		"SIDECAR_MODEL":        strings.TrimSpace(cfg.SidecarModel),
+		"MODEL_ENDPOINT":       strings.TrimSpace(cfg.ModelEndpoint),
+		"MODEL_PROVIDER":       strings.TrimSpace(cfg.ModelProvider),
+		"SIDECAR_ENDPOINT":     strings.TrimSpace(cfg.SidecarEndpoint),
+		"SIDECAR_PROVIDER":     strings.TrimSpace(cfg.SidecarProvider),
 		"JEVSTYLE_MODEL":       strings.TrimSpace(cfg.JevstyleModel),
 		"JEVSTYLE_V3_ENDPOINT": strings.TrimSpace(cfg.JevstyleV3Endpoint),
 		"ASSISTED_YES":         strconv.FormatBool(cfg.AssistedYes),
@@ -190,7 +206,7 @@ func SaveModelSettings(cfg *Config) error {
 		}
 		out = append(out, key+"="+value)
 	}
-	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "JEVSTYLE_MODEL", "JEVSTYLE_V3_ENDPOINT", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
+	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "MODEL_ENDPOINT", "MODEL_PROVIDER", "SIDECAR_ENDPOINT", "SIDECAR_PROVIDER", "JEVSTYLE_MODEL", "JEVSTYLE_V3_ENDPOINT", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
 		if seen[key] {
 			continue
 		}
