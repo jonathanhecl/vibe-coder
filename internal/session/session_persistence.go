@@ -276,6 +276,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	loaded := make([]Message, 0, 64)
 	var loadedID string
 	var pinned []string
+	var loadedWorkState []byte
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionLineBytes)
 	for scanner.Scan() {
@@ -286,8 +287,9 @@ func (s *Session) LoadIsolated() (bool, error) {
 		if strings.HasPrefix(line, `{"_meta":`) {
 			var wrapper struct {
 				Meta struct {
-					SessionID string   `json:"session_id"`
-					Pinned    []string `json:"pinned_contexts"`
+					SessionID string          `json:"session_id"`
+					Pinned    []string        `json:"pinned_contexts"`
+					WorkState json.RawMessage `json:"work_state"`
 				} `json:"_meta"`
 			}
 			if err := json.Unmarshal([]byte(line), &wrapper); err == nil {
@@ -295,6 +297,9 @@ func (s *Session) LoadIsolated() (bool, error) {
 					loadedID = sanitizeSessionID(wrapper.Meta.SessionID)
 				}
 				pinned = wrapper.Meta.Pinned
+				if len(wrapper.Meta.WorkState) > 0 {
+					loadedWorkState = append([]byte(nil), wrapper.Meta.WorkState...)
+				}
 			}
 			continue
 		}
@@ -317,6 +322,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	}
 	s.messages = loaded
 	s.pinnedContexts = pinned
+	s.workState = loadedWorkState
 	s.projectPath = cwd
 	s.recomputeTokenEstimate()
 	s.revision++
@@ -340,6 +346,8 @@ func (s *Session) ClearIsolated() error {
 		if err := os.WriteFile(path, []byte{}, 0o600); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("clear isolated session file: %w", err)
 		}
+		_ = os.Remove(filepath.Join(cwd, ".vibe-isolated-runs.jsonl"))
+		_ = os.RemoveAll(filepath.Join(cwd, ".vibe-isolated-media"))
 	}
 	s.mu.Lock()
 	s.lastSavedRevision = s.revision
@@ -353,6 +361,7 @@ func (s *Session) saveIsolated() error {
 	id := s.id
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
+	workState := append([]byte(nil), s.workState...)
 	rev := s.revision
 	savedRev := s.lastSavedRevision
 	s.mu.RUnlock()
@@ -371,12 +380,16 @@ func (s *Session) saveIsolated() error {
 	if err := writeAtomicFile(cfg.Cwd, "*.isolated.tmp", target, 0o600, func(w io.Writer) error {
 		writer := bufio.NewWriter(w)
 		enc := json.NewEncoder(writer)
+		metaMap := map[string]any{
+			"session_id":      id,
+			"project_path":    cfg.Cwd,
+			"pinned_contexts": pinned,
+		}
+		if len(workState) > 0 {
+			metaMap["work_state"] = json.RawMessage(workState)
+		}
 		meta := map[string]any{
-			"_meta": map[string]any{
-				"session_id":      id,
-				"project_path":    cfg.Cwd,
-				"pinned_contexts": pinned,
-			},
+			"_meta": metaMap,
 		}
 		if err := enc.Encode(meta); err != nil {
 			return fmt.Errorf("encode isolated metadata: %w", err)

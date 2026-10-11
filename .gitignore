@@ -48,7 +48,7 @@ e2e/**/work/
 doc/
 
 # Isolated sessions
-.vibe-isolated.jsonl
+.vibe-isolated*
 *.isolated.tmp
 .engram/
 .atl/

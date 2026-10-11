@@ -42,7 +42,11 @@ type Stats struct {
 func NewEngine(cfg *config.Config, cli ollama.Client) (*Engine, error) {
 	dbPath := cfg.RAGPath
 	if strings.TrimSpace(dbPath) == "" {
-		dbPath = filepath.Join(cfg.StateDir, "rag.db")
+		if cfg.Isolated && strings.TrimSpace(cfg.Cwd) != "" {
+			dbPath = filepath.Join(cfg.Cwd, ".vibe-isolated-rag.db")
+		} else {
+			dbPath = filepath.Join(cfg.StateDir, "rag.db")
+		}
 	}
 	if !filepath.IsAbs(dbPath) {
 		abs, err := filepath.Abs(dbPath)

@@ -541,11 +541,12 @@ func TestIsolatedSessionLifecycle(t *testing.T) {
 		t.Fatal("expected HasIsolatedSession to be false initially")
 	}
 
-	// 2. Create and save isolated session
+	// 2. Create and save isolated session with work state
 	s := New(cfg)
 	initialID := s.ID()
 	s.AddUser("first isolated message")
 	s.AddAssistant("isolated reply")
+	s.SetWorkState([]byte(`{"task":"isolated"}`))
 
 	if err := s.Save(); err != nil {
 		t.Fatalf("save isolated session: %v", err)
@@ -566,6 +567,16 @@ func TestIsolatedSessionLifecycle(t *testing.T) {
 		t.Fatalf("expected 0 files in global sessionsDir, found %d", len(globalFiles))
 	}
 
+	// Create dummy isolated run log and media directory to test cleanup
+	isoRunLog := filepath.Join(projectDir, ".vibe-isolated-runs.jsonl")
+	if err := os.WriteFile(isoRunLog, []byte("run log"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	isoMediaDir := filepath.Join(projectDir, ".vibe-isolated-media")
+	if err := os.MkdirAll(isoMediaDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
 	// 3. LoadIsolated into fresh session
 	s2 := New(cfg)
 	ok, err := s2.LoadIsolated()
@@ -581,8 +592,11 @@ func TestIsolatedSessionLifecycle(t *testing.T) {
 	if s2.MessageCount() != 2 {
 		t.Fatalf("expected 2 messages, got %d", s2.MessageCount())
 	}
+	if string(s2.WorkState()) != `{"task":"isolated"}` {
+		t.Fatalf("expected preserved work state, got %s", string(s2.WorkState()))
+	}
 
-	// 4. ClearIsolated truncates file and resets memory
+	// 4. ClearIsolated truncates file and resets memory, and cleans up run log and media
 	if err := s2.ClearIsolated(); err != nil {
 		t.Fatalf("clear isolated: %v", err)
 	}
@@ -601,6 +615,12 @@ func TestIsolatedSessionLifecycle(t *testing.T) {
 	}
 	if HasIsolatedSession(projectDir) {
 		t.Fatal("expected HasIsolatedSession to be false after file truncated")
+	}
+	if _, err := os.Stat(isoRunLog); !os.IsNotExist(err) {
+		t.Fatalf("expected isolated run log to be removed after clear, got %v", err)
+	}
+	if _, err := os.Stat(isoMediaDir); !os.IsNotExist(err) {
+		t.Fatalf("expected isolated media dir to be removed after clear, got %v", err)
 	}
 }
 

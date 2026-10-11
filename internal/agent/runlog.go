@@ -26,13 +26,24 @@ type runLogEntry struct {
 }
 
 // RunLogPath returns the per-session JSONL run-log path, or "" when the state
-// directory is unavailable (e.g. in tests).
+// directory is unavailable (e.g. in tests) or when logging is suppressed
+// (e.g. temporal sessions).
 func (a *Agent) RunLogPath() string {
-	if a == nil || a.cfg == nil {
+	if a == nil || a.cfg == nil || a.sess == nil {
 		return ""
 	}
+	if a.cfg.Temporal {
+		return ""
+	}
+	if a.cfg.Isolated {
+		cwd := strings.TrimSpace(a.cfg.Cwd)
+		if cwd == "" {
+			return ""
+		}
+		return filepath.Join(cwd, ".vibe-isolated-runs.jsonl")
+	}
 	dir := strings.TrimSpace(a.cfg.StateDir)
-	if dir == "" || a.sess == nil {
+	if dir == "" {
 		return ""
 	}
 	return filepath.Join(dir, "runs", safeRunLogName(a.sess.ID())+".jsonl")

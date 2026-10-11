@@ -141,7 +141,9 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 	// can complete within the per-turn iteration budget).
 	if ag.MissionSnapshot().Status != "" {
 		ag.LogMissionTurn(err)
-		fmt.Fprintf(os.Stdout, "[mission] run log: %s\n", ag.RunLogPath())
+		if logPath := ag.RunLogPath(); logPath != "" {
+			fmt.Fprintf(os.Stdout, "[mission] run log: %s\n", logPath)
+		}
 	}
 	emptyStreak := 0
 	idleStreak := 0

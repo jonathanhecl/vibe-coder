@@ -2,6 +2,8 @@ package slash
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/clipboard"
@@ -78,6 +80,20 @@ func noteUserProvidedPaths(c *Ctx, content *clipboard.Content) {
 func clipboardMediaDir(c *Ctx) string {
 	if c == nil || c.Cfg == nil || c.Session == nil {
 		return ""
+	}
+	if c.Cfg.Temporal {
+		return ""
+	}
+	if c.Cfg.Isolated {
+		cwd := strings.TrimSpace(c.Cfg.Cwd)
+		if cwd == "" {
+			return ""
+		}
+		dir := filepath.Join(cwd, ".vibe-isolated-media", c.Session.ID())
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return ""
+		}
+		return dir
 	}
 	dir, err := session.EnsureMediaDir(c.Cfg.SessionsDir, c.Session.ID())
 	if err != nil {

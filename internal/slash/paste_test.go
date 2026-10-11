@@ -109,6 +109,46 @@ func TestClipboardMediaDir_FallsBackToEmpty(t *testing.T) {
 	}
 }
 
+func TestClipboardMediaDir_Isolated(t *testing.T) {
+	cwd := t.TempDir()
+	sessionsDir := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         cwd,
+		SessionsDir: sessionsDir,
+		Isolated:    true,
+	}
+	sess := session.New(cfg)
+
+	dir := clipboardMediaDir(&Ctx{Cfg: cfg, Session: sess})
+	want := filepath.Join(cwd, ".vibe-isolated-media", sess.ID())
+	if dir != want {
+		t.Errorf("clipboardMediaDir = %q, want %q", dir, want)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("expected isolated media dir to be created: %v", err)
+	}
+	// SessionsDir must NOT have any media directory created
+	if _, err := os.Stat(filepath.Join(sessionsDir, "media")); !os.IsNotExist(err) {
+		t.Errorf("expected no media in SessionsDir, but it was created")
+	}
+}
+
+func TestClipboardMediaDir_Temporal(t *testing.T) {
+	cwd := t.TempDir()
+	sessionsDir := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         cwd,
+		SessionsDir: sessionsDir,
+		Temporal:    true,
+	}
+	sess := session.New(cfg)
+
+	dir := clipboardMediaDir(&Ctx{Cfg: cfg, Session: sess})
+	if dir != "" {
+		t.Errorf("clipboardMediaDir for temporal session = %q, want empty fallback", dir)
+	}
+}
+
 // spyDecisionMaker records the runtime context note the permission layer sends
 // to the decision model.
 type spyDecisionMaker struct {
