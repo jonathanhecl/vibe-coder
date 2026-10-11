@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -127,9 +128,11 @@ func TestOneShotPromptSmoke(t *testing.T) {
 	cmd := exec.Command("go", "run", "./cmd/vibe",
 		"--ollama-host", srv.URL,
 		"-m", "llama3.2:3b",
+		"--no-sidecar",
 		"-p", "say hi",
 	)
 	cmd.Dir = filepath.Clean("../..")
+	cmd.Env = append(os.Environ(), "VIBE_CODER_CONFIG=/dev/null", "CONFIG=/dev/null")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go run -p failed: %v\noutput: %s", err, string(out))

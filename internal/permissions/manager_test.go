@@ -24,8 +24,13 @@ func TestCheckSafeAndAskTools(t *testing.T) {
 	t.Parallel()
 
 	m := NewManager(&config.Config{YesMode: false})
-	if !m.Check("Read", map[string]any{"file_path": "/tmp/a.txt"}, nil) {
-		t.Fatalf("safe tool should be allowed by default")
+	inDomain := filepath.Join(m.WorkspaceDir(), "a.txt")
+	if !m.Check("Read", map[string]any{"file_path": inDomain}, nil) {
+		t.Fatalf("safe tool should be allowed by default in domain")
+	}
+	outDomain := filepath.Join(t.TempDir(), "outside.txt")
+	if m.Check("Read", map[string]any{"file_path": outDomain}, nil) {
+		t.Fatalf("out-of-domain safe tool should be denied without UI")
 	}
 	if !m.Check("TodoWrite", map[string]any{
 		"todos": []any{
@@ -34,10 +39,10 @@ func TestCheckSafeAndAskTools(t *testing.T) {
 	}, nil) {
 		t.Fatalf("TodoWrite should be treated as safe and allowed by default")
 	}
-	if m.Check("Write", map[string]any{"file_path": "/tmp/a.txt", "contents": "x"}, nil) {
+	if m.Check("Write", map[string]any{"file_path": inDomain, "contents": "x"}, nil) {
 		t.Fatalf("ask tool should be denied without UI and without -y")
 	}
-	if !m.Check("Write", map[string]any{"file_path": "/tmp/a.txt", "contents": "x"}, fakeUI{decision: tui.DecisionAllowOnce}) {
+	if !m.Check("Write", map[string]any{"file_path": inDomain, "contents": "x"}, fakeUI{decision: tui.DecisionAllowOnce}) {
 		t.Fatalf("ask tool should be allowed with positive UI decision")
 	}
 }

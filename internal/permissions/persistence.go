@@ -60,6 +60,20 @@ func (m *Manager) mergePersistentMap(raw map[string]string) {
 			continue
 		}
 		m.persistent[k] = v
+		if strings.HasPrefix(k, "out_domain:") {
+			p := strings.TrimPrefix(k, "out_domain:")
+			if v == "allow" {
+				if m.allowedOutDomain == nil {
+					m.allowedOutDomain = map[string]struct{}{}
+				}
+				m.allowedOutDomain[p] = struct{}{}
+			} else if v == "deny" {
+				if m.deniedOutDomain == nil {
+					m.deniedOutDomain = map[string]struct{}{}
+				}
+				m.deniedOutDomain[p] = struct{}{}
+			}
+		}
 	}
 }
 

@@ -74,5 +74,9 @@ func needsAlwaysConfirmBash(command string) bool {
 }
 
 func normalizeTool(tool string) string {
-	return strings.ToLower(strings.TrimSpace(tool))
+	trimmed := strings.TrimSpace(tool)
+	if strings.HasPrefix(trimmed, "out_domain:") {
+		return "out_domain:" + strings.TrimPrefix(trimmed, "out_domain:")
+	}
+	return strings.ToLower(trimmed)
 }

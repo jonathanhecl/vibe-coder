@@ -3,6 +3,7 @@ package permissions
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -71,6 +72,10 @@ type Manager struct {
 	deny             map[string]struct{}
 	file             string
 
+	workspaceDir     string
+	allowedOutDomain map[string]struct{}
+	deniedOutDomain  map[string]struct{}
+
 	persistent map[string]string
 
 	// unattended is set while an agent-managed mission is active. It auto-approves
@@ -93,7 +98,7 @@ type Manager struct {
 
 func NewManager(cfg *config.Config) *Manager {
 	var yesMode, assistedMode, offlineMode bool
-	var permFile string
+	var permFile, workspaceDir string
 	if cfg != nil {
 		yesMode = cfg.YesMode
 		offlineMode = cfg.Offline
@@ -101,16 +106,28 @@ func NewManager(cfg *config.Config) *Manager {
 			assistedMode = cfg.AssistedYes
 		}
 		permFile = cfg.PermFile
+		workspaceDir = cfg.Cwd
+	}
+	if workspaceDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			workspaceDir = cwd
+		}
+	}
+	if abs, err := filepath.Abs(workspaceDir); err == nil {
+		workspaceDir = filepath.Clean(abs)
 	}
 	m := &Manager{
-		yesMode:      yesMode,
-		assistedMode: assistedMode,
-		offlineMode:  offlineMode,
-		allow:        map[string]struct{}{},
-		deny:         map[string]struct{}{},
-		file:         permFile,
-		persistent:   map[string]string{},
-		userProvided: map[string]string{},
+		yesMode:          yesMode,
+		assistedMode:     assistedMode,
+		offlineMode:      offlineMode,
+		workspaceDir:     workspaceDir,
+		allow:            map[string]struct{}{},
+		deny:             map[string]struct{}{},
+		allowedOutDomain: map[string]struct{}{},
+		deniedOutDomain:  map[string]struct{}{},
+		file:             permFile,
+		persistent:       map[string]string{},
+		userProvided:     map[string]string{},
 	}
 	m.loadPersistent()
 	return m
@@ -336,60 +353,121 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		}
 	}
 
-	if toolTier(tool) == TierSafe {
-		return true
+	targetPath := ToolTargetPath(toolName, params)
+	isOutDomain := targetPath != "" && !m.IsInsideDomain(targetPath)
+	if isOutDomain && m.IsUserProvidedPath(targetPath) {
+		isOutDomain = false
 	}
-	command, _ := params["command"].(string)
-	alwaysConfirm := (tool == "bash" || tool == "interactivebash") && needsAlwaysConfirmBash(command)
-	if unattended {
-		// An unattended mission must never block on a prompt. Dangerous commands
-		// are denied (not prompted) so the agent receives a denial and can adapt
-		// or call MissionBlocked instead of hanging forever.
-		if alwaysConfirm {
-			return false
-		}
-		return true
+	if isOutDomain && m.IsOutDomainAllowed(targetPath) {
+		isOutDomain = false
 	}
-	if !alwaysConfirm && (allowed || pRule == "allow" || yesMode) {
-		return true
+	if isOutDomain && m.IsOutDomainBlocked(targetPath) {
+		m.mu.Lock()
+		m.lastDenialReason = "Blocked: path is outside workspace domain and access was denied."
+		m.mu.Unlock()
+		return false
 	}
 
-	// Assisted execution mode: a SafetyDecider (e.g. JEV Style) reviews every
-	// action that would otherwise prompt (shell commands, network tools, file
-	// mutations, unknown/MCP tools) and auto-approves it when safe. Mandatory
-	// confirmations (always-confirm shell patterns) and safe-tier tools keep
-	// their existing paths.
-	if assistedMode && !alwaysConfirm {
-		if tool == "bash" || tool == "interactivebash" {
-			if m.assistedCommandApproved(ui, safetyDecider, toolName, command) {
-				return true
+	command, _ := params["command"].(string)
+	alwaysConfirm := (tool == "bash" || tool == "interactivebash") && needsAlwaysConfirmBash(command)
+
+	if !isOutDomain {
+		if toolTier(tool) == TierSafe {
+			return true
+		}
+		if unattended {
+			// An unattended mission must never block on a prompt. Dangerous commands
+			// are denied (not prompted) so the agent receives a denial and can adapt
+			// or call MissionBlocked instead of hanging forever.
+			if alwaysConfirm {
+				return false
 			}
-		} else if toolTier(tool) != TierSafe {
-			if m.assistedActionApproved(ui, safetyDecider, toolName, params) {
-				return true
+			return true
+		}
+		if !alwaysConfirm && (allowed || pRule == "allow" || yesMode) {
+			return true
+		}
+
+		// Assisted execution mode: a SafetyDecider (e.g. JEV Style) reviews every
+		// action that would otherwise prompt (shell commands, network tools, file
+		// mutations, unknown/MCP tools) and auto-approves it when safe. Mandatory
+		// confirmations (always-confirm shell patterns) and safe-tier tools keep
+		// their existing paths.
+		if assistedMode && !alwaysConfirm {
+			if tool == "bash" || tool == "interactivebash" {
+				if m.assistedCommandApproved(ui, safetyDecider, toolName, command) {
+					return true
+				}
+			} else if toolTier(tool) != TierSafe {
+				if m.assistedActionApproved(ui, safetyDecider, toolName, params) {
+					return true
+				}
 			}
+		}
+	} else {
+		// Out-of-domain target: requires explicit user confirmation.
+		// Never treated as TierSafe or auto-approved by in-domain session tool allow.
+		if unattended {
+			if alwaysConfirm {
+				return false
+			}
+			return true
+		}
+		if yesMode && !alwaysConfirm {
+			return true
 		}
 	}
 
 	// Keep prompting below.
 	if ui == nil {
+		m.mu.Lock()
+		if isOutDomain {
+			m.lastDenialReason = "Permission denied: cannot access path outside workspace domain without user confirmation."
+		}
+		m.mu.Unlock()
 		return false
 	}
-	decision := ui.AskPermission(toolName, params)
+
+	promptParams := params
+	if isOutDomain {
+		promptParams = make(map[string]any, len(params)+1)
+		for k, v := range params {
+			promptParams[k] = v
+		}
+		promptParams["domain_warning"] = fmt.Sprintf("path is outside workspace domain (%s)", m.WorkspaceDir())
+	}
+
+	decision := ui.AskPermission(toolName, promptParams)
 	switch decision {
 	case tui.DecisionAllowOnce:
 		return true
 	case tui.DecisionAllowSession:
-		m.AllowSession(tool)
+		if isOutDomain {
+			m.AllowOutDomainSession(targetPath)
+		} else {
+			m.AllowSession(tool)
+		}
 		return true
 	case tui.DecisionAllowPersistent:
-		m.AllowAll(tool)
+		if isOutDomain {
+			m.AllowOutDomainPersistent(targetPath)
+		} else {
+			m.AllowAll(tool)
+		}
 		return true
 	case tui.DecisionDenySession:
-		m.DenySession(tool)
+		if isOutDomain {
+			m.DenyOutDomainSession(targetPath)
+		} else {
+			m.DenySession(tool)
+		}
 		return false
 	case tui.DecisionDenyPersistent:
-		m.DenyAll(tool)
+		if isOutDomain {
+			m.DenyOutDomainPersistent(targetPath)
+		} else {
+			m.DenyAll(tool)
+		}
 		return false
 	case tui.DecisionYesMode:
 		m.SetYesMode(true)
@@ -400,6 +478,11 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		m.mu.Unlock()
 		return false
 	default:
+		if isOutDomain {
+			m.mu.Lock()
+			m.lastDenialReason = "Permission denied: access to path outside workspace domain was rejected by user."
+			m.mu.Unlock()
+		}
 		return false
 	}
 }

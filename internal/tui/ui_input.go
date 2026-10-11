@@ -375,6 +375,8 @@ func writePermissionPayloadLine(b *strings.Builder, st Style, line string) {
 	switch {
 	case strings.HasPrefix(line, "ACTION") || strings.HasPrefix(line, "TARGET"):
 		b.WriteString(st.BoldCyan(line))
+	case strings.HasPrefix(line, "WARNING:") || strings.HasPrefix(line, "NOTE:"):
+		b.WriteString(st.BoldYellow(line))
 	case strings.HasPrefix(line, "FILE:"):
 		b.WriteString(st.BrightBlue(line))
 	case strings.HasPrefix(line, "LINES:"):

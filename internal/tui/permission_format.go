@@ -49,6 +49,9 @@ func permissionPayloadLines(tool string, params map[string]any) []string {
 
 func permissionPayloadEdit(params map[string]any) []string {
 	out := []string{"ACTION Edit"}
+	if dw, _ := params["domain_warning"].(string); dw != "" {
+		out = append(out, "WARNING: "+dw)
+	}
 	fp, _ := params["file_path"].(string)
 	if fp != "" {
 		out = append(out, "FILE: "+compactPath(fp))
@@ -112,6 +115,9 @@ func asPermissionInt(value any) int {
 
 func permissionPayloadWrite(params map[string]any) []string {
 	out := []string{"ACTION Write"}
+	if dw, _ := params["domain_warning"].(string); dw != "" {
+		out = append(out, "WARNING: "+dw)
+	}
 	fp, _ := params["file_path"].(string)
 	if fp != "" {
 		out = append(out, "FILE: "+compactPath(fp))
@@ -147,8 +153,14 @@ func permissionPayloadGeneric(tool string, params map[string]any) []string {
 	if len(params) == 0 {
 		return out
 	}
+	if dw, _ := params["domain_warning"].(string); dw != "" {
+		out = append(out, "WARNING: "+dw)
+	}
 	keys := make([]string, 0, len(params))
 	for k := range params {
+		if k == "domain_warning" {
+			continue
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
