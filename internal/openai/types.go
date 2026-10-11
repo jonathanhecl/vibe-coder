@@ -109,8 +109,18 @@ type modelsResponse struct {
 }
 
 type modelData struct {
-	ID     string `json:"id"`
-	Object string `json:"object"`
+	ID           string             `json:"id"`
+	Object       string             `json:"object"`
+	Architecture *modelArchitecture `json:"architecture,omitempty"`
+	Modalities   []string           `json:"modalities,omitempty"`
+	Capabilities []string           `json:"capabilities,omitempty"`
+	Meta         map[string]any     `json:"meta,omitempty"`
+}
+
+type modelArchitecture struct {
+	Modality         string   `json:"modality,omitempty"`
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
 }
 
 type apiError struct {

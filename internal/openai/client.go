@@ -50,6 +50,7 @@ type Client struct {
 
 	mu                  sync.Mutex
 	toolsDisabledModels map[string]bool
+	modelsCache         map[string]modelData
 }
 
 // New creates an OpenAI-compatible client.
@@ -66,6 +67,7 @@ func New(baseURL string, opts ...Option) *Client {
 			Timeout: defaultHTTPTimeout,
 		},
 		toolsDisabledModels: make(map[string]bool),
+		modelsCache:         make(map[string]modelData),
 	}
 
 	for _, opt := range opts {
@@ -365,38 +367,159 @@ func (c *Client) Tags(ctx context.Context) ([]ollama.Model, error) {
 		return nil, fmt.Errorf("decode models response: %w", err)
 	}
 
+	c.mu.Lock()
+	if c.modelsCache == nil {
+		c.modelsCache = make(map[string]modelData)
+	}
+	for _, m := range parsed.Data {
+		name := strings.TrimSpace(m.ID)
+		if name != "" {
+			c.modelsCache[strings.ToLower(name)] = m
+		}
+	}
+	c.mu.Unlock()
+
 	out := make([]ollama.Model, 0, len(parsed.Data))
 	for _, m := range parsed.Data {
 		name := strings.TrimSpace(m.ID)
 		if name == "" {
 			continue
 		}
-		caps := []string{"tools", "thinking"}
-		nameLower := strings.ToLower(name)
-		if strings.Contains(nameLower, "vision") || strings.Contains(nameLower, "vl") || strings.Contains(nameLower, "omni") || strings.Contains(nameLower, "4o") {
-			caps = append(caps, "vision")
-		}
+		caps, known := detectModelCapabilities(m)
 		out = append(out, ollama.Model{
 			Name:              name,
 			Capabilities:      caps,
-			CapabilitiesKnown: true,
+			CapabilitiesKnown: known,
 		})
 	}
 	return out, nil
 }
 
-// Show reports capability metadata for the requested model.
-func (c *Client) Show(_ context.Context, model string) (ollama.Model, error) {
-	name := strings.TrimSpace(model)
-	caps := []string{"tools", "thinking"}
-	nameLower := strings.ToLower(name)
-	if strings.Contains(nameLower, "vision") || strings.Contains(nameLower, "vl") || strings.Contains(nameLower, "omni") || strings.Contains(nameLower, "4o") {
-		caps = append(caps, "vision")
+var visionKeywords = []string{
+	"vision", "vl", "omni", "4o", "llava", "bakllava", "moondream",
+	"minicpm-v", "cogvlm", "internvl", "pixtral", "florence", "smolvlm",
+}
+
+// detectModelCapabilities checks whether a model advertises vision capability.
+// It prioritizes architecture input_modalities (e.g. llama.cpp / vLLM {"input_modalities": ["text", "image"]}),
+// modalities arrays, capabilities metadata, and known model name heuristics.
+//
+// When vision capability is explicitly verified or refuted by metadata, known is true.
+// When known vision keywords match the model name, known is true.
+// When no capability metadata is present and the name is unrecognized, known is false
+// (unknown capability), which avoids falsely disabling vision.
+func detectModelCapabilities(m modelData) (caps []string, known bool) {
+	caps = []string{"tools", "thinking"}
+
+	// 1. Architecture input_modalities (llama.cpp, vLLM, etc.)
+	if m.Architecture != nil {
+		if len(m.Architecture.InputModalities) > 0 {
+			for _, mod := range m.Architecture.InputModalities {
+				modLower := strings.ToLower(strings.TrimSpace(mod))
+				if modLower == "image" || modLower == "vision" || strings.Contains(modLower, "image") || strings.Contains(modLower, "vision") {
+					caps = append(caps, "vision")
+					return caps, true
+				}
+			}
+			// input_modalities was explicitly provided and does not contain image/vision
+			return caps, true
+		}
+		if m.Architecture.Modality != "" {
+			modLower := strings.ToLower(strings.TrimSpace(m.Architecture.Modality))
+			if strings.Contains(modLower, "vision") || strings.Contains(modLower, "image") || strings.Contains(modLower, "multimodal") {
+				caps = append(caps, "vision")
+				return caps, true
+			}
+		}
 	}
+
+	// 2. Modalities list
+	if len(m.Modalities) > 0 {
+		for _, mod := range m.Modalities {
+			modLower := strings.ToLower(strings.TrimSpace(mod))
+			if modLower == "image" || modLower == "vision" || strings.Contains(modLower, "image") || strings.Contains(modLower, "vision") {
+				caps = append(caps, "vision")
+				return caps, true
+			}
+		}
+		return caps, true
+	}
+
+	// 3. Capabilities list
+	if len(m.Capabilities) > 0 {
+		for _, cap := range m.Capabilities {
+			capLower := strings.ToLower(strings.TrimSpace(cap))
+			if capLower == "vision" || strings.Contains(capLower, "vision") || strings.Contains(capLower, "image") {
+				caps = append(caps, "vision")
+				return caps, true
+			}
+		}
+	}
+
+	// 4. Meta map
+	if m.Meta != nil {
+		if v, ok := m.Meta["vision"].(bool); ok {
+			if v {
+				caps = append(caps, "vision")
+			}
+			return caps, true
+		}
+	}
+
+	// 5. Name-based heuristics for widely known vision models
+	nameLower := strings.ToLower(m.ID)
+	for _, kw := range visionKeywords {
+		if strings.Contains(nameLower, kw) {
+			caps = append(caps, "vision")
+			return caps, true
+		}
+	}
+
+	// 6. Unknown: no architecture or capability metadata was returned, and name is not recognized.
+	// Returning known=false signals to vibe that vision capability could not be determined,
+	// so it should not disable vision or tell the model it cannot see.
+	return caps, false
+}
+
+// Show reports capability metadata for the requested model.
+func (c *Client) Show(ctx context.Context, model string) (ollama.Model, error) {
+	name := strings.TrimSpace(model)
+	if name == "" {
+		return ollama.Model{}, errors.New("model name is required")
+	}
+
+	key := strings.ToLower(name)
+	c.mu.Lock()
+	cached, ok := c.modelsCache[key]
+	c.mu.Unlock()
+
+	if !ok {
+		// If name alone already determines capability (e.g. qwen-vl-max), use it immediately.
+		if caps, known := detectModelCapabilities(modelData{ID: name}); known {
+			return ollama.Model{
+				Name:              name,
+				Capabilities:      caps,
+				CapabilitiesKnown: known,
+			}, nil
+		}
+		// Attempt to populate cache from Tags if empty, with a short timeout
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if tags, err := c.Tags(probeCtx); err == nil {
+			for _, m := range tags {
+				if strings.EqualFold(m.Name, name) {
+					return m, nil
+				}
+			}
+		}
+		cached = modelData{ID: name}
+	}
+
+	caps, known := detectModelCapabilities(cached)
 	return ollama.Model{
 		Name:              name,
 		Capabilities:      caps,
-		CapabilitiesKnown: true,
+		CapabilitiesKnown: known,
 	}, nil
 }
 

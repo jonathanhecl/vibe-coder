@@ -346,7 +346,14 @@ func (s *Session) ReadOutput(timeout time.Duration) (string, bool) {
 	}
 
 	s.mu.Lock()
-	result := s.outputBuf.String()[s.readPos:readPos]
+	bufStr := s.outputBuf.String()
+	if readPos > len(bufStr) {
+		readPos = len(bufStr)
+	}
+	if s.readPos > readPos {
+		s.readPos = readPos
+	}
+	result := bufStr[s.readPos:readPos]
 	s.readPos = readPos
 	stillRunning := !s.exited
 	s.mu.Unlock()
@@ -358,7 +365,11 @@ func (s *Session) ReadOutput(timeout time.Duration) (string, bool) {
 func (s *Session) FinalOutput() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.outputBuf.String()[s.readPos:]
+	bufStr := s.outputBuf.String()
+	if s.readPos > len(bufStr) {
+		s.readPos = len(bufStr)
+	}
+	return bufStr[s.readPos:]
 }
 
 // Terminate kills the session's process gracefully (interrupt on Unix, kill on

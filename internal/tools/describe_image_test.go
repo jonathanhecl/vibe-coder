@@ -143,3 +143,46 @@ func TestDescribeImageFailsHonestly(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribeImageSidecarFailsFallsBackToMain(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "photo.png")
+	writeDescribeToolImage(t, path)
+	cfg := &config.Config{
+		Model: "llava", VisionKnown: true, VisionAvailable: true,
+		SidecarModel: "moondream", SidecarVisionKnown: true, SidecarVisionAvailable: true,
+	}
+	fc := &mockRoutingVisionClient{
+		sidecarErr: errors.New("dial tcp 192.168.0.33:80: connect: connection refused"),
+		mainReply:  "A dog from main model.",
+	}
+	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc))
+
+	res := tool.Execute(context.Background(), map[string]any{"file_path": path, "question": "What is this?"})
+	if res.IsError {
+		t.Fatalf("expected fallback to main model, got error: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "A dog from main model.") || !strings.Contains(res.Output, "llava") {
+		t.Fatalf("expected main-model fallback answer, got %q", res.Output)
+	}
+}
+
+type mockRoutingVisionClient struct {
+	sidecarErr error
+	mainReply  string
+}
+
+func (m *mockRoutingVisionClient) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	return nil, errors.New("not used")
+}
+func (m *mockRoutingVisionClient) ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.ChatResponse, error) {
+	if req.Model == "moondream" {
+		return ollama.ChatResponse{}, m.sidecarErr
+	}
+	return ollama.ChatResponse{Content: m.mainReply}, nil
+}
+func (m *mockRoutingVisionClient) Tags(ctx context.Context) ([]ollama.Model, error) { return nil, nil }
+func (m *mockRoutingVisionClient) Version(ctx context.Context) (string, error)     { return "", nil }
+func (m *mockRoutingVisionClient) Pull(ctx context.Context, model string, p func(ollama.PullEvent)) error {
+	return errors.New("not used")
+}

@@ -78,10 +78,17 @@ func (t *DescribeImageTool) Execute(ctx context.Context, params map[string]any) 
 
 	if t.sidecarMaySee() {
 		desc, err := t.pool.DescribeImage(ctx, path, question)
-		if err != nil {
-			return errResult(fmt.Sprintf("sidecar vision failed: %v", err))
+		if err == nil {
+			return Result{Output: fmt.Sprintf("Visual answer from %s about %s:\n%s", t.cfg.SidecarModel, filepath.Base(path), desc)}
 		}
-		return Result{Output: fmt.Sprintf("Visual answer from %s about %s:\n%s", t.cfg.SidecarModel, filepath.Base(path), desc)}
+		if t.mainMaySee() {
+			descMain, errMain := describeWithMain(ctx, t.client, t.cfg, path, question)
+			if errMain == nil {
+				return Result{Output: fmt.Sprintf("Visual answer from %s about %s:\n%s", t.cfg.Model, filepath.Base(path), descMain)}
+			}
+			return errResult(fmt.Sprintf("sidecar vision failed (%v), and main model fallback failed: %v", err, errMain))
+		}
+		return errResult(fmt.Sprintf("sidecar vision failed: %v", err))
 	}
 	if t.mainMaySee() {
 		desc, err := describeWithMain(ctx, t.client, t.cfg, path, question)

@@ -349,26 +349,32 @@ func createLLMClient(endpoint, apiKey string, isOpenAI bool) ollama.Client {
 func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients ...ollama.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	if cfg.VisionByModel == nil {
+		cfg.VisionByModel = make(map[string]bool)
+	}
+	if cfg.ThinkingByModel == nil {
+		cfg.ThinkingByModel = make(map[string]bool)
+	}
+	if cfg.ToolsByModel == nil {
+		cfg.ToolsByModel = make(map[string]bool)
+	}
 	models, err := client.Tags(ctx)
 	if err != nil {
-		logger.Infof("Vision detection skipped (tags failed): %v", err)
-		return
-	}
-	cfg.VisionByModel = make(map[string]bool, len(models))
-	cfg.ThinkingByModel = make(map[string]bool, len(models))
-	cfg.ToolsByModel = make(map[string]bool, len(models))
-	for _, m := range models {
-		name := strings.ToLower(strings.TrimSpace(m.Name))
-		// Absent capability metadata is "unknown", not "unsupported":
-		// recording false here would silently disable tools/vision.
-		if name == "" || !m.CapabilitiesKnown {
-			continue
+		logger.Infof("Vision detection skipped for main client (tags failed): %v", err)
+	} else {
+		for _, m := range models {
+			name := strings.ToLower(strings.TrimSpace(m.Name))
+			// Absent capability metadata is "unknown", not "unsupported":
+			// recording false here would silently disable tools/vision.
+			if name == "" || !m.CapabilitiesKnown {
+				continue
+			}
+			cfg.VisionByModel[name] = m.SupportsVision()
+			cfg.ThinkingByModel[name] = m.SupportsThinking()
+			cfg.ToolsByModel[name] = m.SupportsTools()
 		}
-		cfg.VisionByModel[name] = m.SupportsVision()
-		cfg.ThinkingByModel[name] = m.SupportsThinking()
-		cfg.ToolsByModel[name] = m.SupportsTools()
+		probeModelCapabilities(ctx, cfg, client, models)
 	}
-	probeModelCapabilities(ctx, cfg, client, models)
 	for _, extra := range extraClients {
 		if extra == nil || extra == client || strings.TrimSpace(cfg.SidecarModel) == "" {
 			continue
@@ -384,6 +390,8 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients
 				cfg.ToolsByModel[name] = m.SupportsTools()
 			}
 			probeModelCapabilities(ctx, cfg, extra, extraModels)
+		} else {
+			logger.Infof("Vision detection skipped for extra client (tags failed): %v", err)
 		}
 	}
 	applyVisionForModel(cfg)
@@ -392,7 +400,7 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients
 }
 
 // probeModelCapabilities resolves "unknown" capability state for the active
-// and sidecar models via /api/show. Other models stay unknown until used.
+// and sidecar models via Show. Other models stay unknown until used.
 func probeModelCapabilities(ctx context.Context, cfg *config.Config, client ollama.Client, models []ollama.Model) {
 	inspector, ok := client.(interface {
 		Show(context.Context, string) (ollama.Model, error)
@@ -406,23 +414,23 @@ func probeModelCapabilities(ctx context.Context, cfg *config.Config, client olla
 		if want == "" {
 			continue
 		}
-		m := ollama.MatchModel(models, want)
-		if m == nil || m.CapabilitiesKnown {
-			continue
-		}
-		key := strings.ToLower(m.Name)
+		key := strings.ToLower(want)
 		if probed[key] {
 			continue
 		}
+		// If capabilities for this model are already known, skip probing.
+		if _, known := ollama.LookupVision(cfg.VisionByModel, want); known {
+			continue
+		}
 		probed[key] = true
-		info, err := inspector.Show(ctx, m.Name)
+		info, err := inspector.Show(ctx, want)
 		if err != nil || !info.CapabilitiesKnown {
 			continue
 		}
 		cfg.VisionByModel[key] = info.SupportsVision()
 		cfg.ThinkingByModel[key] = info.SupportsThinking()
 		cfg.ToolsByModel[key] = info.SupportsTools()
-		logger.Infof("Capability probe for model %q via /api/show: vision=%t thinking=%t tools=%t",
+		logger.Infof("Capability probe for model %q via Show: vision=%t thinking=%t tools=%t",
 			key, info.SupportsVision(), info.SupportsThinking(), info.SupportsTools())
 	}
 }

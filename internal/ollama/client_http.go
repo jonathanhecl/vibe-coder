@@ -10,7 +10,7 @@ import (
 
 func NewHTTP(baseURL string) Client {
 	return &HTTPClient{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: NormalizeURL(baseURL),
 		http: &http.Client{
 			Timeout: defaultHTTPTimeout,
 		},

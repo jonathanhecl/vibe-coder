@@ -268,8 +268,7 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 	}
 }
 
-// EffectiveModelEndpoint returns the resolved endpoint URL for the main model.
-func (c *Config) EffectiveModelEndpoint() string {
+func (c *Config) rawModelEndpoint() string {
 	if c != nil && strings.TrimSpace(c.ModelEndpoint) != "" {
 		return strings.TrimSpace(c.ModelEndpoint)
 	}
@@ -279,12 +278,29 @@ func (c *Config) EffectiveModelEndpoint() string {
 	return defaultOllamaHost
 }
 
-// EffectiveSidecarEndpoint returns the resolved endpoint URL for the sidecar model.
-func (c *Config) EffectiveSidecarEndpoint() string {
+func (c *Config) rawSidecarEndpoint() string {
 	if c != nil && strings.TrimSpace(c.SidecarEndpoint) != "" {
 		return strings.TrimSpace(c.SidecarEndpoint)
 	}
-	return c.EffectiveModelEndpoint()
+	return c.rawModelEndpoint()
+}
+
+// EffectiveModelEndpoint returns the resolved endpoint URL for the main model.
+func (c *Config) EffectiveModelEndpoint() string {
+	raw := c.rawModelEndpoint()
+	if c != nil && !c.IsModelOpenAI() {
+		return ollama.NormalizeURL(raw)
+	}
+	return raw
+}
+
+// EffectiveSidecarEndpoint returns the resolved endpoint URL for the sidecar model.
+func (c *Config) EffectiveSidecarEndpoint() string {
+	raw := c.rawSidecarEndpoint()
+	if c != nil && !c.IsSidecarOpenAI() {
+		return ollama.NormalizeURL(raw)
+	}
+	return raw
 }
 
 // IsModelOpenAI reports whether the main model endpoint uses the OpenAI-compatible protocol.
@@ -299,7 +315,7 @@ func (c *Config) IsModelOpenAI() bool {
 	if p == "ollama" {
 		return false
 	}
-	return IsOpenAIEndpoint(c.EffectiveModelEndpoint())
+	return IsOpenAIEndpoint(c.rawModelEndpoint())
 }
 
 // IsSidecarOpenAI reports whether the sidecar model endpoint uses the OpenAI-compatible protocol.
@@ -314,7 +330,7 @@ func (c *Config) IsSidecarOpenAI() bool {
 	if p == "ollama" {
 		return false
 	}
-	return IsOpenAIEndpoint(c.EffectiveSidecarEndpoint())
+	return IsOpenAIEndpoint(c.rawSidecarEndpoint())
 }
 
 // IsOpenAIEndpoint reports whether an endpoint URL matches OpenAI-compatible (/v1) conventions.

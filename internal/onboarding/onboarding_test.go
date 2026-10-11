@@ -119,7 +119,8 @@ func TestNormalizeHost(t *testing.T) {
 		"https://ollama.example":      "https://ollama.example",
 		"mac-mini.local:11434":        "http://mac-mini.local:11434",
 		"192.168.1.50:11434":          "http://192.168.1.50:11434",
-		"  mac-mini.local  ":          "http://mac-mini.local",
+		"  mac-mini.local  ":          "http://mac-mini.local:11434",
+		"http://mac-mini.local":       "http://mac-mini.local:11434",
 		"":                            "",
 	}
 	for in, want := range cases {

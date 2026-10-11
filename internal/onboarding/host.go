@@ -76,17 +76,10 @@ func (w *wizard) selectHostAndModels(ctx context.Context, currentHost string) (s
 	}
 }
 
-// normalizeHost trims a user-entered host and adds the http:// scheme when it
-// is missing, so "mac-mini.local:11434" works as well as a full URL.
+// normalizeHost trims a user-entered host and adds the http:// scheme and Ollama default port 11434 when missing,
+// so "mac-mini.local" works as well as a full URL.
 func normalizeHost(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return value
-	}
-	if !strings.Contains(value, "://") {
-		value = "http://" + value
-	}
-	return value
+	return ollama.NormalizeURL(value)
 }
 
 func (w *wizard) retryHostPrompt(ctx context.Context) (bool, error) {

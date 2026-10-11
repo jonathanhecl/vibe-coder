@@ -380,3 +380,95 @@ func TestChatMultimodalMessage(t *testing.T) {
 		t.Errorf("unexpected content: %q", res.Content)
 	}
 }
+
+func TestTagsArchitectureInputModalities(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		resp := modelsResponse{
+			Object: "list",
+			Data: []modelData{
+				{
+					ID:     "custom-model",
+					Object: "model",
+					Architecture: &modelArchitecture{
+						InputModalities: []string{"text", "image"},
+					},
+				},
+				{
+					ID:     "text-only-model",
+					Object: "model",
+					Architecture: &modelArchitecture{
+						InputModalities: []string{"text"},
+					},
+				},
+				{
+					ID:         "modality-model",
+					Object:     "model",
+					Modalities: []string{"image"},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, WithHTTPClient(srv.Client()))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	models, err := client.Tags(ctx)
+	if err != nil {
+		t.Fatalf("Tags failed: %v", err)
+	}
+	if len(models) != 3 {
+		t.Fatalf("expected 3 models, got %d", len(models))
+	}
+
+	// custom-model has input_modalities: ["text", "image"] -> vision: yes
+	if !models[0].SupportsVision() || !models[0].CapabilitiesKnown {
+		t.Errorf("expected vision supported and known for custom-model, got %+v", models[0])
+	}
+
+	// text-only-model has input_modalities: ["text"] -> vision: no, but known
+	if models[1].SupportsVision() || !models[1].CapabilitiesKnown {
+		t.Errorf("expected vision unsupported and known for text-only-model, got %+v", models[1])
+	}
+
+	// modality-model has modalities: ["image"] -> vision: yes
+	if !models[2].SupportsVision() || !models[2].CapabilitiesKnown {
+		t.Errorf("expected vision supported and known for modality-model, got %+v", models[2])
+	}
+
+	// Show should return the cached capability accurately
+	showModel, err := client.Show(ctx, "custom-model")
+	if err != nil {
+		t.Fatalf("Show failed: %v", err)
+	}
+	if !showModel.SupportsVision() {
+		t.Errorf("expected Show on custom-model to support vision, got %+v", showModel)
+	}
+}
+
+func TestToDataURL(t *testing.T) {
+	if got := toDataURL("data:image/png;base64,abc"); got != "data:image/png;base64,abc" {
+		t.Errorf("unexpected data URL pass-through: %q", got)
+	}
+	if got := toDataURL("iVBORw0KGgoAAAANSUhEUgAAAAE="); !strings.HasPrefix(got, "data:image/png;base64,") {
+		t.Errorf("expected png mime, got %q", got)
+	}
+	if got := toDataURL("/9j/4AAQSkZJRg=="); !strings.HasPrefix(got, "data:image/jpeg;base64,") {
+		t.Errorf("expected jpeg mime, got %q", got)
+	}
+	if got := toDataURL("R0lGODlh"); !strings.HasPrefix(got, "data:image/gif;base64,") {
+		t.Errorf("expected gif mime, got %q", got)
+	}
+	if got := toDataURL("Qk02"); !strings.HasPrefix(got, "data:image/bmp;base64,") {
+		t.Errorf("expected bmp mime, got %q", got)
+	}
+	if got := toDataURL("UklGR"); !strings.HasPrefix(got, "data:image/webp;base64,") {
+		t.Errorf("expected webp mime, got %q", got)
+	}
+}

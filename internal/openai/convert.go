@@ -100,10 +100,7 @@ func buildChatRequest(req ollama.ChatRequest) (chatCompletionRequest, error) {
 					})
 				}
 				for _, img := range m.Images {
-					dataURL := img
-					if !strings.HasPrefix(dataURL, "data:") {
-						dataURL = "data:image/png;base64," + img
-					}
+					dataURL := toDataURL(img)
 					parts = append(parts, chatContentPart{
 						Type:     "image_url",
 						ImageURL: &chatImageURL{URL: dataURL},
@@ -235,4 +232,21 @@ func (s *streamAccumulator) buildToolCalls() []ollama.MessageToolCall {
 		})
 	}
 	return out
+}
+
+func toDataURL(img string) string {
+	if strings.HasPrefix(img, "data:") {
+		return img
+	}
+	mime := "image/jpeg"
+	if strings.HasPrefix(img, "iVBORw0KGgo") {
+		mime = "image/png"
+	} else if strings.HasPrefix(img, "R0lGOD") {
+		mime = "image/gif"
+	} else if strings.HasPrefix(img, "Qk") {
+		mime = "image/bmp"
+	} else if strings.HasPrefix(img, "UklGR") {
+		mime = "image/webp"
+	}
+	return fmt.Sprintf("data:%s;base64,%s", mime, img)
 }
