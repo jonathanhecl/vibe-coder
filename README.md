@@ -126,6 +126,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **Environment scrubbing** — shell tools and auto-tests run with `safety.CleanEnv()` to strip secrets.
 - **Plan mode** — `/plan` permits read-only tools and session task management; `Write`/`Edit` are restricted to `<cwd>/.vibe-coder/plans/`, without symlink paths. Shell commands, auto-tests, `NotebookEdit`, `GitUndo`, and unknown/MCP tool effects are blocked until act mode resumes.
 - **Review mode** — `/review <prompt>` permits read-only tools and session task management, with no file mutations or shell commands. Unknown/MCP tool effects are blocked by default.
+- **Offline mode** — `--offline` flag or `/offline` command blocks all network-tier tools (`WebSearch`, `WebFetch`, `HTTPRequest`) and external network shell commands (such as `curl`, `wget`, `git clone`, `npm install`), while permitting loopback/local requests (`localhost`, `127.0.0.1`, `::1`). Shell commands are evaluated by JEV Style when active or via regex heuristics.
 - **Delegated permissions** — sub-agents inherit the parent's tool availability, permission checks, and active mode. `allow_writes=true` only requests access; it does not grant approval. Child tool execution is serialized, including permission prompts, checkpoints, and auto-tests.
 
 ### TUI
@@ -521,6 +522,7 @@ If you use PowerShell and want to run from source with the same flags:
 - `--jevstyle-model <name>` — JEV Style decision model name (alias: `--jevstyle <name>`)
 - `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)
 - `--assisted-yes` — enable assisted execution mode with JEV Style (auto-approve safe commands, prompt for dangerous commands)
+- `--offline` — enable offline mode (blocks network tools and external commands while permitting localhost)
 - `--debug` — enable debug logs
 - `-n, --new` — start a new session (bypass automatic session resume for current directory)
 - `-t, --temporal, --temp` — start a temporal session (discards chat transcript on exit; keeps agent code changes)
@@ -610,7 +612,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status`, `/info`, `/stats` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, mission, context usage)
+- `/status`, `/info`, `/stats` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, offline mode, mission, context usage)
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
 - `/context replace <file...>` — drop all pinned files and pin these instead
@@ -653,6 +655,7 @@ Pinned context files are injected into the system prompt on every turn, so they 
 - `/mission start <goal>` — alias for `/goal <objective>`
 - `/mission done [summary]` — mark the active mission complete from your side (e.g. you did the work yourself)
 - `/mission cancel [reason]` — stop the mission without completing it (pauses the autonomous run)
+- `/offline [on|off|status]` — toggle or set offline mode; blocks network tools (`WebSearch`, `WebFetch`, `HTTPRequest`) and external shell commands (curl, wget, etc., verified via JEV Style or regex heuristics) while keeping `localhost` accessible
 
 ### Git
 

@@ -15,21 +15,23 @@ import (
 )
 
 type stubJevDecider struct {
-	dangerousResult    bool
-	dangerousErr       error
-	disambiguateResult string
-	disambiguateOk     bool
-	disambiguateErr    error
-	goalDoneResult     bool
-	goalDoneErr        error
-	failureClassResult string
-	failureClassErr    error
-	commitClassResult  string
-	commitClassErr     error
-	thinkingLoopResult bool
-	thinkingLoopErr    error
-	enabled            bool
-	model              string
+	dangerousResult     bool
+	dangerousErr        error
+	networkAccessResult bool
+	networkAccessErr    error
+	disambiguateResult  string
+	disambiguateOk      bool
+	disambiguateErr     error
+	goalDoneResult      bool
+	goalDoneErr         error
+	failureClassResult  string
+	failureClassErr     error
+	commitClassResult   string
+	commitClassErr      error
+	thinkingLoopResult  bool
+	thinkingLoopErr     error
+	enabled             bool
+	model               string
 }
 
 func (s *stubJevDecider) Decide(ctx context.Context, req jevstyle.DecisionRequest) (*jevstyle.DecisionResponse, error) {
@@ -43,6 +45,9 @@ func (s *stubJevDecider) DecideChoice(ctx context.Context, state, question strin
 }
 func (s *stubJevDecider) IsCommandDangerous(ctx context.Context, command string) (bool, error) {
 	return s.dangerousResult, s.dangerousErr
+}
+func (s *stubJevDecider) IsCommandNetworkAccess(ctx context.Context, command string) (bool, error) {
+	return s.networkAccessResult, s.networkAccessErr
 }
 func (s *stubJevDecider) DisambiguatePath(ctx context.Context, hint string, candidates []string) (string, bool, error) {
 	return s.disambiguateResult, s.disambiguateOk, s.disambiguateErr

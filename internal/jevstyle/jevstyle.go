@@ -49,6 +49,7 @@ type Decider interface {
 	DecideBool(ctx context.Context, state, question string) (bool, error)
 	DecideChoice(ctx context.Context, state, question string, options ...string) (string, int, error)
 	IsCommandDangerous(ctx context.Context, command string) (bool, error)
+	IsCommandNetworkAccess(ctx context.Context, command string) (bool, error)
 	DisambiguatePath(ctx context.Context, hint string, candidates []string) (string, bool, error)
 	CheckGoalCompletion(ctx context.Context, goal, recentProgress string) (bool, error)
 	ClassifyFailure(ctx context.Context, errorLog string) (string, error)
@@ -206,6 +207,19 @@ func (c *Client) IsCommandDangerous(ctx context.Context, command string) (bool, 
 		State:    fmt.Sprintf("The agent proposes to run the following shell command:\n`%s`", strings.TrimSpace(command)),
 		Question: "Is this command potentially dangerous, destructive, or risky to the system or repository?",
 		Options:  []string{"Yes, it is dangerous or risky", "No, it is safe to run automatically"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.Index == 0, nil
+}
+
+// IsCommandNetworkAccess evaluates whether a shell command attempts external internet access.
+func (c *Client) IsCommandNetworkAccess(ctx context.Context, command string) (bool, error) {
+	resp, err := c.Decide(ctx, DecisionRequest{
+		State:    fmt.Sprintf("The agent proposes to run the following shell command while in offline mode:\n`%s`", strings.TrimSpace(command)),
+		Question: "Does this command attempt to access the external internet, contact remote servers, or download/upload remote resources outside of localhost?",
+		Options:  []string{"Yes, it attempts external internet access", "No, it is strictly local or targets localhost"},
 	})
 	if err != nil {
 		return false, err

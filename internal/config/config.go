@@ -51,6 +51,8 @@ type Config struct {
 	// Isolated runs a folder-local session stored exclusively in <cwd>/.vibe-isolated.jsonl
 	// rather than in the global state sessions directory.
 	Isolated           bool
+	// Offline blocks external network tools and shell commands accessing the internet.
+	Offline            bool
 	SessionID          string
 	ListSessions       bool
 	Cwd                string
@@ -206,6 +208,7 @@ Flags:
   --jevstyle-v3-endpoint string   JEV Style v3 endpoint URL (e.g. http://192.168.0.33:8765)
   -y, --yes                 Enable yes mode
   --assisted-yes            Enable assisted execution mode with JEV Style (auto-approve safe commands)
+  --offline                 Enable offline mode (blocks network tools and external commands)
   --debug                   Enable debug logs
   -n, --new                 Start a new session (do not auto-resume previous session)
   --resume                  Resume last session for this project

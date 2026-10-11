@@ -65,8 +65,14 @@ func isCancelledByUser(rootCtx context.Context, err error) bool {
 }
 
 func permissionDeniedNote(m *permissions.Manager) string {
+	if m == nil {
+		return "Permission denied."
+	}
 	if m.WasCancelled() {
 		return "Cancelled."
+	}
+	if reason := m.LastDenialReason(); reason != "" {
+		return reason
 	}
 	return "Permission denied."
 }

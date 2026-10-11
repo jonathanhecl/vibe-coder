@@ -160,6 +160,16 @@ func statusRows(c *Ctx) []statusRow {
 			return st.Gray("off")
 		},
 	})
+	rows = append(rows, statusRow{
+		Label: "Offline",
+		Plain: offlineStatusValue(c),
+		Render: func(st tui.Style) string {
+			if offlineActive(c) {
+				return st.Yellow("enabled (network blocked)")
+			}
+			return st.Gray("disabled")
+		},
+	})
 
 	if c.Contexts != nil && c.Contexts.Has() {
 		rows = append(rows, statusRow{
@@ -234,6 +244,20 @@ func planModeValue(c *Ctx) string {
 	default:
 		return "off"
 	}
+}
+
+func offlineActive(c *Ctx) bool {
+	if c.Perm != nil {
+		return c.Perm.OfflineMode()
+	}
+	return c.Cfg != nil && c.Cfg.Offline
+}
+
+func offlineStatusValue(c *Ctx) string {
+	if offlineActive(c) {
+		return "enabled (network blocked)"
+	}
+	return "disabled"
 }
 
 // jevstyleStatusValue renders the configured JEV Style target for /info,

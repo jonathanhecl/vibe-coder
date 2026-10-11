@@ -83,6 +83,7 @@ type promptCache struct {
 	cacheReview   bool
 	cacheMission  string
 	cacheProgress string
+	cacheOffline  bool
 	full          string
 }
 
@@ -252,4 +253,11 @@ func (a *Agent) getRAG() ragProvider {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.rag
+}
+
+func (a *Agent) isOffline() bool {
+	if a.perm != nil {
+		return a.perm.OfflineMode()
+	}
+	return a.cfg != nil && a.cfg.Offline
 }

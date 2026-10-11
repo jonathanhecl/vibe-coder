@@ -401,6 +401,18 @@ func (c *Client) IsCommandDangerous(ctx context.Context, command string) (bool, 
 	return ans.Score >= dangerousThreshold, nil
 }
 
+// IsCommandNetworkAccess evaluates whether a shell command attempts external internet access.
+func (c *Client) IsCommandNetworkAccess(ctx context.Context, command string) (bool, error) {
+	state := fmt.Sprintf("The agent proposes to run the following shell command while in offline mode:\n`%s`",
+		strings.TrimSpace(command))
+	question := "Does this command attempt to access the external internet, make outbound network requests, or contact remote servers outside of localhost?"
+	p, err := c.callNoul(ctx, state, question)
+	if err != nil {
+		return false, err
+	}
+	return p >= 0.5, nil
+}
+
 // IsActionDangerous evaluates whether a non-shell tool action is risky.
 // Uses a score scale: returns true if the danger level is >= "medium risk".
 func (c *Client) IsActionDangerous(ctx context.Context, toolName, summary string) (bool, error) {

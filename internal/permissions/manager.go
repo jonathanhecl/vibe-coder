@@ -46,6 +46,12 @@ type safetyContextDecisionMaker interface {
 	AskSafetyWithContext(ctx context.Context, toolName, detail, contextNote string) (*jevstylev3.SafetyDecision, error)
 }
 
+// networkSafetyDecider is an optional interface for safety deciders that can classify
+// whether a shell command attempts external network or internet access.
+type networkSafetyDecider interface {
+	IsCommandNetworkAccess(ctx context.Context, command string) (bool, error)
+}
+
 // approvalNotifier is implemented by the UI to surface assisted-mode review
 // outcomes, so the user can see why an action ran without a prompt, or why the
 // normal permission prompt is being shown.
@@ -56,12 +62,14 @@ type approvalNotifier interface {
 type Manager struct {
 	mu sync.Mutex
 
-	yesMode       bool
-	assistedMode  bool
-	safetyDecider SafetyDecider
-	allow         map[string]struct{}
-	deny          map[string]struct{}
-	file          string
+	yesMode          bool
+	assistedMode     bool
+	offlineMode      bool
+	lastDenialReason string
+	safetyDecider    SafetyDecider
+	allow            map[string]struct{}
+	deny             map[string]struct{}
+	file             string
 
 	persistent map[string]string
 
@@ -84,10 +92,11 @@ type Manager struct {
 }
 
 func NewManager(cfg *config.Config) *Manager {
-	var yesMode, assistedMode bool
+	var yesMode, assistedMode, offlineMode bool
 	var permFile string
 	if cfg != nil {
 		yesMode = cfg.YesMode
+		offlineMode = cfg.Offline
 		if cfg.JevstyleInUse() {
 			assistedMode = cfg.AssistedYes
 		}
@@ -96,6 +105,7 @@ func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
 		yesMode:      yesMode,
 		assistedMode: assistedMode,
+		offlineMode:  offlineMode,
 		allow:        map[string]struct{}{},
 		deny:         map[string]struct{}{},
 		file:         permFile,
@@ -215,6 +225,27 @@ func (m *Manager) Unattended() bool {
 	return m.unattended
 }
 
+// SetOfflineMode toggles offline mode on or off.
+func (m *Manager) SetOfflineMode(on bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.offlineMode = on
+}
+
+// OfflineMode reports whether offline mode is currently active.
+func (m *Manager) OfflineMode() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.offlineMode
+}
+
+// LastDenialReason returns the specific reason the previous Check was denied, or "".
+func (m *Manager) LastDenialReason() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastDenialReason
+}
+
 // AllowSession remembers allow for this process only (not written to disk).
 func (m *Manager) AllowSession(tool string) {
 	m.mu.Lock()
@@ -267,6 +298,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 
 	m.mu.Lock()
 	m.permissionCancelled = false
+	m.lastDenialReason = ""
 	_, denied := m.deny[tool]
 	if denied {
 		m.mu.Unlock()
@@ -278,12 +310,32 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	assistedMode := m.assistedMode
 	safetyDecider := m.safetyDecider
 	unattended := m.unattended
+	offlineMode := m.offlineMode
 	pRule := m.persistent[tool]
 	m.mu.Unlock()
 
 	if pRule == "deny" {
 		return false
 	}
+
+	if offlineMode {
+		if toolTier(tool) == TierNetwork {
+			m.mu.Lock()
+			m.lastDenialReason = "Blocked by offline mode: network tools are disabled."
+			m.mu.Unlock()
+			return false
+		}
+		if tool == "bash" || tool == "interactivebash" {
+			command, _ := params["command"].(string)
+			if m.isCommandOfflineBlocked(command, safetyDecider) {
+				m.mu.Lock()
+				m.lastDenialReason = "Blocked by offline mode: external network access is disabled."
+				m.mu.Unlock()
+				return false
+			}
+		}
+	}
+
 	if toolTier(tool) == TierSafe {
 		return true
 	}
@@ -507,4 +559,26 @@ func actionSummary(params map[string]any) string {
 		fmt.Fprintf(&b, "- %s: %s\n", k, text)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// isCommandOfflineBlocked evaluates whether a shell command is attempting to
+// reach the external internet while offline mode is active.
+func (m *Manager) isCommandOfflineBlocked(command string, safetyDecider SafetyDecider) bool {
+	cmd := strings.TrimSpace(command)
+	if cmd == "" {
+		return false
+	}
+
+	if safetyDecider != nil && safetyDecider.Enabled() {
+		if netDec, ok := safetyDecider.(networkSafetyDecider); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			attemptsNet, err := netDec.IsCommandNetworkAccess(ctx, cmd)
+			if err == nil {
+				return attemptsNet
+			}
+		}
+	}
+
+	return heuristicIsNetworkCommand(cmd)
 }

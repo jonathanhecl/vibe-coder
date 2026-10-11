@@ -56,6 +56,9 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 		}
 		fields = append(fields, bannerField{Label: "Jevstyle", Value: val})
 	}
+	if cfg != nil && cfg.Offline {
+		fields = append(fields, bannerField{Label: "Offline", Value: "enabled (network blocked)"})
+	}
 	return fields
 }
 
@@ -93,6 +96,9 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 				jevVal = fmt.Sprintf("%s (run '/yes assisted' to enable)", jevVal)
 			}
 			out += fmt.Sprintf("JEV Style: %s\n", jevVal)
+		}
+		if cfg != nil && cfg.Offline {
+			out += "Offline: enabled (network blocked)\n"
 		}
 		return out
 	}
@@ -140,6 +146,8 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 			} else {
 				b.WriteString(style.BrightWhite(f.Value))
 			}
+		} else if f.Label == "Offline" {
+			b.WriteString(style.Yellow(f.Value))
 		} else {
 			b.WriteString(style.BrightWhite(f.Value))
 		}

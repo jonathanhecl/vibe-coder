@@ -20,6 +20,7 @@ type cliOptions struct {
 	jevstyleV3Endpoint optionalString
 	yesMode       optionalBool
 	assistedYes   optionalBool
+	offline       optionalBool
 	debug         optionalBool
 	resume        optionalBool
 	newSession    optionalBool
@@ -68,6 +69,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.yesMode, "yes", "yes mode")
 	fs.Var(&opts.assistedYes, "assisted-yes", "enable assisted execution mode with JEV Style")
 	fs.Var(&opts.assistedYes, "assisted", "enable assisted execution mode with JEV Style (alias)")
+	fs.Var(&opts.offline, "offline", "enable offline mode (blocks network tools and external commands)")
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.newSession, "n", "start a new session (do not auto-resume)")
 	fs.Var(&opts.newSession, "new", "start a new session (do not auto-resume)")
@@ -140,6 +142,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.assistedYes.set {
 		cfg.AssistedYes = cli.assistedYes.value
+	}
+	if cli.offline.set {
+		cfg.Offline = cli.offline.value
 	}
 	if cli.debug.set {
 		cfg.Debug = cli.debug.value

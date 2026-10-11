@@ -490,6 +490,7 @@ func (a *Agent) buildSystemPrompt() string {
 	inReviewMode := a.reviewMode
 	a.mu.RUnlock()
 	goal := strings.TrimSpace(goalRaw)
+	offline := a.isOffline()
 
 	key := stableSystemCacheKey(a.cfg, a.reg, a.contextFingerprint())
 	missionKey := a.missionCacheKey()
@@ -504,7 +505,7 @@ func (a *Agent) buildSystemPrompt() string {
 		a.sysPrompt.stableBody = a.rebuildStableSystemPromptBody()
 	}
 
-	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.cacheMission == missionKey && a.sysPrompt.cacheProgress == progressKey && a.sysPrompt.full != "" {
+	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.cacheMission == missionKey && a.sysPrompt.cacheProgress == progressKey && a.sysPrompt.cacheOffline == offline && a.sysPrompt.full != "" {
 		return a.sysPrompt.full
 	}
 
@@ -543,11 +544,20 @@ func (a *Agent) buildSystemPrompt() string {
 			"- Use Read, Glob, Grep, WebSearch, and WebFetch to investigate and answer questions.\n" +
 			"- Provide analysis, explanations, and suggestions in plain text only.\n"
 	}
+	if offline {
+		systemPrompt = systemPrompt + "\n\n# Offline Mode (enabled)\n" +
+			"- You are running in offline mode. External internet and network access is blocked.\n" +
+			"- Do NOT attempt to reach external network hosts or make external HTTP requests.\n" +
+			"- Tools like WebSearch, WebFetch, and HTTPRequest are blocked.\n" +
+			"- Shell commands (curl, wget, git, etc.) to external hosts are blocked.\n" +
+			"- Local connections (localhost, 127.0.0.1, local ports) are permitted.\n"
+	}
 	a.sysPrompt.cacheGoal = goal
 	a.sysPrompt.cachePlan = inPlanMode
 	a.sysPrompt.cacheReview = inReviewMode
 	a.sysPrompt.cacheMission = missionKey
 	a.sysPrompt.cacheProgress = progressKey
+	a.sysPrompt.cacheOffline = offline
 	a.sysPrompt.full = systemPrompt
 	return systemPrompt
 }

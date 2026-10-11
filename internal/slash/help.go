@@ -56,6 +56,7 @@ func printHelp(c *Ctx) {
 			{"/yes", "auto-approve subsequent permission prompts"},
 			{"/allow_all true|false", "toggle auto-approve (same as /yes and /no)"},
 			{"/no", "require manual approval (default)"},
+			{"/offline [on|off]", "toggle offline mode (blocks network tools & external commands)"},
 			{"/plan", "enter plan mode (yellow prompt, writes restricted to .vibe-coder/plans)"},
 			{"/plan <goal>", "enter plan mode and immediately start planning that goal"},
 			{"/code", "exit plan mode and return to coding mode"},

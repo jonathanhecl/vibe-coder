@@ -208,6 +208,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		setYesMode(c, false)
 		return true, false, nil
+	case "/offline":
+		return true, false, runOfflineCommand(c, fields[1:])
 	case "/compact":
 		before := c.Session.TokenEstimate()
 		if err := c.Session.Compact(context.Background(), true); err != nil {

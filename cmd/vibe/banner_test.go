@@ -240,3 +240,35 @@ func TestBannerWordmark(t *testing.T) {
 		t.Fatal("wordmark must not contain ANSI escape codes")
 	}
 }
+
+func TestBannerFieldsOffline(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:      "llama3.2:3b",
+		OllamaHost: "http://localhost:11434",
+		Offline:    true,
+	}
+	fields := bannerFields(cfg, "session-off", false)
+	found := false
+	for _, f := range fields {
+		if f.Label == "Offline" {
+			found = true
+			if !strings.Contains(f.Value, "enabled") {
+				t.Fatalf("expected enabled offline in banner, got %q", f.Value)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected Offline field in banner, got %#v", fields)
+	}
+
+	plain := startupBanner(cfg, "session-off", false, tui.Style{})
+	if !strings.Contains(plain, "Offline: enabled (network blocked)") {
+		t.Fatalf("expected offline in plain banner, got:\n%s", plain)
+	}
+	styled := startupBanner(cfg, "session-off", false, tui.NewStyleForTest(true))
+	if !strings.Contains(styled, "enabled (network blocked)") {
+		t.Fatalf("expected offline in styled banner, got:\n%s", styled)
+	}
+}
