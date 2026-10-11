@@ -18,10 +18,11 @@ import (
 )
 
 type visionFakeClient struct {
-	calls int32
-	reply string
-	err   error
-	last  ollama.ChatRequest
+	calls    int32
+	reply    string
+	thinking string
+	err      error
+	last     ollama.ChatRequest
 }
 
 func (f *visionFakeClient) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollama.Chunk, error) {
@@ -33,7 +34,7 @@ func (f *visionFakeClient) ChatSync(ctx context.Context, req ollama.ChatRequest)
 	if f.err != nil {
 		return ollama.ChatResponse{}, f.err
 	}
-	return ollama.ChatResponse{Content: f.reply}, nil
+	return ollama.ChatResponse{Content: f.reply, Thinking: f.thinking}, nil
 }
 func (f *visionFakeClient) Tags(ctx context.Context) ([]ollama.Model, error) {
 	return nil, errors.New("not used")
@@ -113,6 +114,47 @@ func TestDescribeImageFallsBackToMain(t *testing.T) {
 	}
 }
 
+// Regression: OpenAI-compatible servers ignore think=false, so a reasoning
+// model can return empty content with its observations in reasoning_content.
+// That used to fail with "model returned empty description".
+func TestDescribeImageMainRecoversReasoningOnlyReply(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "photo.png")
+	writeDescribeToolImage(t, path)
+	cfg := &config.Config{Model: "qwen-vl", VisionKnown: true, VisionAvailable: true}
+	fc := &visionFakeClient{reply: "", thinking: "A gradient square, red to green."}
+	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc))
+
+	res := tool.Execute(context.Background(), map[string]any{"file_path": path})
+	if res.IsError {
+		t.Fatalf("expected recovered answer, got error: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "A gradient square") {
+		t.Fatalf("expected reasoning text as answer, got %q", res.Output)
+	}
+	if fc.last.Options.NumPredict < 2048 {
+		t.Fatalf("expected a generous token budget for reasoning models, got %d", fc.last.Options.NumPredict)
+	}
+}
+
+func TestDescribeImageSidecarRecoversReasoningOnlyReply(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "photo.png")
+	writeDescribeToolImage(t, path)
+	cfg := &config.Config{
+		Model: "text-model", SidecarModel: "gemma3",
+		VisionKnown: true, VisionAvailable: false,
+		SidecarVisionKnown: true, SidecarVisionAvailable: true,
+	}
+	fc := &visionFakeClient{reply: "<think>unfinished", thinking: "A small colorful tile."}
+	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc))
+
+	res := tool.Execute(context.Background(), map[string]any{"file_path": path})
+	if res.IsError || !strings.Contains(res.Output, "A small colorful tile.") {
+		t.Fatalf("expected sidecar to recover reasoning text, got %+v", res)
+	}
+}
+
 func TestDescribeImageFailsHonestly(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "photo.png")
@@ -182,7 +224,7 @@ func (m *mockRoutingVisionClient) ChatSync(ctx context.Context, req ollama.ChatR
 	return ollama.ChatResponse{Content: m.mainReply}, nil
 }
 func (m *mockRoutingVisionClient) Tags(ctx context.Context) ([]ollama.Model, error) { return nil, nil }
-func (m *mockRoutingVisionClient) Version(ctx context.Context) (string, error)     { return "", nil }
+func (m *mockRoutingVisionClient) Version(ctx context.Context) (string, error)      { return "", nil }
 func (m *mockRoutingVisionClient) Pull(ctx context.Context, model string, p func(ollama.PullEvent)) error {
 	return errors.New("not used")
 }

@@ -132,17 +132,18 @@ func describeWithMain(ctx context.Context, client ollama.Client, cfg *config.Con
 			{Role: "user", Content: fmt.Sprintf("%s\n\n[image file: %s]", question, filepath.Base(path)), Images: []string{payload}},
 		},
 		// Thinking must be off, not merely omitted: Ollama enables it by default
-		// on capable models, and reasoning tokens would consume the small
-		// NumPredict budget, leaving Content empty ("model returned empty
-		// description"). A description needs the answer, not the reasoning.
+		// on capable models. OpenAI-compatible servers ignore this flag, so the
+		// budget is generous and ExtractAnswer recovers the observations from
+		// reasoning output when Content comes back empty.
 		Think:   ollama.ThinkOff(),
-		Options: ollama.ChatOptions{Temperature: 0, NumPredict: 512},
+		Options: ollama.ChatOptions{Temperature: 0, NumPredict: sidecar.DescribeNumPredict},
 	})
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(resp.Content) == "" {
+	answer := sidecar.ExtractAnswer(resp)
+	if answer == "" {
 		return "", fmt.Errorf("model returned empty description")
 	}
-	return resp.Content, nil
+	return answer, nil
 }

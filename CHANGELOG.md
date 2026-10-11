@@ -54,6 +54,8 @@ Release archives and generated notes are available on the
 
 ### Fixed
 
+- Fixed `DescribeImage` failing with `model returned empty description` on reasoning models served by OpenAI-compatible endpoints (llama.cpp, vLLM, LM Studio). Those servers ignore Ollama's `think: false`, so reasoning consumed the 512-token budget and left `content` empty. Vision calls (main model and sidecar) now use a 2048-token budget, strip inline `<think>` blocks, and fall back to `reasoning_content` when `content` is empty.
+
 - Fixed vision capability detection for OpenAI-compatible endpoints by parsing `architecture.input_modalities` (e.g. `["text", "image"]` from llama.cpp and vLLM), `modalities`, and model metadata from `GET /v1/models`. Previously, models on OpenAI-compatible servers whose names lacked hardcoded substring keywords were marked as known non-vision models, causing the agent to falsely instruct the model that it could not see and omit image payloads. Models without declared capability metadata now remain `unknown` rather than disabled, ensuring images are sent directly without disabling vision.
 - Fixed Ollama endpoint normalization to default to port `11434` when the port is omitted (e.g. `http://mac-mini.local` or `mac-mini.local` resolving to `http://mac-mini.local:11434` instead of defaulting to port 80 and failing with `connection refused`).
 - Added automatic main model vision fallback to `DescribeImageTool`: if the sidecar model fails (due to network unavailability, refused connections, or errors) and the primary model has vision capability, `DescribeImage` falls back to describing the image via the primary model instead of aborting the tool call with an error.

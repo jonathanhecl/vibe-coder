@@ -23,8 +23,6 @@ const VisualAssistantSystem = "You are a precise visual assistant describing an 
 const DefaultDescribeQuestion = "Describe this image in thorough detail: layout, objects, " +
 	"colors, spatial relations, visible text, and anything unusual."
 
-const describeNumPredict = 512
-
 // DescribeImage has the sidecar model look at an image file and answer
 // question about it. It returns plain descriptive text. Results are cached
 // per file revision and question, and concurrent callers share one flight,
@@ -95,14 +93,15 @@ func (p *Pool) chatWithImages(ctx context.Context, system, question, imagePath, 
 		Think: ollama.ThinkOff(),
 		Options: ollama.ChatOptions{
 			Temperature: 0,
-			NumPredict:  describeNumPredict,
+			NumPredict:  DescribeNumPredict,
 		},
 	})
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(resp.Content) == "" {
+	answer := ExtractAnswer(resp)
+	if answer == "" {
 		return "", fmt.Errorf("sidecar returned empty content")
 	}
-	return resp.Content, nil
+	return answer, nil
 }
