@@ -9,10 +9,15 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
+	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/skills"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
+
+// maxUserAnchorChars bounds the re-anchored user request a trimmed window may
+// prepend, so a pasted document cannot defeat the transcript character budget.
+const maxUserAnchorChars = 4000
 
 func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) []ollama.Message {
 	hist := a.sess.MessagesReadOnly()
@@ -40,24 +45,106 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) []
 	if start >= len(hist) {
 		start = len(hist) - 1
 	}
+	// A budget-trimmed window can begin with a role="tool" result whose
+	// assistant tool_calls fell outside the cut, and can lose the user turn
+	// entirely. Strict OpenAI-compatible servers reject both shapes: a tool
+	// result must answer a preceding assistant tool_calls, and every request
+	// must carry a user query ("No user query found in messages."). Repair the
+	// window before it reaches the wire.
+	out = append(out, windowForWire(hist, start)...)
+	// Markers become image bytes (or sidecar descriptions, or honest notes)
+	// only here, at send time. The transcript keeps the cheap text form.
+	a.setLastImage(out)
+	return scrubPastedImagePaths(a.resolveOutgoingImages(ctx, out))
+}
+
+// windowForWire converts the transcript suffix [start:] into valid wire
+// history. Orphaned tool results (their assistant tool_calls fell outside the
+// cut) become user observation envelopes, and when the trimmed window carries
+// no user-role message at all it is re-anchored on the original request.
+func windowForWire(hist []session.Message, start int) []ollama.Message {
+	window := make([]ollama.Message, 0, len(hist)-start)
+	pendingToolResults := 0
 	for i := start; i < len(hist); i++ {
 		m := hist[i]
 		switch m.Role {
-		case "user", "assistant", "tool":
+		case "tool":
+			if pendingToolResults <= 0 {
+				window = append(window, ollama.Message{
+					Role:    "user",
+					Content: session.ToolObservationUserContent(m.ToolName, m.Content),
+				})
+				continue
+			}
+			pendingToolResults--
+		case "assistant":
+			pendingToolResults = len(m.ToolCalls)
+		case "user":
+			pendingToolResults = 0
 		default:
 			continue
 		}
-		out = append(out, ollama.Message{
+		window = append(window, ollama.Message{
 			Role:      m.Role,
 			Content:   m.Content,
 			ToolCalls: m.ToolCalls,
 			ToolName:  m.ToolName,
 		})
 	}
-	// Markers become image bytes (or sidecar descriptions, or honest notes)
-	// only here, at send time. The transcript keeps the cheap text form.
-	a.setLastImage(out)
-	return scrubPastedImagePaths(a.resolveOutgoingImages(ctx, out))
+	if !hasUserRole(window) {
+		if anchor := transcriptUserAnchor(hist); anchor != "" {
+			window = append([]ollama.Message{{Role: "user", Content: anchor}}, window...)
+		}
+	}
+	return window
+}
+
+func hasUserRole(msgs []ollama.Message) bool {
+	for _, m := range msgs {
+		if m.Role == "user" {
+			return true
+		}
+	}
+	return false
+}
+
+// transcriptUserAnchor returns a user-role anchor for a trimmed window that
+// lost its user turn: the most recent real user request, or, failing that, any
+// user-role message (a runtime reminder or an earlier summary). It returns ""
+// only when the transcript has no user-role message at all.
+func transcriptUserAnchor(hist []session.Message) string {
+	fallback := ""
+	for i := len(hist) - 1; i >= 0; i-- {
+		m := hist[i]
+		if m.Role != "user" {
+			continue
+		}
+		c := strings.TrimSpace(m.Content)
+		if c == "" {
+			continue
+		}
+		if fallback == "" {
+			fallback = c
+		}
+		if strings.HasPrefix(c, "[tool_result") ||
+			strings.HasPrefix(c, session.RuntimeReminderPrefix) ||
+			strings.HasPrefix(c, "[Earlier conversation summary]") {
+			continue
+		}
+		return clipAnchor(c)
+	}
+	return clipAnchor(fallback)
+}
+
+func clipAnchor(s string) string {
+	if len(s) <= maxUserAnchorChars {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxUserAnchorChars {
+		return s
+	}
+	return string(runes[:maxUserAnchorChars]) + "…"
 }
 func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 	var lastErr error

@@ -54,6 +54,8 @@ Release archives and generated notes are available on the
 
 ### Fixed
 
+- Fixed long autonomous runs failing against strict OpenAI-compatible servers with `400 Bad Request` / `No user query found in messages.`. The rolling transcript window in `buildOllamaMessages` trims the history to a character budget, and that cut could drop the user turn entirely (or collapse the window to a single oversized tool result). The trimmed window is now repaired before it reaches the wire: orphaned tool results whose assistant `tool_calls` fell outside the cut become user observation envelopes, and a window with no user-role message is re-anchored on the most recent user request.
+
 - Fixed `DescribeImage` failing with `model returned empty description` on reasoning models served by OpenAI-compatible endpoints (llama.cpp, vLLM, LM Studio). Those servers ignore Ollama's `think: false`, so reasoning consumed the 512-token budget and left `content` empty. Vision calls (main model and sidecar) now use a 2048-token budget, strip inline `<think>` blocks, and fall back to `reasoning_content` when `content` is empty.
 
 - Fixed vision capability detection for OpenAI-compatible endpoints by parsing `architecture.input_modalities` (e.g. `["text", "image"]` from llama.cpp and vLLM), `modalities`, and model metadata from `GET /v1/models`. Previously, models on OpenAI-compatible servers whose names lacked hardcoded substring keywords were marked as known non-vision models, causing the agent to falsely instruct the model that it could not see and omit image payloads. Models without declared capability metadata now remain `unknown` rather than disabled, ensuring images are sent directly without disabling vision.
