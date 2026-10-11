@@ -18,6 +18,7 @@ import (
 type UI interface {
 	StartESCMonitor(interrupt func()) error
 	StopESCMonitor()
+	StartTurn()
 	SetPlanMode(enabled bool)
 	StreamAssistant(text string)
 	EndAssistant()
@@ -155,6 +156,15 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 		u.history = loadHistory(c.HistoryFile)
 	}
 	return u
+}
+
+// StartTurn marks the beginning of a user-initiated turn so the "responded in"
+// footer measures that turn instead of the whole session. The runtime calls it
+// once per turn, before the agent starts working.
+func (u *PlainUI) StartTurn() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.turnStart = time.Now()
 }
 
 // SetPlanMode switches UI accent colors for role labels between plan/build.

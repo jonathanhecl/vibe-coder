@@ -81,11 +81,13 @@ func (fakeClient) Chat(_ context.Context, _ ollama.ChatRequest) (<-chan ollama.C
 }
 
 type fakeUI struct {
-	calls int
+	calls      int
+	startTurns int
 }
 
 func (f *fakeUI) StartESCMonitor(func()) error { return nil }
 func (f *fakeUI) StopESCMonitor()              {}
+func (f *fakeUI) StartTurn()                   { f.startTurns++ }
 func (f *fakeUI) SetPlanMode(bool)             {}
 func (f *fakeUI) StreamAssistant(string)       {}
 func (f *fakeUI) EndAssistant()                {}

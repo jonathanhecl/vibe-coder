@@ -25,6 +25,7 @@ type coverageUI struct {
 
 func (c *coverageUI) StartESCMonitor(func()) error { return nil }
 func (c *coverageUI) StopESCMonitor()              {}
+func (c *coverageUI) StartTurn()                   {}
 func (c *coverageUI) SetPlanMode(bool)             {}
 func (c *coverageUI) StreamAssistant(string)       {}
 func (c *coverageUI) EndAssistant()                {}

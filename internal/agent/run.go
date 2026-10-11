@@ -40,6 +40,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		return err
 	}
 	defer a.ui.StopESCMonitor()
+	// A new turn measures its own duration: restart the UI turn timer here so
+	// the "responded in" footer covers this request instead of the session.
+	a.ui.StartTurn()
 	// Persist the checklist/task state at the end of every turn so a crash or
 	// restart never loses what is done and what remains.
 	defer a.PersistWorkState()

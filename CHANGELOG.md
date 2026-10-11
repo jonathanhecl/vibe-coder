@@ -54,6 +54,8 @@ Release archives and generated notes are available on the
 
 ### Fixed
 
+- Fixed the `responded in Xs` footer growing for the whole session instead of measuring the current turn. In interactive (TTY) sessions the turn timer was only restarted on the non-interactive input path, so it kept counting from startup and every new user message simply added to the previous elapsed time. The UI now exposes `StartTurn()`, the agent restarts the timer at the top of each `Run`, and the input reader no longer resets it as a side effect of secondary prompts.
+
 - Fixed long autonomous runs failing against strict OpenAI-compatible servers with `400 Bad Request` / `No user query found in messages.`. The rolling transcript window in `buildOllamaMessages` trims the history to a character budget, and that cut could drop the user turn entirely (or collapse the window to a single oversized tool result). The trimmed window is now repaired before it reaches the wire: orphaned tool results whose assistant `tool_calls` fell outside the cut become user observation envelopes, and a window with no user-role message is re-anchored on the most recent user request.
 
 - Fixed `DescribeImage` failing with `model returned empty description` on reasoning models served by OpenAI-compatible endpoints (llama.cpp, vLLM, LM Studio). Those servers ignore Ollama's `think: false`, so reasoning consumed the 512-token budget and left `content` empty. Vision calls (main model and sidecar) now use a 2048-token budget, strip inline `<think>` blocks, and fall back to `reasoning_content` when `content` is empty.

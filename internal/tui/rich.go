@@ -105,6 +105,8 @@ func NewRich(cfg ...*config.Config) *RichUI {
 func (r *RichUI) StartESCMonitor(interrupt func()) error { return r.plain.StartESCMonitor(interrupt) }
 func (r *RichUI) StopESCMonitor()                        { r.plain.StopESCMonitor() }
 
+func (r *RichUI) StartTurn() { r.plain.StartTurn() }
+
 func (r *RichUI) SetPlanMode(enabled bool) {
 	r.plain.SetPlanMode(enabled)
 	r.updateStatus(richPlanModeMsg{enabled: enabled})

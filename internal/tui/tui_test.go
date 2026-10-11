@@ -77,6 +77,18 @@ func TestInteractiveInputBackspaceRemovesPastedBlock(t *testing.T) {
 	}
 }
 
+func TestStartTurnResetsTurnTimer(t *testing.T) {
+	ui := &PlainUI{
+		out:       &bytes.Buffer{},
+		stopCh:    make(chan struct{}),
+		turnStart: time.Now().Add(-2 * time.Hour),
+	}
+	ui.StartTurn()
+	if since := time.Since(ui.turnStart); since > time.Minute {
+		t.Fatalf("expected the turn timer to restart, but it is %s old", since)
+	}
+}
+
 func TestGetInputSingleLine(t *testing.T) {
 	ui := &PlainUI{
 		out:    &bytes.Buffer{},

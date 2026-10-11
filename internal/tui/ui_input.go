@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -39,7 +38,6 @@ func (u *PlainUI) GetInput(prompt string) (input string, err error) {
 	if err != nil {
 		return "", err
 	}
-	u.turnStart = time.Now()
 	line = trimLine(line)
 	if strings.HasPrefix(line, bracketedPasteStart) {
 		pasted, pending, err := readBracketedPaste(u.reader, strings.TrimPrefix(line, bracketedPasteStart))

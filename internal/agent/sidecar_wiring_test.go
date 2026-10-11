@@ -56,6 +56,7 @@ type recordingUI struct {
 
 func (r *recordingUI) StartESCMonitor(func()) error        { return nil }
 func (r *recordingUI) StopESCMonitor()                     {}
+func (r *recordingUI) StartTurn()                          {}
 func (r *recordingUI) SetPlanMode(bool)                    {}
 func (r *recordingUI) StreamAssistant(text string)         { r.streamed.WriteString(text) }
 func (r *recordingUI) EndAssistant()                       {}
