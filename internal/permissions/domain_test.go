@@ -265,3 +265,148 @@ func TestDomain_SystemDirNotBroadened(t *testing.T) {
 		t.Fatalf("/etc/shadow should NOT be allowed when only /etc/hosts was approved")
 	}
 }
+
+func TestDomain_BashCommand_OutDomainDetection(t *testing.T) {
+	ws := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.txt")
+	_ = os.WriteFile(outsideFile, []byte("hello"), 0o644)
+
+	m := NewManager(&config.Config{Cwd: ws, YesMode: false})
+
+	// 1. In-domain commands: require normal prompt or assisted mode, but are NOT flagged as out-of-domain
+	inDomainCmds := []string{
+		"git status",
+		"go test ./...",
+		"curl -s https://example.com/data",
+		"find . -name '*.go'",
+		"echo hello > local.txt",
+		"cat internal/../internal/tools/bash.go",
+	}
+	for _, cmd := range inDomainCmds {
+		paths := ExtractCommandTargetPaths(cmd, ws)
+		if len(paths) > 0 {
+			t.Errorf("command %q should not target out-of-domain paths, got %v", cmd, paths)
+		}
+	}
+
+	// 2. Out-of-domain commands: MUST be flagged as out-of-domain
+	outDomainCmds := []struct {
+		cmd  string
+		want string
+	}{
+		{"cat " + outsideFile, outsideFile},
+		{"head -n 20 " + outsideFile, outsideFile},
+		{"ls -la " + outsideDir, outsideDir},
+		{"cd " + outsideDir + " && ls", outsideDir},
+		{"echo hi > " + filepath.Join(outsideDir, "out.txt"), filepath.Join(outsideDir, "out.txt")},
+		{"cat ../escaping.txt", filepath.Clean(filepath.Join(ws, "../escaping.txt"))},
+	}
+	for _, tc := range outDomainCmds {
+		paths := ExtractCommandTargetPaths(tc.cmd, ws)
+		if len(paths) == 0 {
+			t.Errorf("command %q should be flagged as out-of-domain, got none", tc.cmd)
+		} else if paths[0] != tc.want {
+			t.Errorf("command %q expected path %q, got %q", tc.cmd, tc.want, paths[0])
+		}
+
+		// Check() must deny without UI prompt
+		if m.Check("Bash", map[string]any{"command": tc.cmd}, nil) {
+			t.Errorf("Check for out-of-domain command %q should fail without UI", tc.cmd)
+		}
+	}
+
+	// 3. Granting session allow to an in-domain Bash command does NOT auto-approve out-of-domain Bash command
+	uiSession := fakeUI{decision: tui.DecisionAllowSession}
+	if !m.Check("Bash", map[string]any{"command": "git status"}, uiSession) {
+		t.Fatalf("expected git status to be allowed with session decision")
+	}
+	// In-domain command now succeeds without UI
+	if !m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+		t.Fatalf("subsequent git status should succeed without UI")
+	}
+	// But out-of-domain command STILL fails without UI!
+	if m.Check("Bash", map[string]any{"command": "cat " + outsideFile}, nil) {
+		t.Fatalf("out-of-domain command must NOT be auto-approved by in-domain bash session approval")
+	}
+
+	// 4. Approving out-of-domain command for session allows subsequent runs
+	uiAllowOut := fakeUI{decision: tui.DecisionAllowSession}
+	if !m.Check("Bash", map[string]any{"command": "cat " + outsideFile}, uiAllowOut) {
+		t.Fatalf("expected out-of-domain command to succeed with AllowSession")
+	}
+	// Now running the command succeeds without UI prompt
+	if !m.Check("Bash", map[string]any{"command": "cat " + outsideFile}, nil) {
+		t.Fatalf("subsequent out-of-domain command should be allowed after AllowSession")
+	}
+}
+
+func TestDomain_GlobAndGrep_Traversals(t *testing.T) {
+	ws := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "target.txt")
+	_ = os.WriteFile(outsideFile, []byte("needle in haystack"), 0o644)
+
+	m := NewManager(&config.Config{Cwd: ws, YesMode: false})
+
+	// 1. Glob with out-of-domain pattern
+	if m.Check("Glob", map[string]any{"pattern": "../../other/*.go"}, nil) {
+		t.Fatalf("Glob with ../../ pattern should require permission")
+	}
+	if m.Check("Glob", map[string]any{"pattern": "/etc/*.conf"}, nil) {
+		t.Fatalf("Glob with /etc pattern should require permission")
+	}
+	if m.Check("Glob", map[string]any{"dir": outsideDir, "pattern": "*.txt"}, nil) {
+		t.Fatalf("Glob with outside dir parameter should require permission")
+	}
+
+	// In-domain Glob without path remains safe
+	if !m.Check("Glob", map[string]any{"pattern": "internal/**/*.go"}, nil) {
+		t.Fatalf("in-domain Glob should be safe and allowed without UI")
+	}
+
+	// 2. Grep with out-of-domain file_path or glob
+	if m.Check("Grep", map[string]any{"pattern": "needle", "file_path": outsideFile}, nil) {
+		t.Fatalf("Grep with out-of-domain file_path should require permission")
+	}
+	if m.Check("Grep", map[string]any{"pattern": "needle", "dir": outsideDir}, nil) {
+		t.Fatalf("Grep with out-of-domain dir should require permission")
+	}
+	if m.Check("Grep", map[string]any{"pattern": "needle", "glob": "../../other/*.go"}, nil) {
+		t.Fatalf("Grep with ../../ glob should require permission")
+	}
+
+	// In-domain Grep remains safe
+	if !m.Check("Grep", map[string]any{"pattern": "func", "path": ws}, nil) {
+		t.Fatalf("in-domain Grep should be safe and allowed without UI")
+	}
+}
+
+func TestDomain_GitDiff_OutDomain(t *testing.T) {
+	ws := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.txt")
+	inDomainFile := filepath.Join(ws, "local.txt")
+
+	m := NewManager(&config.Config{Cwd: ws, YesMode: false})
+
+	// In-domain GitDiff is safe
+	if !m.Check("GitDiff", map[string]any{"file_path": inDomainFile}, nil) {
+		t.Fatalf("in-domain GitDiff should be safe and allowed by default")
+	}
+	if !m.Check("GitDiff", map[string]any{}, nil) {
+		t.Fatalf("GitDiff working tree should be safe and allowed by default")
+	}
+
+	// Out-of-domain GitDiff requires permission
+	if m.Check("GitDiff", map[string]any{"file_path": outsideFile}, nil) {
+		t.Fatalf("out-of-domain GitDiff should require permission and fail without UI")
+	}
+
+	// AllowOnce allows it
+	ui := fakeUI{decision: tui.DecisionAllowOnce}
+	if !m.Check("GitDiff", map[string]any{"file_path": outsideFile}, ui) {
+		t.Fatalf("GitDiff should succeed with DecisionAllowOnce")
+	}
+}
+

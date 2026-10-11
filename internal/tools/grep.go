@@ -54,6 +54,14 @@ func (t *GrepTool) Execute(ctx context.Context, params map[string]any) Result {
 	}
 	basePath, _ := params["path"].(string)
 	if strings.TrimSpace(basePath) == "" {
+		for _, k := range []string{"dir", "directory", "file_path", "root"} {
+			if p, ok := params[k].(string); ok && strings.TrimSpace(p) != "" {
+				basePath = strings.TrimSpace(p)
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(basePath) == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return errResult(fmt.Sprintf("resolve cwd: %v", err))

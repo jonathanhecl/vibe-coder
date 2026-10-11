@@ -44,6 +44,14 @@ func (t *GlobTool) Execute(ctx context.Context, params map[string]any) Result {
 	}
 	basePath, _ := params["path"].(string)
 	if strings.TrimSpace(basePath) == "" {
+		for _, k := range []string{"dir", "directory", "file_path", "root"} {
+			if p, ok := params[k].(string); ok && strings.TrimSpace(p) != "" {
+				basePath = strings.TrimSpace(p)
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(basePath) == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return errResult(fmt.Sprintf("resolve cwd: %v", err))
@@ -69,6 +77,18 @@ func (t *GlobTool) Execute(ctx context.Context, params map[string]any) Result {
 	matches := make([]item, 0, 128)
 
 	if strings.Contains(pattern, "**") {
+		if filepath.IsAbs(pattern) && (params["path"] == nil || strings.TrimSpace(params["path"].(string)) == "") {
+			idx := strings.Index(pattern, "**")
+			pre := pattern[:idx]
+			lastSlash := strings.LastIndexAny(pre, "/\\")
+			if lastSlash >= 0 {
+				basePath = pre[:lastSlash]
+				if basePath == "" {
+					basePath = "/"
+				}
+				pattern = pattern[lastSlash+1:]
+			}
+		}
 		err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -100,7 +120,12 @@ func (t *GlobTool) Execute(ctx context.Context, params map[string]any) Result {
 			return errResult(fmt.Sprintf("walk path: %v", err))
 		}
 	} else {
-		expanded := filepath.Join(basePath, pattern)
+		var expanded string
+		if filepath.IsAbs(pattern) {
+			expanded = pattern
+		} else {
+			expanded = filepath.Join(basePath, pattern)
+		}
 		paths, err := filepath.Glob(expanded)
 		if err != nil {
 			return errResult(fmt.Sprintf("glob pattern: %v", err))

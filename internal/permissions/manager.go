@@ -353,19 +353,16 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		}
 	}
 
-	targetPath := ToolTargetPath(toolName, params)
-	isOutDomain := targetPath != "" && !m.IsInsideDomain(targetPath)
-	if isOutDomain && m.IsUserProvidedPath(targetPath) {
-		isOutDomain = false
-	}
-	if isOutDomain && m.IsOutDomainAllowed(targetPath) {
-		isOutDomain = false
-	}
-	if isOutDomain && m.IsOutDomainBlocked(targetPath) {
-		m.mu.Lock()
-		m.lastDenialReason = "Blocked: path is outside workspace domain and access was denied."
-		m.mu.Unlock()
-		return false
+	unapprovedOutDomain := m.UnapprovedOutDomainPaths(toolName, params)
+	isOutDomain := len(unapprovedOutDomain) > 0
+
+	for _, p := range unapprovedOutDomain {
+		if m.IsOutDomainBlocked(p) {
+			m.mu.Lock()
+			m.lastDenialReason = "Blocked: path is outside workspace domain and access was denied."
+			m.mu.Unlock()
+			return false
+		}
 	}
 
 	command, _ := params["command"].(string)
@@ -430,11 +427,17 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 
 	promptParams := params
 	if isOutDomain {
-		promptParams = make(map[string]any, len(params)+1)
+		promptParams = make(map[string]any, len(params)+2)
 		for k, v := range params {
 			promptParams[k] = v
 		}
-		promptParams["domain_warning"] = fmt.Sprintf("path is outside workspace domain (%s)", m.WorkspaceDir())
+		if len(unapprovedOutDomain) == 1 {
+			promptParams["domain_warning"] = fmt.Sprintf("path is outside workspace domain (%s)", m.WorkspaceDir())
+			promptParams["target_path"] = unapprovedOutDomain[0]
+		} else {
+			promptParams["domain_warning"] = fmt.Sprintf("paths are outside workspace domain (%s): %s", m.WorkspaceDir(), strings.Join(unapprovedOutDomain, ", "))
+			promptParams["target_path"] = strings.Join(unapprovedOutDomain, ", ")
+		}
 	}
 
 	decision := ui.AskPermission(toolName, promptParams)
@@ -443,28 +446,36 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		return true
 	case tui.DecisionAllowSession:
 		if isOutDomain {
-			m.AllowOutDomainSession(targetPath)
+			for _, p := range unapprovedOutDomain {
+				m.AllowOutDomainSession(p)
+			}
 		} else {
 			m.AllowSession(tool)
 		}
 		return true
 	case tui.DecisionAllowPersistent:
 		if isOutDomain {
-			m.AllowOutDomainPersistent(targetPath)
+			for _, p := range unapprovedOutDomain {
+				m.AllowOutDomainPersistent(p)
+			}
 		} else {
 			m.AllowAll(tool)
 		}
 		return true
 	case tui.DecisionDenySession:
 		if isOutDomain {
-			m.DenyOutDomainSession(targetPath)
+			for _, p := range unapprovedOutDomain {
+				m.DenyOutDomainSession(p)
+			}
 		} else {
 			m.DenySession(tool)
 		}
 		return false
 	case tui.DecisionDenyPersistent:
 		if isOutDomain {
-			m.DenyOutDomainPersistent(targetPath)
+			for _, p := range unapprovedOutDomain {
+				m.DenyOutDomainPersistent(p)
+			}
 		} else {
 			m.DenyAll(tool)
 		}
