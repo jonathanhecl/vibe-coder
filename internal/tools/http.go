@@ -19,9 +19,24 @@ const maxHTTPResponseBytes = 128 * 1024
 // any JSON/REST API (including local ones such as ComfyUI), with no coupling to
 // a specific service. It is a Network-tier tool, so it asks for permission
 // unless yes-mode or an unattended mission is active.
-type HTTPRequestTool struct{}
+type HTTPRequestTool struct {
+	// maxOut caps the response body returned to the model; zero keeps the
+	// historical 128KB cap. A configured cap only ever tightens it.
+	maxOut int
+}
 
 func NewHTTPRequestTool() *HTTPRequestTool { return &HTTPRequestTool{} }
+
+// SetMaxOutputBytes sets the response body cap (never looser than the
+// built-in 128KB ceiling).
+func (t *HTTPRequestTool) SetMaxOutputBytes(n int) { t.maxOut = n }
+
+func (t *HTTPRequestTool) responseLimit() int {
+	if t.maxOut > 0 && t.maxOut < maxHTTPResponseBytes {
+		return t.maxOut
+	}
+	return maxHTTPResponseBytes
+}
 
 func (t *HTTPRequestTool) Name() string { return "HTTPRequest" }
 func (t *HTTPRequestTool) Description() string {
@@ -104,10 +119,11 @@ func (t *HTTPRequestTool) Execute(ctx context.Context, params map[string]any) Re
 	}
 	defer resp.Body.Close()
 
-	data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHTTPResponseBytes+1))
-	truncated := len(data) > maxHTTPResponseBytes
+	limit := t.responseLimit()
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
+	truncated := len(data) > limit
 	if truncated {
-		data = data[:maxHTTPResponseBytes]
+		data = data[:limit]
 	}
 
 	var b strings.Builder
@@ -118,7 +134,7 @@ func (t *HTTPRequestTool) Execute(ctx context.Context, params map[string]any) Re
 	b.WriteString("\n")
 	b.Write(data)
 	if truncated {
-		fmt.Fprintf(&b, "\n\n... (response truncated at %d bytes)", maxHTTPResponseBytes)
+		fmt.Fprintf(&b, "\n\n... (response truncated at %d bytes)", limit)
 	}
 	if readErr != nil {
 		fmt.Fprintf(&b, "\n(read error: %v)", readErr)

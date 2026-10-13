@@ -64,15 +64,15 @@ func TestCompactConvertsOrphanedToolResults(t *testing.T) {
 		s.AddUser(strings.Repeat("x", 40))
 	}
 	// Add a tool result WITHOUT a preceding assistant tool_calls. It lands
-	// at index 35, which must be inside the kept tail (last 30).
+	// at index 35; a 300-token kept tail covers the newest ~30 messages
+	// (indices 35..64), and the backward slide pulls one more message in so
+	// the tail does not start on the orphaned result.
 	s.AddToolResult("Read", "orphaned output")
-	// Pad with 29 more messages so the tool result at index 35 is in the
-	// kept tail (indices 35..64 for 65 total, cut=35).
 	for i := 0; i < 29; i++ {
 		s.AddUser(strings.Repeat("y", 40))
 	}
 
-	if err := s.Compact(context.Background(), false); err != nil {
+	if err := s.CompactTo(context.Background(), 300); err != nil {
 		t.Fatalf("compact failed: %v", err)
 	}
 
@@ -126,12 +126,13 @@ func TestCompactKeepsValidToolResultPair(t *testing.T) {
 	s.AddAssistantToolCalls("", calls)
 	s.AddToolResult("Read", "valid output")
 
-	// Pad to ensure the pair is in the kept tail.
+	// Pad so the pair sits comfortably inside a 150-token kept tail
+	// (~15 messages of ~10 tokens each).
 	for i := 0; i < 5; i++ {
 		s.AddUser(strings.Repeat("y", 40))
 	}
 
-	if err := s.Compact(context.Background(), false); err != nil {
+	if err := s.CompactTo(context.Background(), 150); err != nil {
 		t.Fatalf("compact failed: %v", err)
 	}
 
@@ -270,4 +271,167 @@ func (c capturingSidecarClient) ChatSync(ctx context.Context, req ollama.ChatReq
 		c.onChat(req)
 	}
 	return ollama.ChatResponse{Content: c.summary}, nil
+}
+
+// TestCompactToSelectsTailByTokens verifies the kept tail is chosen by
+// cumulative token cost, not a fixed message count.
+func TestCompactToSelectsTailByTokens(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Cwd: t.TempDir(), SessionsDir: t.TempDir(), ContextWindow: 32768, SidecarModel: "m"}
+	s := New(cfg)
+	s.SetClient(capturingSidecarClient{summary: "s"})
+	for i := 0; i < 20; i++ {
+		s.AddUser(strings.Repeat("x", 400)) // ~100 tokens each
+	}
+	genBefore := s.Generation()
+	if err := s.CompactTo(context.Background(), 500); err != nil {
+		t.Fatalf("CompactTo: %v", err)
+	}
+	if s.Generation() == genBefore {
+		t.Fatal("generation should bump when the transcript is rewritten")
+	}
+	msgs := s.Messages()
+	// summary + first user + kept tail
+	tail := msgs[2:]
+	tokens := 0
+	for _, m := range tail {
+		tokens += estimateMessageTokens(m.Content)
+	}
+	if len(tail) < 4 {
+		t.Fatalf("tail keeps at least 4 messages, got %d", len(tail))
+	}
+}
+
+// TestCompactToNoDuplicateFirstUser verifies the preserved first user message
+// is not prepended again when it already sits inside the kept tail.
+func TestCompactToNoDuplicateFirstUser(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Cwd: t.TempDir(), SessionsDir: t.TempDir(), ContextWindow: 32768, SidecarModel: "m"}
+	s := New(cfg)
+	s.SetClient(capturingSidecarClient{summary: "s"})
+	// Two leading runtime notes sit in the compacted region; the first user
+	// message (index 2) is inside the kept tail and must not be duplicated.
+	s.AddSystemNote(strings.Repeat("n", 400))
+	s.AddSystemNote(strings.Repeat("m", 400))
+	s.AddUser("the original request")
+	for i := 0; i < 4; i++ {
+		s.AddUser(strings.Repeat("y", 400))
+	}
+	if err := s.CompactTo(context.Background(), 410); err != nil {
+		t.Fatalf("CompactTo: %v", err)
+	}
+	count := 0
+	for _, m := range s.Messages() {
+		if m.Content == "the original request" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("first user message appears %d times, want 1", count)
+	}
+}
+
+// TestCompactToKeepsAssistantForBoundaryTool verifies the cut slides back so
+// a kept tool result keeps its assistant tool_calls.
+func TestCompactToKeepsAssistantForBoundaryTool(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Cwd: t.TempDir(), SessionsDir: t.TempDir(), ContextWindow: 32768, SidecarModel: "m"}
+	s := New(cfg)
+	s.SetClient(capturingSidecarClient{summary: "s"})
+	for i := 0; i < 10; i++ {
+		s.AddUser(strings.Repeat("x", 400))
+	}
+	s.AddAssistantToolCalls("", []ollama.MessageToolCall{{
+		Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{}},
+	}})
+	s.AddToolResult("Read", strings.Repeat("r", 400))
+	for i := 0; i < 4; i++ {
+		s.AddUser(strings.Repeat("y", 400))
+	}
+	if err := s.CompactTo(context.Background(), 550); err != nil {
+		t.Fatalf("CompactTo: %v", err)
+	}
+	msgs := s.Messages()
+	// Find the tool result: it must still follow an assistant tool_calls.
+	for i, m := range msgs {
+		if m.Role != "tool" {
+			continue
+		}
+		if i == 0 || msgs[i-1].Role != "assistant" || len(msgs[i-1].ToolCalls) == 0 {
+			t.Fatal("kept tool result lost its assistant tool_calls at the boundary")
+		}
+	}
+}
+
+// TestRenderMessagesForSummaryClips verifies per-message clipping and that a
+// prior summary is carried first, outside the newest-first budget.
+func TestRenderMessagesForSummaryClips(t *testing.T) {
+	t.Parallel()
+	msgs := []Message{
+		{Role: "user", Content: "[Earlier conversation summary]\nprior findings " + strings.Repeat("p", 9000)},
+		{Role: "assistant", Content: strings.Repeat("a", 6000)},
+		{Role: "user", Content: "small"},
+	}
+	out := renderMessagesForSummary(msgs)
+	if !strings.HasPrefix(out, "user: [Earlier conversation summary]") {
+		t.Fatalf("prior summary must come first:\n%.120s", out)
+	}
+	// Prior summary clipped at 8000 runes.
+	if strings.Contains(out, strings.Repeat("p", 8001)) {
+		t.Fatal("prior summary was not clipped to 8000 runes")
+	}
+	// Per-message clipping at 2000 runes with marker.
+	if strings.Contains(out, strings.Repeat("a", 2001)) {
+		t.Fatal("message content was not clipped to 2000 runes")
+	}
+	if !strings.Contains(out, "…[clipped]") {
+		t.Fatal("missing clipped marker")
+	}
+}
+
+// TestGenerationBumpsOnRewrite verifies appends keep the generation while
+// clear/compaction/rewrite bump it.
+func TestGenerationBumpsOnRewrite(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Cwd: t.TempDir(), SessionsDir: t.TempDir(), ContextWindow: 32768}
+	s := New(cfg)
+	g0 := s.Generation()
+	s.AddUser("one")
+	if s.Generation() != g0 {
+		t.Fatal("append must not bump generation")
+	}
+	s.Clear()
+	if s.Generation() == g0 {
+		t.Fatal("Clear must bump generation")
+	}
+	g1 := s.Generation()
+	for i := 0; i < 10; i++ {
+		s.AddUser(strings.Repeat("x", 400))
+	}
+	if err := s.CompactTo(context.Background(), 200); err != nil {
+		t.Fatalf("CompactTo: %v", err)
+	}
+	if s.Generation() == g1 {
+		t.Fatal("CompactTo must bump generation")
+	}
+}
+
+// TestRenderMessagesForSummaryKeepsMessageLineOrder verifies that restoring
+// chronological order reverses whole entries, not the lines inside them.
+func TestRenderMessagesForSummaryKeepsMessageLineOrder(t *testing.T) {
+	t.Parallel()
+	msgs := []Message{
+		{Role: "user", Content: "line1\nline2\nline3"},
+		{Role: "assistant", Content: "reply one\nreply two"},
+	}
+	out := renderMessagesForSummary(msgs)
+	if !strings.Contains(out, "line1\nline2\nline3") {
+		t.Fatalf("multi-line message content got garbled:\n%s", out)
+	}
+	if !strings.Contains(out, "reply one\nreply two") {
+		t.Fatalf("multi-line message content got garbled:\n%s", out)
+	}
+	if strings.Index(out, "line1") > strings.Index(out, "reply one") {
+		t.Fatalf("older message must come before newer:\n%s", out)
+	}
 }

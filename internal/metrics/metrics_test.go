@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 )
 
 func TestSummaryAddAndFormat(t *testing.T) {
@@ -82,5 +84,73 @@ func TestRecorderMemoryOnly(t *testing.T) {
 	nilRecorder.NoteCompaction()
 	if s := nilRecorder.Summary(); s.Requests != 0 {
 		t.Fatal("nil recorder must be a no-op")
+	}
+}
+
+func TestSummarizePercentilesAndCompactions(t *testing.T) {
+	t.Parallel()
+
+	var entries []Entry
+	for i := 1; i <= 20; i++ {
+		entries = append(entries, Entry{WallMS: int64(i * 100)})
+	}
+	entries[3].Compacted = true
+	entries[19].Compacted = true
+	s := Summarize(entries)
+	if s.WallP50MS != 1000 || s.WallP95MS != 1900 {
+		t.Fatalf("p50=%d p95=%d, want 1000/1900", s.WallP50MS, s.WallP95MS)
+	}
+	if s.Compactions != 2 {
+		t.Fatalf("Compactions=%d, want 2 (entries with Compacted)", s.Compactions)
+	}
+}
+
+func TestExpandInputsDirectory(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"b.jsonl", "a.jsonl"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Non-JSONL files and subdirectories are ignored.
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := ExpandInputs([]string{dir})
+	if err != nil {
+		t.Fatalf("ExpandInputs: %v", err)
+	}
+	if len(files) != 2 || !strings.HasSuffix(files[0], "a.jsonl") || !strings.HasSuffix(files[1], "b.jsonl") {
+		t.Fatalf("unexpected expansion: %v", files)
+	}
+
+	single := filepath.Join(dir, "a.jsonl")
+	files, err = ExpandInputs([]string{single})
+	if err != nil || len(files) != 1 || files[0] != single {
+		t.Fatalf("single file expansion: %v %v", files, err)
+	}
+	if _, err := ExpandInputs([]string{filepath.Join(dir, "missing")}); err == nil {
+		t.Fatal("missing path should error")
+	}
+	if _, err := ExpandInputs([]string{sub}); err == nil {
+		t.Fatal("directory without jsonl files should error")
+	}
+}
+
+func TestMetricsEntryErrorRedacted(t *testing.T) {
+	t.Parallel()
+	// The agent applies logger.RedactText to Entry.Error before recording;
+	// a secret-bearing assignment must never land in the metrics file.
+	raw := "request failed: API_KEY=sk-live-secret-123 for https://user:hunter2@example.com/x"
+	redacted := logger.RedactText(raw)
+	if strings.Contains(redacted, "sk-live-secret-123") || strings.Contains(redacted, "hunter2") {
+		t.Fatalf("secret survived redaction: %q", redacted)
 	}
 }

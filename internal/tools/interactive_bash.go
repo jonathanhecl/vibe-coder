@@ -38,10 +38,23 @@ func stripANSI(s string) string {
 // together with a session_id so follow-up SendInput calls can respond.
 type InteractiveBashTool struct {
 	mgr *terminal.Manager
+	// maxOut caps the terminal output returned to the model; zero keeps the
+	// historical 30KB head/tail budget.
+	maxOut int
 }
 
 func NewInteractiveBashTool() *InteractiveBashTool {
 	return &InteractiveBashTool{mgr: terminal.DefaultManager()}
+}
+
+// SetMaxOutputBytes sets the output cap for this tool's results.
+func (t *InteractiveBashTool) SetMaxOutputBytes(n int) { t.maxOut = n }
+
+func (t *InteractiveBashTool) outputLimit() int {
+	if t.maxOut > 0 {
+		return t.maxOut
+	}
+	return defaultShellOutputBytes
 }
 
 func (t *InteractiveBashTool) Name() string { return "InteractiveBash" }
@@ -127,11 +140,7 @@ func (t *InteractiveBashTool) Execute(ctx context.Context, params map[string]any
 		}
 		exitCode := sess.ExitCode()
 		_ = t.mgr.Terminate(sess.ID)
-		if len(final) > 30*1024 {
-			head := final[:15*1024]
-			tail := final[len(final)-15*1024:]
-			final = head + "\n... (truncated) ...\n" + tail
-		}
+		final = headTailTruncate(final, t.outputLimit())
 		final = strings.TrimRight(final, "\n")
 		if exitCode != 0 {
 			final = fmt.Sprintf("%s\n\n[exit_code: %d]", final, exitCode)
@@ -144,11 +153,7 @@ func (t *InteractiveBashTool) Execute(ctx context.Context, params map[string]any
 	if output == "" {
 		output = "(waiting for input)"
 	}
-	if len(output) > 30*1024 {
-		head := output[:15*1024]
-		tail := output[len(output)-15*1024:]
-		output = head + "\n... (truncated) ...\n" + tail
-	}
+	output = headTailTruncate(output, t.outputLimit())
 
 	return Result{
 		Output: fmt.Sprintf("%s\n\n[session_id: %s]\n[status: running -- use SendInput to respond]", strings.TrimRight(output, "\n"), sess.ID),
@@ -158,10 +163,23 @@ func (t *InteractiveBashTool) Execute(ctx context.Context, params map[string]any
 // SendInputTool sends a line of input to a running interactive session.
 type SendInputTool struct {
 	mgr *terminal.Manager
+	// maxOut caps the terminal output returned to the model; zero keeps the
+	// historical 30KB head/tail budget.
+	maxOut int
 }
 
 func NewSendInputTool() *SendInputTool {
 	return &SendInputTool{mgr: terminal.DefaultManager()}
+}
+
+// SetMaxOutputBytes sets the output cap for this tool's results.
+func (t *SendInputTool) SetMaxOutputBytes(n int) { t.maxOut = n }
+
+func (t *SendInputTool) outputLimit() int {
+	if t.maxOut > 0 {
+		return t.maxOut
+	}
+	return defaultShellOutputBytes
 }
 
 func (t *SendInputTool) Name() string { return "SendInput" }
@@ -251,11 +269,7 @@ func (t *SendInputTool) Execute(ctx context.Context, params map[string]any) Resu
 		}
 		exitCode := sess.ExitCode()
 		_ = t.mgr.Terminate(sessionID)
-		if len(output) > 30*1024 {
-			head := output[:15*1024]
-			tail := output[len(output)-15*1024:]
-			output = head + "\n... (truncated) ...\n" + tail
-		}
+		output = headTailTruncate(output, t.outputLimit())
 		output = strings.TrimRight(output, "\n")
 		output = fmt.Sprintf("%s\n\n[exit_code: %d]", output, exitCode)
 		return Result{Output: output}
@@ -264,11 +278,7 @@ func (t *SendInputTool) Execute(ctx context.Context, params map[string]any) Resu
 	if output == "" {
 		output = "(waiting for more input)"
 	}
-	if len(output) > 30*1024 {
-		head := output[:15*1024]
-		tail := output[len(output)-15*1024:]
-		output = head + "\n... (truncated) ...\n" + tail
-	}
+	output = headTailTruncate(output, t.outputLimit())
 
 	return Result{
 		Output: fmt.Sprintf("%s\n\n[session_id: %s]\n[status: running -- use SendInput to continue or TerminateSession to kill]", strings.TrimRight(output, "\n"), sessionID),

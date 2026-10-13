@@ -12,9 +12,16 @@ import (
 
 const defaultReadMaxBytes = 512 * 1024
 
-type ReadTool struct{}
+type ReadTool struct {
+	// maxOut caps reads that do not pass an explicit max_bytes parameter.
+	// Zero keeps the historical 512KB default.
+	maxOut int
+}
 
 func NewReadTool() *ReadTool { return &ReadTool{} }
+
+// SetMaxOutputBytes sets the default cap used when max_bytes is absent.
+func (t *ReadTool) SetMaxOutputBytes(n int) { t.maxOut = n }
 
 func (t *ReadTool) Name() string { return "Read" }
 func (t *ReadTool) Description() string {
@@ -81,8 +88,16 @@ func (t *ReadTool) Execute(ctx context.Context, params map[string]any) Result {
 			endLine = limitEnd
 		}
 	}
+	// An explicit max_bytes always wins (bounded by the 512KB ceiling);
+	// without one the configured output limit applies.
 	maxBytes := asInt(params["max_bytes"], 0)
-	if maxBytes <= 0 || maxBytes > defaultReadMaxBytes {
+	if maxBytes <= 0 {
+		maxBytes = t.maxOut
+		if maxBytes <= 0 {
+			maxBytes = defaultReadMaxBytes
+		}
+	}
+	if maxBytes > defaultReadMaxBytes {
 		maxBytes = defaultReadMaxBytes
 	}
 
@@ -128,7 +143,11 @@ func (t *ReadTool) Execute(ctx context.Context, params map[string]any) Result {
 	}
 	output := strings.TrimRight(out.String(), "\n")
 	if truncated {
-		output += "\n[read truncated; adjust start_line/end_line/limit/max_bytes to continue]"
+		if lineNo > 0 {
+			output += fmt.Sprintf("\n[read truncated at line %d; call Read again with start_line=%d to continue]", lineNo, lineNo)
+		} else {
+			output += "\n[read truncated; adjust start_line/end_line/limit/max_bytes to continue]"
+		}
 	}
 	return Result{Output: output}
 }

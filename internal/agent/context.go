@@ -52,14 +52,37 @@ func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool
 }
 
 func (a *Agent) compactBestEffort(ctx context.Context) {
-	// Best-effort context compaction; failures should not break the active turn.
-	if !a.sess.ShouldCompact() {
+	// Best-effort context compaction; failures should not break the active
+	// turn. The trigger prices the *masked* transcript (what the wire
+	// actually pays for) against the computed budget, so stale tool outputs
+	// that the model no longer sees do not force early compaction.
+	if a == nil || a.sess == nil || a.cfg == nil {
 		return
 	}
-	if err := a.sess.Compact(ctx, false); err != nil {
+	hist := a.sess.MessagesReadOnly()
+	if len(hist) == 0 {
+		return
+	}
+	gen := a.sess.Generation()
+	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, gen))
+	budget := a.computeBudget(a.buildSystemPrompt())
+	pct := a.cfg.Harness.CompactAtPercent
+	if pct <= 0 {
+		pct = 85
+	}
+	if transcriptCost(masked) <= budget.Transcript*pct/100 && len(hist) <= 300 {
+		return
+	}
+	keepTailTokens := budget.Transcript * 40 / 100
+	if err := a.sess.CompactTo(ctx, keepTailTokens); err != nil {
 		logger.Errorf("context compaction failed: %v", err)
 		return
 	}
+	if a.sess.Generation() == gen {
+		// CompactTo was a no-op (nothing older than the kept tail).
+		return
+	}
+	a.compactedPending.Store(true)
 	if a.metrics != nil {
 		a.metrics.NoteCompaction()
 	}

@@ -1,11 +1,11 @@
 package agent
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/metrics"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 )
@@ -55,10 +55,6 @@ func (a *Agent) recordChatAttempt(systemPrompt string, wstats windowStats, start
 	if a.xmlToolMode() {
 		toolMode = "xml"
 	}
-	schemaTokens := 0
-	if raw, err := json.Marshal(a.nativeChatTools()); err == nil {
-		schemaTokens = session.EstimateTokens(string(raw))
-	}
 	e := metrics.Entry{
 		Time:                time.Now().UTC(),
 		Session:             a.sess.ID(),
@@ -66,11 +62,13 @@ func (a *Agent) recordChatAttempt(systemPrompt string, wstats windowStats, start
 		Seq:                 a.metricsSeq,
 		ToolMode:            toolMode,
 		SystemTokensEst:     session.EstimateTokens(systemPrompt),
-		ToolSchemaTokensEst: schemaTokens,
+		ToolSchemaTokensEst: a.toolSchemaTokens(),
 		TranscriptTokensEst: wstats.TranscriptTokensEst,
 		MessagesTotal:       wstats.MessagesTotal,
 		MessagesSent:        wstats.MessagesSent,
 		ToolResultsMasked:   wstats.ToolResultsMasked,
+		WindowStart:         wstats.WindowStart,
+		MessagesDropped:     wstats.MessagesDropped,
 		WallMS:              time.Since(start).Milliseconds(),
 		ToolCalls:           toolCalls,
 	}
@@ -81,7 +79,12 @@ func (a *Agent) recordChatAttempt(systemPrompt string, wstats windowStats, start
 		e.EvalMS = u.EvalDuration.Milliseconds()
 	}
 	if callErr != nil {
-		e.Error = callErr.Error()
+		// Error text can carry secrets embedded in provider or tool error
+		// output; run it through the same redactor the run log uses.
+		e.Error = logger.RedactText(callErr.Error())
+	}
+	if a.compactedPending.Swap(false) {
+		e.Compacted = true
 	}
 	a.metrics.Record(e)
 }

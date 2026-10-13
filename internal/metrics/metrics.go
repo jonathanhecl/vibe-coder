@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,8 @@ type Entry struct {
 	MessagesTotal       int       `json:"messages_total"`
 	MessagesSent        int       `json:"messages_sent"`
 	ToolResultsMasked   int       `json:"tool_results_masked"`
+	WindowStart         int       `json:"window_start"`
+	MessagesDropped     int       `json:"messages_dropped"`
 	PromptTokens        int       `json:"prompt_tokens"`
 	CompletionTokens    int       `json:"completion_tokens"`
 	PromptEvalMS        int64     `json:"prompt_eval_ms"`
@@ -42,15 +45,22 @@ type Entry struct {
 
 // Summary aggregates a session's entries for /stats.
 type Summary struct {
-	Requests          int
-	PromptTokens      int
-	CompletionTokens  int
-	ToolResultsMasked int
-	Compactions       int
-	Errors            int
-	PromptEvalMS      int64
-	EvalMS            int64
-	WallMS            int64
+	Requests            int
+	PromptTokens        int
+	CompletionTokens    int
+	SystemTokensEst     int
+	TranscriptTokensEst int
+	ToolResultsMasked   int
+	Compactions         int
+	Errors              int
+	PromptEvalMS        int64
+	EvalMS              int64
+	WallMS              int64
+	// WallP50MS/WallP95MS are wall-time percentiles; they are only computed
+	// by Summarize (Add keeps a running total, so a Recorder summary leaves
+	// them at 0).
+	WallP50MS int64
+	WallP95MS int64
 }
 
 // Add folds one entry into the summary.
@@ -58,6 +68,8 @@ func (s *Summary) Add(e Entry) {
 	s.Requests++
 	s.PromptTokens += e.PromptTokens
 	s.CompletionTokens += e.CompletionTokens
+	s.SystemTokensEst += e.SystemTokensEst
+	s.TranscriptTokensEst += e.TranscriptTokensEst
 	s.ToolResultsMasked += e.ToolResultsMasked
 	s.PromptEvalMS += e.PromptEvalMS
 	s.EvalMS += e.EvalMS
@@ -98,13 +110,74 @@ func (s Summary) Format() string {
 }
 
 // Summarize folds a slice of entries (e.g. read back from a JSONL file)
-// into a Summary.
+// into a Summary, including wall-time percentiles.
 func Summarize(entries []Entry) Summary {
 	var s Summary
+	walls := make([]int64, 0, len(entries))
 	for _, e := range entries {
 		s.Add(e)
+		walls = append(walls, e.WallMS)
+		if e.Compacted {
+			// Compacted is set on the entry recorded right after a
+			// compaction, so counting entries matches recorder totals.
+			s.Compactions++
+		}
 	}
+	sort.Slice(walls, func(i, j int) bool { return walls[i] < walls[j] })
+	s.WallP50MS = percentile(walls, 50)
+	s.WallP95MS = percentile(walls, 95)
 	return s
+}
+
+// WallPercentile sorts a copy of walls and returns the p-th nearest-rank
+// percentile (0 when empty). Exposed for the vibe-metrics CLI's TOTAL row.
+func WallPercentile(walls []int64, p int) int64 {
+	sorted := append([]int64(nil), walls...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	return percentile(sorted, p)
+}
+
+// percentile returns the p-th nearest-rank percentile of an ascending-sorted
+// slice (0 when empty).
+func percentile(sorted []int64, p int) int64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	idx := (len(sorted)*p + 99) / 100
+	if idx < 1 {
+		idx = 1
+	}
+	if idx > len(sorted) {
+		idx = len(sorted)
+	}
+	return sorted[idx-1]
+}
+
+// ExpandInputs resolves CLI arguments into metrics file paths: each argument
+// may be a JSONL file or a directory (all *.jsonl inside, sorted). Unknown
+// paths and directories without metrics files are reported as errors.
+func ExpandInputs(args []string) ([]string, error) {
+	var out []string
+	for _, arg := range args {
+		info, err := os.Stat(arg)
+		if err != nil {
+			return out, fmt.Errorf("%s: %w", arg, err)
+		}
+		if !info.IsDir() {
+			out = append(out, arg)
+			continue
+		}
+		matches, err := filepath.Glob(filepath.Join(arg, "*.jsonl"))
+		if err != nil {
+			return out, err
+		}
+		if len(matches) == 0 {
+			return out, fmt.Errorf("%s: no *.jsonl metrics files", arg)
+		}
+		sort.Strings(matches)
+		out = append(out, matches...)
+	}
+	return out, nil
 }
 
 // Recorder appends entries to a JSONL file and keeps running totals. The

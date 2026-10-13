@@ -24,7 +24,6 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 
 	s.mu.RLock()
 	cfg := s.cfg
-	client := s.client
 	if cfg == nil || len(s.messages) <= compactionKeepTail {
 		s.mu.RUnlock()
 		return nil
@@ -33,9 +32,55 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 		s.mu.RUnlock()
 		return nil
 	}
-	cut := len(s.messages) - compactionKeepTail
+	keepTail := cfg.ContextWindow / 4
+	s.mu.RUnlock()
+	return s.CompactTo(ctx, keepTail)
+}
+
+// CompactTo summarizes all but the newest messages whose cumulative token
+// cost fits inside keepTailTokens (at least four messages are always kept).
+// When the cut would start on an orphaned tool result it walks backward (up
+// to ten steps) to include the assistant tool_calls that produced it. If the
+// tail covers the whole transcript, nothing is older than the cut and the
+// call is a no-op.
+func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
+	if s == nil {
+		return nil
+	}
+
+	s.mu.RLock()
+	cfg := s.cfg
+	client := s.client
+	if cfg == nil || len(s.messages) == 0 {
+		s.mu.RUnlock()
+		return nil
+	}
+	if keepTailTokens <= 0 {
+		keepTailTokens = cfg.ContextWindow / 4
+	}
+	cut := len(s.messages)
+	sum := 0
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		cost := estimateMessageTokens(s.messages[i].Content)
+		if sum+cost > keepTailTokens && len(s.messages)-cut >= 4 {
+			break
+		}
+		sum += cost
+		cut = i
+	}
+	// A kept tail that begins on a role:"tool" result lost its assistant
+	// tool_calls on the wire; slide the cut back to include them when they
+	// are close enough to reach.
+	for steps := 0; steps < 10 && cut > 0 && s.messages[cut].Role == "tool"; steps++ {
+		cut--
+	}
+	if cut <= 0 {
+		s.mu.RUnlock()
+		return nil
+	}
 	old := append([]Message(nil), s.messages[:cut]...)
 	recent := append([]Message(nil), s.messages[cut:]...)
+	firstUserIdx := s.firstUserMessageIndexLocked()
 	revision := s.revision
 	s.mu.RUnlock()
 
@@ -80,20 +125,23 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 	// kept tail with orphaned native tool results converted to user-role
 	// envelopes so the wire history stays valid (a role:"tool" message without
 	// a preceding assistant tool_calls is rejected by Ollama and confuses the
-	// model).
+	// model). The first user message is only prepended when it actually fell
+	// inside the compacted region — if it already sits inside the kept tail,
+	// adding it again would duplicate the request.
 	newMsgs := make([]Message, 0, len(recent)+3)
 	newMsgs = append(newMsgs, Message{
 		Role:      "user",
 		Content:   "[Earlier conversation summary]\n" + summary,
 		Timestamp: time.Now().UTC(),
 	})
-	if first := s.firstUserMessageUnlocked(); first != nil {
-		newMsgs = append(newMsgs, *first)
+	if firstUserIdx >= 0 && firstUserIdx < cut {
+		newMsgs = append(newMsgs, s.messages[firstUserIdx])
 	}
 	newMsgs = append(newMsgs, normalizeKeptMessages(recent)...)
 	s.messages = newMsgs
 	s.recomputeTokenEstimate()
 	s.revision++
+	s.generation++
 	return nil
 }
 
@@ -132,49 +180,74 @@ func (s *Session) recomputeTokenEstimate() {
 	s.tokenEstimate = total
 }
 
+// clipRunes truncates s to at most n runes, marking the cut with a clipped
+// suffix so the reader knows content was removed. Rune-safe for CJK text.
+func clipRunes(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…[clipped]"
+}
+
 func renderMessagesForSummary(messages []Message) string {
 	// Bound the sidecar input: at the compaction threshold the old
 	// transcript can hold megabytes (verbatim tool outputs), which would
 	// stall the small sidecar model past its timeout and degrade to the
 	// static truncation note. Keep the most recent content so the summary
-	// stays continuous with the messages kept verbatim.
-	const maxSummaryChars = 48 * 1024
-	var b strings.Builder
+	// stays continuous with the messages kept verbatim. Each message is
+	// clipped to a fixed rune budget so one giant tool output cannot crowd
+	// out everything else.
+	const (
+		maxSummaryChars      = 48 * 1024
+		maxPerMessageRunes   = 2000
+		maxPriorSummaryRunes = 8000
+		priorSummaryPrefix   = "[Earlier conversation summary]"
+	)
+	prefix := ""
+	start := 0
+	// A prior compaction summary is the only memory of everything already
+	// summarized; always carry it into the next summary verbatim (clipped),
+	// outside the newest-first budget.
+	if len(messages) > 0 && strings.HasPrefix(messages[0].Content, priorSummaryPrefix) {
+		prefix = "user: " + clipRunes(messages[0].Content, maxPriorSummaryRunes) + "\n"
+		start = 1
+	}
+	// Collect each rendered entry (role header plus its multi-line content)
+	// as one element, newest-first under the size budget, then reverse the
+	// slice to restore chronological order. Reversing whole entries — not
+	// raw lines — keeps a message's internal line order intact.
+	var entries []string
 	clipped := false
-	for i := len(messages) - 1; i >= 0; i-- {
+	size := 0
+	for i := len(messages) - 1; i >= start; i-- {
 		m := messages[i]
-		line := m.Role
+		entry := m.Role
 		if m.ToolName != "" {
-			line += "(" + m.ToolName + ")"
+			entry += "(" + m.ToolName + ")"
 		}
-		line += ": " + m.Content
+		entry += ": " + clipRunes(m.Content, maxPerMessageRunes)
 		if len(m.ToolCalls) > 0 {
 			if raw, err := json.Marshal(m.ToolCalls); err == nil {
-				line += " [tool_calls: " + string(raw) + "]"
+				entry += " [tool_calls: " + string(raw) + "]"
 			}
 		}
-		line += "\n"
-		if b.Len()+len(line) > maxSummaryChars {
+		entry += "\n"
+		if size+len(entry) > maxSummaryChars {
 			clipped = true
 			break
 		}
-		b.WriteString(line)
+		size += len(entry)
+		entries = append(entries, entry)
 	}
-	out := b.String()
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+	body := strings.Join(entries, "")
 	if !clipped {
-		// Built newest-first above; restore chronological order.
-		return reverseLines(out)
+		return prefix + body
 	}
-	return "[earliest history omitted for size; summarizing the most recent part]\n" + reverseLines(out)
-}
-
-// reverseLines flips a "\n"-terminated line block end to start.
-func reverseLines(s string) string {
-	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
-	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
-		lines[i], lines[j] = lines[j], lines[i]
-	}
-	return strings.Join(lines, "\n") + "\n"
+	return prefix + "[earliest history omitted for size; summarizing the most recent part]\n" + body
 }
 
 // EstimateTokens exposes the session's heuristic token estimator so metrics

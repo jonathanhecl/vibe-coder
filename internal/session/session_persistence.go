@@ -48,6 +48,7 @@ func (s *Session) Clear() {
 	s.messages = s.messages[:0]
 	s.tokenEstimate = 0
 	s.revision++
+	s.generation++
 	if s.cfg != nil && s.cfg.Cwd != "" {
 		s.projectPath = s.cfg.Cwd
 	}
@@ -201,6 +202,7 @@ func (s *Session) Load(id string) error {
 	}
 	s.recomputeTokenEstimate()
 	s.revision++
+	s.generation++
 	// Just loaded from disk: memory matches the files, so a subsequent
 	// Save with no changes is a no-op.
 	s.lastSavedRevision = s.revision
@@ -326,6 +328,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	s.projectPath = cwd
 	s.recomputeTokenEstimate()
 	s.revision++
+	s.generation++
 	s.lastSavedRevision = s.revision
 	s.mu.Unlock()
 	return true, nil

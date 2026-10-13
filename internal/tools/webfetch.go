@@ -14,9 +14,28 @@ import (
 	"time"
 )
 
-type WebFetchTool struct{}
+// maxWebFetchTextBytes is the built-in cap on extracted page text. A
+// configured output limit can only tighten it.
+const maxWebFetchTextBytes = 50 * 1024
+
+type WebFetchTool struct {
+	// maxOut caps the extracted text returned to the model; zero keeps the
+	// built-in 50KB cap.
+	maxOut int
+}
 
 func NewWebFetchTool() *WebFetchTool { return &WebFetchTool{} }
+
+// SetMaxOutputBytes sets the extracted-text cap (never looser than the
+// built-in ceiling).
+func (t *WebFetchTool) SetMaxOutputBytes(n int) { t.maxOut = n }
+
+func (t *WebFetchTool) textLimit() int {
+	if t.maxOut > 0 && t.maxOut < maxWebFetchTextBytes {
+		return t.maxOut
+	}
+	return maxWebFetchTextBytes
+}
 
 func (t *WebFetchTool) Name() string        { return "WebFetch" }
 func (t *WebFetchTool) Description() string { return "Fetch and extract webpage text." }
@@ -136,8 +155,8 @@ func (t *WebFetchTool) Execute(ctx context.Context, params map[string]any) Resul
 		return errResult(fmt.Sprintf("read response body: %v", err))
 	}
 	text := htmlToText(string(body))
-	if len(text) > 50*1024 {
-		text = text[:50*1024]
+	if limit := t.textLimit(); len(text) > limit {
+		text = text[:limit]
 	}
 	return Result{Output: strings.TrimSpace(text)}
 }

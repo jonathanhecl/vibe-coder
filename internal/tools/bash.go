@@ -33,9 +33,24 @@ func bashDefaultTimeoutMS() int64 {
 	return defaultBashTimeoutMS
 }
 
-type BashTool struct{}
+type BashTool struct {
+	// maxOut caps the combined stdout+stderr returned to the model.
+	// Zero keeps the historical 30KB head/tail budget.
+	maxOut int
+}
 
 func NewBashTool() *BashTool { return &BashTool{} }
+
+// SetMaxOutputBytes sets the output cap; output longer than it is kept as
+// head and tail halves with a truncation marker in between.
+func (t *BashTool) SetMaxOutputBytes(n int) { t.maxOut = n }
+
+func (t *BashTool) outputLimit() int {
+	if t.maxOut > 0 {
+		return t.maxOut
+	}
+	return defaultShellOutputBytes
+}
 
 func (t *BashTool) Name() string { return "Bash" }
 func (t *BashTool) Description() string {
@@ -113,11 +128,7 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) Result {
 	if output == "" && err == nil {
 		output = "(no output)"
 	}
-	if len(output) > 30*1024 {
-		head := output[:15*1024]
-		tail := output[len(output)-15*1024:]
-		output = head + "\n... (truncated) ...\n" + tail
-	}
+	output = headTailTruncate(output, t.outputLimit())
 	if err != nil {
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			seconds := time.Duration(timeoutMS) * time.Millisecond

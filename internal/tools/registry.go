@@ -24,6 +24,23 @@ func (r *Registry) Register(t Tool) {
 	r.schemas = nil
 }
 
+// SetOutputLimit applies a shared model-facing output cap (bytes) to every
+// registered tool that supports one. Tools registered afterwards keep their
+// own defaults, so callers should set the limit once the registry is fully
+// populated.
+func (r *Registry) SetOutputLimit(maxBytes int) {
+	if r == nil || maxBytes <= 0 {
+		return
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, t := range r.tools {
+		if tl, ok := t.(outputLimiter); ok {
+			tl.SetMaxOutputBytes(maxBytes)
+		}
+	}
+}
+
 func (r *Registry) Get(name string) Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

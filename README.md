@@ -582,6 +582,24 @@ Harness tunables (defaults < config file < env):
 
 Per-request harness metrics (model-reported token counts, estimated prompt-section sizes, timings) are appended as JSONL to `<state-dir>/metrics/<session-id>.jsonl`; isolated sessions write `<cwd>/.vibe-isolated-metrics.jsonl` and temporal sessions record memory-only. Inspect them live with `/stats`.
 
+### Context management & measuring harness changes
+
+`vibe` budgets the transcript in estimated tokens, not bytes. Each request splits `CONTEXT_WINDOW` into an output reserve (`MAX_TOKENS`, default reserve 4096, capped at window/4), the system prompt, the native tool schema, a 5% margin, and what remains is the transcript budget. Transcript selection is sticky: the window start only moves forward while the suffix stays within budget (recomputed windows fill up to 60% of the transcript budget), and it resets whenever the stored transcript is rewritten (compaction, `/clear session`, resume).
+
+Large tool outputs older than the last `KEEP_TOOL_RESULTS` tool turns are masked on the wire only — the stored transcript is never mutated — replaced by a short `[elided]` stub. `TOOL_OUTPUT_MAX_TOKENS` caps a single tool result (auto = 15% of the context window, 2000-token floor, ≈4 bytes per token) across `Read`, `Bash`, `InteractiveBash`/`SendInput`, `HTTPRequest`, and `WebFetch`, including sub-agent tools.
+
+Compaction fires when the *masked* transcript exceeds `COMPACT_AT_PERCENT` of the transcript budget (or history grows past 300 messages), keeps a 40%-of-budget token tail, summarizes the rest via the sidecar/main model, preserves the original first user request, and carries prior summaries forward so repeated compactions never lose them.
+
+Measuring a harness change:
+
+```bash
+go build -o vibe-metrics ./cmd/vibe-metrics
+vibe-metrics "$HOME/.local/state/vibe-coder/metrics/<session>.jsonl"
+vibe-metrics ~/.local/state/vibe-coder/metrics/   # whole directory
+```
+
+Each row reports requests, errors, total/average prompt and completion tokens, average system and transcript estimates, masked results, compactions, and wall-time p50/p95, plus a `TOTAL` row.
+
 ## MCP & Skills Management CLI
 
 `vibe` provides dedicated CLI subcommands to list, add, and remove MCP servers and custom skills.

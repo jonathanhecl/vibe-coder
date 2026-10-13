@@ -29,6 +29,10 @@ type Session struct {
 	client        ollama.Client
 	tokenEstimate int
 	revision      uint64
+	// generation increments whenever messages is replaced or truncated
+	// (compaction, clear, load) rather than appended to. Consumers that
+	// cache indexes into the transcript use it to invalidate their state.
+	generation uint64
 	// pinnedContexts holds absolute paths of user-pinned guide files
 	// (--context / /context). Only the paths are stored here; file
 	// contents are reloaded into the agent system prompt on demand.
@@ -223,6 +227,21 @@ func (s *Session) addMessage(msg Message) {
 	s.revision++
 }
 
+// Generation returns the transcript generation: a counter that moves only
+// when the message slice is rewritten (compact, clear, load), never on
+// append. Wire-window state keyed to it stays valid until a rewrite.
+func (s *Session) Generation() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.generation
+}
+
+// MessageTokenCost prices one message's content for budgeting: the text
+// estimate plus the per-image cost of any vision markers it carries.
+func MessageTokenCost(content string) int {
+	return estimateMessageTokens(content)
+}
+
 func (s *Session) TokenEstimate() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -317,6 +336,16 @@ func bytesEqual(a, b []byte) bool {
 // user asked the agent to perform; compaction preserves it verbatim so the
 // agent never loses its goal. Caller must hold s.mu.
 func (s *Session) firstUserMessageUnlocked() *Message {
+	if idx := s.firstUserMessageIndexLocked(); idx >= 0 {
+		return &s.messages[idx]
+	}
+	return nil
+}
+
+// firstUserMessageIndexLocked returns the index of the first user-role
+// message that is not a tool observation envelope or a runtime note, or -1.
+// Caller must hold s.mu.
+func (s *Session) firstUserMessageIndexLocked() int {
 	for i := range s.messages {
 		m := &s.messages[i]
 		if m.Role != "user" {
@@ -331,21 +360,9 @@ func (s *Session) firstUserMessageUnlocked() *Message {
 		if strings.HasPrefix(m.Content, RuntimeReminderPrefix) {
 			continue
 		}
-		return m
+		return i
 	}
-	return nil
-}
-
-func (s *Session) ShouldCompact() bool {
-	if s == nil {
-		return false
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.cfg == nil || len(s.messages) <= 30 {
-		return false
-	}
-	return len(s.messages) > 300 || s.tokenEstimate > int(0.7*float64(s.cfg.ContextWindow))
+	return -1
 }
 
 func cloneMessages(messages []Message) []Message {

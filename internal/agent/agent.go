@@ -73,6 +73,14 @@ type Agent struct {
 	// lastUsage holds the provider-reported token usage of the most recent
 	// chat stream (nil until the first done chunk with usage arrives).
 	lastUsage *ollama.Usage
+	// wire tracks the send-time transcript window: the session generation it
+	// was computed for, the masking frontier, and the sticky window start.
+	wireMu sync.Mutex
+	wire   wireState
+	// compactedPending marks that a compaction rewrote the transcript since
+	// the last recorded metrics entry, so the next entry carries
+	// Entry.Compacted.
+	compactedPending atomic.Bool
 
 	// sysPrompt caches the stable system prompt until disk/registry inputs change.
 	sysPrompt promptCache
@@ -89,6 +97,10 @@ type promptCache struct {
 	cacheMission string
 	cacheOffline bool
 	full         string
+	// schemaKey/schemaTokens memoize the native tool schema token estimate
+	// per registered tool-name list (schema rarely changes between turns).
+	schemaKey    string
+	schemaTokens int
 }
 
 func IsEmptyAssistantResponseErr(err error) bool {
@@ -141,6 +153,9 @@ func New(
 		if a.jev != nil {
 			reg.Register(tools.NewJevDecideTool(a.jev))
 		}
+		// One shared output cap for every tool that honors it, derived from
+		// the harness tuning knob (or 15% of the context window on auto).
+		reg.SetOutputLimit(tools.OutputLimitBytes(cfg))
 	}
 	return a
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/skills"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
-	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
 // maxUserAnchorChars bounds the re-anchored user request a trimmed window may
@@ -20,13 +19,14 @@ import (
 const maxUserAnchorChars = 4000
 
 // windowStats describes the transcript window a request carried so metrics
-// can record what was actually sent. ToolResultsMasked is a Phase-B hook;
-// nothing masks tool results yet, so it stays 0.
+// can record what was actually sent.
 type windowStats struct {
 	MessagesTotal       int
 	MessagesSent        int
 	TranscriptTokensEst int
 	ToolResultsMasked   int
+	WindowStart         int
+	MessagesDropped     int
 }
 
 func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([]ollama.Message, windowStats) {
@@ -37,25 +37,33 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 		stats.MessagesSent = len(out) - 1
 		return out, stats
 	}
-	// Reserve ~35% of the context window for the rolling transcript (system +
-	// completion use the rest). Char count is a cheap proxy for token budget.
-	budgetChars := int(float64(a.cfg.ContextWindow) * 3.5 * 0.35)
-	if budgetChars < 12000 {
-		budgetChars = 12000
+	// Budget the transcript share in tokens (masking + windowing both price
+	// messages with the session estimator), then mask old tool outputs and
+	// pick the window start. The start is sticky: within one session
+	// generation it only moves when the suffix outgrows the transcript
+	// budget, so earlier requests don't reshuffle the visible history.
+	budget := a.computeBudget(systemPrompt)
+	gen := a.sess.Generation()
+	a.wireMu.Lock()
+	sameGen := a.wire.set && a.wire.gen == gen
+	prevStart := a.wire.start
+	maskBefore := a.maskBeforeLocked(hist, gen)
+	masked, _ := maskToolResults(hist, maskBefore)
+	start := -1
+	if sameGen && prevStart >= 0 && prevStart < len(masked) &&
+		transcriptCost(masked[prevStart:]) <= budget.Transcript {
+		start = prevStart
+	} else {
+		start = windowStartForBudget(masked, budget.Transcript)
 	}
-	sum := 0
-	start := 0
-	for i := len(hist) - 1; i >= 0; i-- {
-		// Attached images are not text tokens; reserve budget for them with
-		// the same proxy constant used by the session token estimate.
-		sum += len(hist[i].Content) + vision.CountMarkers(hist[i].Content)*vision.EstimatedCharsPerImage
-		if sum > budgetChars {
-			start = i + 1
-			break
+	a.wire.start = start
+	a.wireMu.Unlock()
+	stats.WindowStart = start
+	stats.MessagesDropped = start
+	for i := start; i < maskBefore && i < len(masked); i++ {
+		if masked[i].Content != hist[i].Content {
+			stats.ToolResultsMasked++
 		}
-	}
-	if start >= len(hist) {
-		start = len(hist) - 1
 	}
 	// A budget-trimmed window can begin with a role="tool" result whose
 	// assistant tool_calls fell outside the cut, and can lose the user turn
@@ -63,7 +71,7 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	// result must answer a preceding assistant tool_calls, and every request
 	// must carry a user query ("No user query found in messages."). Repair the
 	// window before it reaches the wire.
-	out = append(out, windowForWire(hist, start)...)
+	out = append(out, windowForWire(masked, start)...)
 	// Markers become image bytes (or sidecar descriptions, or honest notes)
 	// only here, at send time. The transcript keeps the cheap text form.
 	a.setLastImage(out)
@@ -80,9 +88,40 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	}
 	stats.MessagesSent = len(out) - 1
 	for _, m := range out[1:] {
-		stats.TranscriptTokensEst += session.EstimateTokens(m.Content)
+		stats.TranscriptTokensEst += session.MessageTokenCost(m.Content)
 	}
 	return out, stats
+}
+
+// transcriptCost prices a slice of transcript messages in estimated tokens
+// (text + vision marker cost).
+func transcriptCost(msgs []session.Message) int {
+	total := 0
+	for _, m := range msgs {
+		total += session.MessageTokenCost(m.Content)
+	}
+	return total
+}
+
+// windowStartForBudget walks backward from the newest message accumulating
+// token cost while the total stays within 60% of budget, always including at
+// least the last message. It returns the first included index.
+func windowStartForBudget(hist []session.Message, budget int) int {
+	limit := budget * 60 / 100
+	start := len(hist) - 1
+	sum := 0
+	for i := len(hist) - 1; i >= 0; i-- {
+		cost := session.MessageTokenCost(hist[i].Content)
+		if i < len(hist)-1 && sum+cost > limit {
+			break
+		}
+		sum += cost
+		start = i
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
 }
 
 // windowForWire converts the transcript suffix [start:] into valid wire

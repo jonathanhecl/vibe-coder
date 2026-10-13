@@ -104,6 +104,14 @@ func (t *SubAgentTool) runLoop(ctx context.Context, userPrompt string, turns int
 		allowed["Edit"] = NewEditTool()
 		allowed["Bash"] = NewBashTool()
 	}
+	// Sub-agent tools obey the same configured output cap as the parent's.
+	if n := OutputLimitBytes(t.cfg); n > 0 {
+		for _, tool := range allowed {
+			if tl, ok := tool.(outputLimiter); ok {
+				tl.SetMaxOutputBytes(n)
+			}
+		}
+	}
 	messages := []ollama.Message{
 		{Role: "system", Content: buildSubAgentPrompt(t.cfg, allowWrites, allowed)},
 		{Role: "user", Content: userPrompt},
