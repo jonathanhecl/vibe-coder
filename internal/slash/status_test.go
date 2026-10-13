@@ -17,7 +17,7 @@ func TestStatusAliases(t *testing.T) {
 	cfg := &config.Config{Model: "llama3.2:3b", ContextWindow: 32768, Cwd: tmp, SessionsDir: tmp}
 	s := session.New(cfg)
 
-	for _, cmd := range []string{"/status", "/info", "/stats"} {
+	for _, cmd := range []string{"/status", "/info"} {
 		out := &bytes.Buffer{}
 		ctx := &Ctx{Cfg: cfg, Session: s, Agent: &fakePlanAgent{}, Out: out}
 		handled, shouldExit, err := Dispatch(ctx, cmd)

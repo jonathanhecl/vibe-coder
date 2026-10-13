@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -42,69 +43,83 @@ func writeTodos(t *testing.T, ag *Agent, merge bool, items ...map[string]any) {
 	}
 }
 
-func TestTodoProgressNoteInjectedOnceWhileUnchanged(t *testing.T) {
+func TestTrailingStateNotePresentWithPendingTodos(t *testing.T) {
 	t.Parallel()
 	ag := newTodoTestAgent(t)
 	writeTodos(t, ag, false,
 		map[string]any{"id": "1", "content": "Write the code", "status": "in_progress"},
 		map[string]any{"id": "2", "content": "Run the tests", "status": "pending"},
 	)
+	ag.sess.AddUser("do the work")
 
-	before := ag.sess.MessageCount()
-	for i := 0; i < 5; i++ {
-		ag.addTodoProgressNoteIfChanged()
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYS")
+	last := msgs[len(msgs)-1]
+	if last.Role != "user" || !strings.HasPrefix(last.Content, session.RuntimeReminderPrefix) {
+		t.Fatalf("expected trailing runtime reminder, got %+v", last)
 	}
-	if got := ag.sess.MessageCount() - before; got != 1 {
-		t.Fatalf("expected exactly 1 injected note across 5 iterations, got %d", got)
+	if !strings.Contains(last.Content, "Checklist") || !strings.Contains(last.Content, "Run the tests") {
+		t.Fatalf("reminder should carry the durable progress, got %q", last.Content)
 	}
 }
 
-func TestTodoProgressNoteReInjectedOnChange(t *testing.T) {
+func TestTrailingStateNoteAbsentWithoutTodos(t *testing.T) {
 	t.Parallel()
 	ag := newTodoTestAgent(t)
-	writeTodos(t, ag, false,
-		map[string]any{"id": "1", "content": "Write the code", "status": "in_progress"},
-	)
-	ag.addTodoProgressNoteIfChanged()
-	before := ag.sess.MessageCount()
+	ag.sess.AddUser("do the work")
 
-	// Status flip changes the note: it must be injected again.
-	writeTodos(t, ag, true,
-		map[string]any{"id": "1", "content": "Write the code", "status": "completed"},
-	)
-	ag.addTodoProgressNoteIfChanged()
-	if got := ag.sess.MessageCount() - before; got != 1 {
-		t.Fatalf("expected re-injection after change, got %d new messages", got)
-	}
-
-	// Unchanged again: no new message.
-	ag.addTodoProgressNoteIfChanged()
-	if got := ag.sess.MessageCount() - before; got != 1 {
-		t.Fatalf("expected no further injection, got %d new messages", got)
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYS")
+	for _, m := range msgs {
+		if strings.HasPrefix(m.Content, session.RuntimeReminderPrefix) {
+			t.Fatalf("expected no runtime reminder without todos, got %q", m.Content)
+		}
 	}
 }
 
-func TestTodoNoteDedupResetsPerRun(t *testing.T) {
+func TestTrailingStateNoteNotPersisted(t *testing.T) {
 	t.Parallel()
 	ag := newTodoTestAgent(t)
 	writeTodos(t, ag, false,
 		map[string]any{"id": "1", "content": "Write the code", "status": "pending"},
 	)
-	ag.addTodoProgressNoteIfChanged()
+	ag.sess.AddUser("do the work")
+
 	before := ag.sess.MessageCount()
-	ag.resetTodoNoteDedup()
-	ag.addTodoProgressNoteIfChanged()
-	if got := ag.sess.MessageCount() - before; got != 1 {
-		t.Fatalf("expected re-injection after reset, got %d", got)
+	if _, _ = ag.buildOllamaMessages(context.Background(), "SYS"); ag.sess.MessageCount() != before {
+		t.Fatal("runtime reminder must not be stored in the session transcript")
 	}
 }
 
-func TestNoNoteWithoutTodos(t *testing.T) {
+func TestTrailingStateNoteAppearsOncePerRequest(t *testing.T) {
 	t.Parallel()
 	ag := newTodoTestAgent(t)
-	before := ag.sess.MessageCount()
-	ag.addTodoProgressNoteIfChanged()
-	if ag.sess.MessageCount() != before {
-		t.Fatal("expected no note without todos")
+	writeTodos(t, ag, false,
+		map[string]any{"id": "1", "content": "Write the code", "status": "pending"},
+	)
+	ag.sess.AddUser("do the work")
+
+	for i := 0; i < 3; i++ {
+		msgs, _ := ag.buildOllamaMessages(context.Background(), "SYS")
+		n := 0
+		for _, m := range msgs {
+			if strings.HasPrefix(m.Content, session.RuntimeReminderPrefix) {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Fatalf("expected exactly one runtime reminder per request, got %d", n)
+		}
+	}
+}
+
+func TestRuntimeStateNoteIncludesMissionTurns(t *testing.T) {
+	t.Parallel()
+	ag := newTodoTestAgent(t)
+	ag.StartMission("long job")
+	ag.mission.IncrementTurns()
+	ag.mission.IncrementTurns()
+
+	note := ag.runtimeStateNote()
+	if !strings.Contains(note, "Mission continuation turns so far: 2") {
+		t.Fatalf("expected mission turn count in note, got %q", note)
 	}
 }

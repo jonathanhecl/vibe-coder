@@ -56,11 +56,11 @@ func (c *nativeSequenceClient) Chat(_ context.Context, _ ollama.ChatRequest) (<-
 
 func TestFileEditCompletionNote(t *testing.T) {
 	note := fileEditCompletionNote("Write", map[string]any{"file_path": "scripts/run_comfyui.bat"})
-	if !strings.Contains(note, "Verify the change") {
-		t.Fatalf("expected verification note, got %q", note)
+	if note != "File written: scripts/run_comfyui.bat." {
+		t.Fatalf("expected written note, got %q", note)
 	}
-	if !strings.Contains(note, "scripts/run_comfyui.bat") {
-		t.Fatalf("expected file path in note, got %q", note)
+	if got := fileEditCompletionNote("Edit", map[string]any{"file_path": "a.txt"}); got != "File updated: a.txt." {
+		t.Fatalf("expected updated note, got %q", got)
 	}
 	if got := fileEditCompletionNote("Read", map[string]any{"file_path": "a.txt"}); got != "" {
 		t.Fatalf("expected empty note for non-edit tool, got %q", got)

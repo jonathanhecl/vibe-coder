@@ -63,7 +63,7 @@ func TestResolveImageAttachmentsAttaches(t *testing.T) {
 
 	ag.sess.AddUser("describe this")
 	ag.sess.AddToolObservation("Read", vision.MarkerFor(photo))
-	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(msgs))
 	}
@@ -105,7 +105,7 @@ func TestStaleClipboardNamesAreScrubbedAndRedirected(t *testing.T) {
 	ag.sess.AddUser("first\n\n" + vision.MarkerFor(old))
 	ag.sess.AddAssistant("I looked at vibe_clipboard_1.png")
 	ag.sess.AddUser("second\n\n" + vision.MarkerFor(fresh))
-	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 
 	for _, m := range msgs {
 		if strings.Contains(m.Content, "vibe_clipboard_") {
@@ -164,7 +164,7 @@ func TestOutgoingMessagesNeverLeakTheImagePath(t *testing.T) {
 	writeTestPNG(t, photo)
 
 	ag.sess.AddUser("que ves?\n\n" + vision.MarkerFor(photo))
-	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 
 	last := msgs[len(msgs)-1]
 	if len(last.Images) != 1 {
@@ -190,7 +190,7 @@ func TestOutgoingMessagesSidecarNeverLeakTheImagePath(t *testing.T) {
 	writeTestPNG(t, photo)
 
 	a.sess.AddUser("que ves?\n\n" + vision.MarkerFor(photo))
-	msgs := a.buildOllamaMessages(context.Background(), "SYS")
+	msgs, _ := a.buildOllamaMessages(context.Background(), "SYS")
 
 	last := msgs[len(msgs)-1]
 	for _, forbidden := range []string{photo, "vibe_clipboard_", "file="} {
@@ -284,7 +284,7 @@ func TestBuildOllamaMessagesReservesImageBudget(t *testing.T) {
 	// image proxy it overflows, so the old turn must be trimmed.
 	ag.sess.AddUser(strings.Repeat("x", 7000) + "\n" + vision.MarkerFor("/tmp/old.png"))
 	ag.sess.AddUser("new question")
-	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 	if len(msgs) != 2 || msgs[1].Content != "new question" {
 		t.Fatalf("expected trimming to drop the image turn, got %d messages", len(msgs))
 	}

@@ -33,7 +33,8 @@ func TestZZBaselinePromptSize(t *testing.T) {
 		perm := permissions.NewManager(&config.Config{YesMode: true})
 		ag := New(cfg, fakeClient{}, reg, perm, sess, &fakeUI{})
 		ag.currentGoal = "fix the failing test"
-		fmt.Printf("BASELINE %s system prompt chars=%d\n", tc.name, len(ag.buildSystemPrompt()))
+		p := ag.buildSystemPrompt()
+		fmt.Printf("BASELINE %s system prompt chars=%d est_tokens=%d\n", tc.name, len(p), session.EstimateTokens(p))
 	}
 	fmt.Printf("BASELINE tool-observation envelope chars=%d\n", len(session.ToolObservationUserContent("Read", "x")))
 }

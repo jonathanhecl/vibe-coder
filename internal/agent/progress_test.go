@@ -32,17 +32,6 @@ func TestProgressPromptBlock(t *testing.T) {
 	}
 }
 
-func TestProgressCacheKeyChangesWithChecklist(t *testing.T) {
-	ag := newMissionAgent(t)
-	before := ag.progressCacheKey()
-	ag.todoWriteTool().Store().Replace([]tools.TodoItem{
-		{ID: "1", Content: "step", Status: tools.TodoStatusPending},
-	})
-	if after := ag.progressCacheKey(); after == before {
-		t.Fatal("expected progress cache key to change when the checklist changes")
-	}
-}
-
 func TestRunLogWritesRedactedJSONL(t *testing.T) {
 	ag := newMissionAgent(t)
 	ag.reg.Get("MissionStart").Execute(context.Background(), map[string]any{

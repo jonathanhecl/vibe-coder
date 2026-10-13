@@ -48,7 +48,7 @@ func TestBuildOllamaMessagesKeepsUserAnchorForOversizedToolResult(t *testing.T) 
 	sess.AddAssistantToolCalls("", []ollama.MessageToolCall{{Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{}}}})
 	sess.AddToolResult("Read", strings.Repeat("x", 60000))
 
-	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 
 	if _, ok := firstUserContent(msgs); !ok {
 		t.Fatalf("request carries no user message: %d messages, roles=%v", len(msgs), rolesOf(msgs))
@@ -66,7 +66,7 @@ func TestBuildOllamaMessagesKeepsUserAnchorAfterFrontTruncation(t *testing.T) {
 		sess.AddToolResult("Bash", strings.Repeat("y", 2000))
 	}
 
-	msgs := ag.buildOllamaMessages(context.Background(), "SYSTEM")
+	msgs, _ := ag.buildOllamaMessages(context.Background(), "SYSTEM")
 
 	content, ok := firstUserContent(msgs)
 	if !ok {
