@@ -23,8 +23,8 @@ const (
 // The zero value is **not** usable; always go through New so the cache and
 // semaphore are initialised together.
 type Pool struct {
-	cfg    *config.Config
-	client ollama.Client
+	cfg     *config.Config
+	client  ollama.Client
 	decider decision.Decider
 
 	sem   chan struct{}

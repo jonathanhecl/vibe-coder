@@ -20,8 +20,10 @@ func (s *stubDecider) DecideBool(context.Context, string, string) (bool, error) 
 func (s *stubDecider) DecideChoice(context.Context, string, string, ...string) (string, int, error) {
 	return "", -1, nil
 }
-func (s *stubDecider) IsCommandDangerous(context.Context, string) (bool, error)      { return false, nil }
-func (s *stubDecider) IsCommandNetworkAccess(context.Context, string) (bool, error)  { return false, nil }
+func (s *stubDecider) IsCommandDangerous(context.Context, string) (bool, error) { return false, nil }
+func (s *stubDecider) IsCommandNetworkAccess(context.Context, string) (bool, error) {
+	return false, nil
+}
 func (s *stubDecider) DisambiguatePath(context.Context, string, []string) (string, bool, error) {
 	return "", false, nil
 }

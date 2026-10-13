@@ -186,9 +186,9 @@ func TestBannerFieldsWithDecisionEndpoint(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		Model:              "llama3.2:3b",
+		Model:            "llama3.2:3b",
 		DecisionEndpoint: "http://mac-mini.local:8765",
-		OllamaHost:         "http://localhost:11434",
+		OllamaHost:       "http://localhost:11434",
 	}
 	fields := bannerFields(cfg, "session-123", false)
 	found := false

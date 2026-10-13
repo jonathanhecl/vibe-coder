@@ -603,11 +603,11 @@ func TestSaveModelSettingsDecision(t *testing.T) {
 	}
 
 	cfg := &Config{
-		ConfigDir:   tmp,
-		ConfigFile:  cfgPath,
-		Model:       "main-model",
+		ConfigDir:     tmp,
+		ConfigFile:    cfgPath,
+		Model:         "main-model",
 		DecisionModel: "decision-model-v1",
-		OllamaHost:  "http://localhost:11434",
+		OllamaHost:    "http://localhost:11434",
 	}
 	if err := SaveModelSettings(cfg); err != nil {
 		t.Fatal(err)
