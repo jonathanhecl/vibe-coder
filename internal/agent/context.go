@@ -27,11 +27,41 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 		}
 	}
 
+	// Tiered memory: when a compaction demoted history since the last turn, or
+	// the live transcript is already heavy, recall the demoted fragments most
+	// related to the current goal instead of leaving them lost. Gated and
+	// batched (one embedding call), so it is never a mandatory per-turn cost;
+	// without an embedding role Recall returns nothing.
+	if a.recallMemoryWanted() {
+		k := a.cfg.RAGTopK
+		if k <= 0 {
+			k = 3
+		}
+		if block := a.sess.Recall(ctx, goal, k); strings.TrimSpace(block) != "" {
+			a.sess.AddUser(block)
+		}
+	}
+
 	if w := a.getWatcher(); w != nil {
 		if changes := w.PendingChanges(); len(changes) > 0 {
 			a.sess.AddUser(w.Format(changes))
 		}
 	}
+}
+
+// recallMemoryWanted reports whether recalling demoted history is worth an
+// embedding call this turn: right after a compaction, or once the live
+// transcript is past half the context window. It is a cheap gate (a flag and
+// the session's running token estimate), so tiered memory never becomes a
+// mandatory per-turn cost.
+func (a *Agent) recallMemoryWanted() bool {
+	if a.sess == nil || a.cfg == nil {
+		return false
+	}
+	if a.compactedPending.Load() {
+		return true
+	}
+	return a.cfg.ContextWindow > 0 && a.sess.TokenEstimate() > a.cfg.ContextWindow/2
 }
 
 func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool, error) {

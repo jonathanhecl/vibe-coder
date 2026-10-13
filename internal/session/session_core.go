@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -48,6 +49,9 @@ type Session struct {
 	// lastSavedRevision is the revision successfully persisted by Save.
 	// Save skips the rewrite when nothing changed since (0 = never saved).
 	lastSavedRevision uint64
+	// mem stores history demoted by compaction so it can be recalled by goal
+	// instead of being dropped. Nil until a client with embeddings is set.
+	mem *sessionMemory
 }
 
 func New(cfg *config.Config) *Session {
@@ -107,6 +111,43 @@ func (s *Session) SetClient(client ollama.Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.client = client
+	s.mem = newSessionMemory(s.cfg, client)
+}
+
+// ensureMemory returns the demotion store, building it from the current client
+// when it was not set yet. Callers must not hold s.mu.
+func (s *Session) ensureMemory() *sessionMemory {
+	s.mu.RLock()
+	mem := s.mem
+	client := s.client
+	cfg := s.cfg
+	s.mu.RUnlock()
+	if mem != nil {
+		return mem
+	}
+	mem = newSessionMemory(cfg, client)
+	s.mu.Lock()
+	s.mem = mem
+	s.mu.Unlock()
+	return mem
+}
+
+// Recall returns a memory block with the history most related to query that
+// earlier compaction demoted, or an empty string when there is nothing to
+// recall. It never fails: an unavailable or failing embedder yields "".
+func (s *Session) Recall(ctx context.Context, query string, k int) string {
+	return s.ensureMemory().recall(ctx, query, k)
+}
+
+// MemoryCount reports how many demoted fragments are currently recallable.
+func (s *Session) MemoryCount() int {
+	s.mu.RLock()
+	mem := s.mem
+	s.mu.RUnlock()
+	if mem == nil {
+		return 0
+	}
+	return mem.count()
 }
 
 func (s *Session) AddUser(content string) {

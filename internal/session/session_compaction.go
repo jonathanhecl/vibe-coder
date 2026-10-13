@@ -85,6 +85,12 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	revision := s.revision
 	s.mu.RUnlock()
 
+	// Demote the discarded history into the session memory so it can be
+	// recalled by goal later instead of being lost. This runs outside the lock
+	// (it embeds over the network) and never fails compaction: an unavailable
+	// or failing embedder simply keeps nothing.
+	s.ensureMemory().demote(ctx, demoteTexts(old))
+
 	var summary string
 	if client != nil {
 		model := ""
