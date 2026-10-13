@@ -163,7 +163,7 @@ func TestAssistantRespondedInNoExtraBlankLine(t *testing.T) {
 	var buf bytes.Buffer
 	u := &PlainUI{out: &buf, style: Style{}}
 	u.StreamAssistant("Hello user!")
-	u.EndAssistant()
+	u.EndAssistant(TurnUsage{})
 
 	out := buf.String()
 	if strings.Contains(out, "\n\nresponded in") {
@@ -171,6 +171,61 @@ func TestAssistantRespondedInNoExtraBlankLine(t *testing.T) {
 	}
 	if !strings.Contains(out, "Hello user!\nresponded in") {
 		t.Fatalf("expected 'Hello user!\\nresponded in', got:\n%s", out)
+	}
+}
+
+func TestFormatTokensPerSecondBuckets(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   TurnUsage
+		want string
+	}{
+		{"no completion tokens", TurnUsage{EvalDuration: time.Second}, ""},
+		{"no eval duration", TurnUsage{CompletionTokens: 40}, ""},
+		{"non-positive guard", TurnUsage{CompletionTokens: -1, EvalDuration: -time.Second}, ""},
+		{"fractional", TurnUsage{CompletionTokens: 85, EvalDuration: 2 * time.Second}, "42.5 tok/s"},
+		{"fast local model", TurnUsage{CompletionTokens: 1000, EvalDuration: 10 * time.Second}, "100.0 tok/s"},
+	}
+	for _, tc := range cases {
+		if got := formatTokensPerSecond(tc.in); got != tc.want {
+			t.Fatalf("%s: formatTokensPerSecond(%+v) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestAssistantFooterIncludesTokenSpeedInDistinctColor(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	u := &PlainUI{out: &buf, style: NewStyleForTest(true)}
+	u.StreamAssistant("Hello user!")
+	u.EndAssistant(TurnUsage{CompletionTokens: 85, EvalDuration: 2 * time.Second})
+
+	out := buf.String()
+	if !strings.Contains(out, "\x1b[36m· 42.5 tok/s\x1b[0m") {
+		t.Fatalf("expected cyan token speed segment in footer, got:\n%q", out)
+	}
+}
+
+func TestAssistantFooterOmitsTokenSpeedWithoutTimings(t *testing.T) {
+	t.Parallel()
+
+	// OpenAI-compatible endpoints report token counts without durations. The
+	// footer must stay silent rather than print a wall-clock speed with a
+	// different meaning.
+	var buf bytes.Buffer
+	u := &PlainUI{out: &buf, style: NewStyleForTest(true)}
+	u.StreamAssistant("Hello user!")
+	u.EndAssistant(TurnUsage{CompletionTokens: 85})
+
+	out := buf.String()
+	if strings.Contains(out, "tok/s") {
+		t.Fatalf("expected no token speed without eval duration, got:\n%q", out)
+	}
+	if !strings.Contains(out, "responded in") {
+		t.Fatalf("expected the elapsed footer to survive, got:\n%q", out)
 	}
 }
 

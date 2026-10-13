@@ -90,7 +90,7 @@ func (f *fakeUI) StopESCMonitor()              {}
 func (f *fakeUI) StartTurn()                   { f.startTurns++ }
 func (f *fakeUI) SetPlanMode(bool)             {}
 func (f *fakeUI) StreamAssistant(string)       {}
-func (f *fakeUI) EndAssistant()                {}
+func (f *fakeUI) EndAssistant(tui.TurnUsage)   {}
 func (f *fakeUI) StreamThinking(string)        {}
 func (f *fakeUI) EndThinking()                 {}
 func (f *fakeUI) StartWaiting(string)          {}

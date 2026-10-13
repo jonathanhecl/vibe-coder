@@ -28,7 +28,7 @@ func (c *coverageUI) StopESCMonitor()              {}
 func (c *coverageUI) StartTurn()                   {}
 func (c *coverageUI) SetPlanMode(bool)             {}
 func (c *coverageUI) StreamAssistant(string)       {}
-func (c *coverageUI) EndAssistant()                {}
+func (c *coverageUI) EndAssistant(tui.TurnUsage)   {}
 func (c *coverageUI) StreamThinking(string)        {}
 func (c *coverageUI) EndThinking()                 {}
 func (c *coverageUI) StartWaiting(string)          {}

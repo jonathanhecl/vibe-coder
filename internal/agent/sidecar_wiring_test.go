@@ -59,7 +59,7 @@ func (r *recordingUI) StopESCMonitor()                     {}
 func (r *recordingUI) StartTurn()                          {}
 func (r *recordingUI) SetPlanMode(bool)                    {}
 func (r *recordingUI) StreamAssistant(text string)         { r.streamed.WriteString(text) }
-func (r *recordingUI) EndAssistant()                       {}
+func (r *recordingUI) EndAssistant(tui.TurnUsage)          {}
 func (r *recordingUI) StreamThinking(string)               {}
 func (r *recordingUI) EndThinking()                        {}
 func (r *recordingUI) StartWaiting(string)                 {}

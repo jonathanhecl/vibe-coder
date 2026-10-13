@@ -8,6 +8,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/metrics"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
+	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
 // MetricsPath returns the per-session JSONL metrics path, or "" when
@@ -41,6 +42,19 @@ func (a *Agent) MetricsSummary() metrics.Summary {
 		return metrics.Summary{}
 	}
 	return a.metrics.Summary()
+}
+
+// turnUsage converts the provider-reported usage of the last chat stream into
+// the metrics the UI footer renders. It returns the zero value when no usage
+// arrived, which makes the UI omit the token-speed segment.
+func (a *Agent) turnUsage() tui.TurnUsage {
+	if a == nil || a.lastUsage == nil {
+		return tui.TurnUsage{}
+	}
+	return tui.TurnUsage{
+		CompletionTokens: a.lastUsage.CompletionTokens,
+		EvalDuration:     a.lastUsage.EvalDuration,
+	}
 }
 
 // recordChatAttempt stores one metrics entry for a completed model request.

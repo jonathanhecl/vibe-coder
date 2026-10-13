@@ -74,7 +74,7 @@ func (u *PlainUI) StreamAssistant(text string) {
 // buffer (Flush already ends the last line with a newline). We intentionally
 // do not emit an extra blank line here — that used to double up with Flush
 // and left an empty row before the next line (e.g. a tool call).
-func (u *PlainUI) EndAssistant() {
+func (u *PlainUI) EndAssistant(usage TurnUsage) {
 	u.stopSpinner()
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -100,13 +100,22 @@ func (u *PlainUI) EndAssistant() {
 	}
 	if u.streamingAssistant && u.assistantHadVisible && !start.IsZero() {
 		elapsed := formatElapsed(time.Since(start))
+		speed := formatTokensPerSecond(usage)
 		if u.style.Enabled() {
+			footer := u.style.Dim("responded in " + elapsed)
+			if speed != "" {
+				footer += " " + u.style.Cyan("· "+speed)
+			}
 			fmt.Fprintf(u.out, "%s %s\n",
 				u.style.Dim(iconRule),
-				u.style.Dim("responded in "+elapsed),
+				footer,
 			)
 		} else {
-			fmt.Fprintf(u.out, "responded in %s\n", elapsed)
+			footer := "responded in " + elapsed
+			if speed != "" {
+				footer += " · " + speed
+			}
+			fmt.Fprintf(u.out, "%s\n", footer)
 		}
 		u.assistantLines++
 	}
@@ -120,6 +129,18 @@ func (u *PlainUI) EndAssistant() {
 	if u.streamingAssistant {
 		u.streamingAssistant = false
 	}
+}
+
+// formatTokensPerSecond renders the model's generation speed as "42.5 tok/s".
+// It returns "" when the provider reported no completion tokens or no eval
+// duration, so the caller omits the segment instead of printing a number with
+// a different meaning: OpenAI-compatible endpoints report token counts without
+// timings, and wall-clock speed would fold in prompt evaluation and tool time.
+func formatTokensPerSecond(usage TurnUsage) string {
+	if usage.CompletionTokens <= 0 || usage.EvalDuration <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.1f tok/s", float64(usage.CompletionTokens)/usage.EvalDuration.Seconds())
 }
 
 // CollapseAssistantOutput erases the assistant turn from the terminal so the

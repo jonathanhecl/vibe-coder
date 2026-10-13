@@ -431,7 +431,7 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		a.ui.StopWaiting()
 		endThinking()
 		cancel()
-		a.ui.EndAssistant()
+		a.ui.EndAssistant(a.turnUsage())
 	}
 	flushTailAfterTool := func(full string) {
 		if tail := assistantTextAfterFirstClosedTool(full); strings.TrimSpace(tail) != "" {
@@ -511,14 +511,14 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 				endThinking()
 				if len(buf) == 0 && len(toolCalls) == 0 {
 					cancel()
-					a.ui.EndAssistant()
+					a.ui.EndAssistant(a.turnUsage())
 					return "", nil, nil
 				}
 				full := string(buf)
 				flushUnprinted(full)
 				flushTailAfterTool(full)
 				cancel()
-				a.ui.EndAssistant()
+				a.ui.EndAssistant(a.turnUsage())
 				return full, nativeCallsToToolCalls(toolCalls), nil
 			}
 			resetIdle()
@@ -529,7 +529,7 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 				}
 				a.ui.StopWaiting()
 				endThinking()
-				a.ui.EndAssistant()
+				a.ui.EndAssistant(a.turnUsage())
 				return "", nil, chunk.Err
 			}
 			// Tool calls may arrive split across chunks (or repeated in the final

@@ -36,7 +36,7 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		}
 		a.sess.AddSystemNote(deny)
 		if mode.endAssistantOnDenied {
-			a.ui.EndAssistant()
+			a.ui.EndAssistant(a.turnUsage())
 		}
 		return tools.Result{Output: deny, IsError: true}, false, nil
 	}

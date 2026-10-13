@@ -21,7 +21,7 @@ type UI interface {
 	StartTurn()
 	SetPlanMode(enabled bool)
 	StreamAssistant(text string)
-	EndAssistant()
+	EndAssistant(usage TurnUsage)
 	StreamThinking(text string)
 	EndThinking()
 	StartWaiting(label string)
@@ -33,6 +33,16 @@ type UI interface {
 	GetInput(prompt string) (string, error)
 	Stop()
 	CollapseAssistantOutput()
+}
+
+// TurnUsage carries the provider-reported generation metrics for the assistant
+// turn that just ended. EvalDuration is the model's own generation time, which
+// Ollama reports in nanoseconds on the final stream chunk. A zero EvalDuration
+// means the provider reported token counts without timings, so the footer omits
+// the speed segment instead of printing a misleading number.
+type TurnUsage struct {
+	CompletionTokens int
+	EvalDuration     time.Duration
 }
 
 // PlainUI renders an interactive session in a way inspired by Cursor's chat:

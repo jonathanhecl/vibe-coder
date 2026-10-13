@@ -117,8 +117,8 @@ func (r *RichUI) StreamAssistant(text string) {
 	r.plain.StreamAssistant(text)
 }
 
-func (r *RichUI) EndAssistant() {
-	r.plain.EndAssistant()
+func (r *RichUI) EndAssistant(usage TurnUsage) {
+	r.plain.EndAssistant(usage)
 	r.updateStatus(richStatusMsg{phase: "idle"})
 }
 
