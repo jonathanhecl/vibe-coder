@@ -39,7 +39,7 @@ func printHelp(c *Ctx) {
 		{"Model", [][2]string{
 			{"/model", "list installed models and switch the active one"},
 			{"/model <name|number>", "switch the active model for this run"},
-			{"/models", "list all installed models, numbered (switch with /model, /sidecar, /decision)"},
+			{"/models [PROVIDER]", "list a provider's models, numbered and tagged"},
 			{"/think", "show the thinking level and model capability"},
 			{"/think off|low|medium|high|max|on", "set thinking effort for this session"},
 			{"/sidecar", "list models to pick, or on|off|status|perm-on|perm-off"},
@@ -52,6 +52,17 @@ func printHelp(c *Ctx) {
 			{"/decision test", "test the decision model on a sample decision"},
 			{"/hide-think", "hide model thinking blocks in CLI output"},
 			{"/show-think", "show model thinking blocks in CLI output (default)"},
+		}},
+		{"Providers & roles", [][2]string{
+			{"/providers", "list providers and the model each role uses"},
+			{"/provider add <NAME> [endpoint]", "register a new provider"},
+			{"/provider <NAME> endpoint <url>", "set a provider endpoint (creates it when new)"},
+			{"/provider <NAME> key <api-key>", "store a provider API key"},
+			{"/provider <NAME> kind <ollama|openai>", "override the protocol detected from the endpoint"},
+			{"/provider <NAME> test", "check a provider endpoint and count its models"},
+			{"/provider <NAME> remove", "delete a provider no role is using"},
+			{"/setmodel [PROVIDER] <role> <number|name>", "assign a model to main|sidecar|decision|embedding|vision"},
+			{"/setmodel [PROVIDER] <role> off", "unbind a role"},
 		}},
 		{"Mode", [][2]string{
 			{"/yes", "auto-approve subsequent permission prompts"},

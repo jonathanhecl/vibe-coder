@@ -225,6 +225,12 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, runModelCommand(c, fields[1:])
 	case "/models":
 		return true, false, runModelsCommand(c, fields[1:])
+	case "/providers":
+		return true, false, runProvidersCommand(c, fields[1:])
+	case "/provider":
+		return true, false, runProviderCommand(c, fields[1:])
+	case "/setmodel":
+		return true, false, runSetModelCommand(c, fields[1:])
 	case "/think":
 		return true, false, runThinkCommand(c, fields[1:])
 	case "/tokens":

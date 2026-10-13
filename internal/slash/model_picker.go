@@ -62,7 +62,7 @@ func (c *Ctx) pickModel(ctx context.Context, command, role, current string, allo
 // printModelChoices renders the numbered list shared by the model pickers and
 // the optional [0]/[Enter] entries.
 func (c *Ctx) printModelChoices(models []ollama.Model, role, current string, allowDisable bool) {
-	c.printModelRows(models, func(m ollama.Model) string {
+	c.printModelRows(models, fmt.Sprintf("Installed models (%d)", len(models)), func(m ollama.Model) string {
 		if strings.EqualFold(strings.TrimSpace(m.Name), strings.TrimSpace(current)) {
 			return "(current)"
 		}
@@ -75,99 +75,22 @@ func (c *Ctx) printModelChoices(models []ollama.Model, role, current string, all
 	fmt.Fprintf(c.Out, "  %s Keep current\n", st.BoldBrightGreen("[Enter]"))
 }
 
-// printModelRows prints the numbered model list with capability tags, appending
-// the annotation returned by suffixFor to each row.
-func (c *Ctx) printModelRows(models []ollama.Model, suffixFor func(ollama.Model) string) {
+// printModelRows prints the numbered model list under a title, with the
+// capability tags colored per capability, appending the annotation returned by
+// suffixFor to each row.
+func (c *Ctx) printModelRows(models []ollama.Model, title string, suffixFor func(ollama.Model) string) {
 	st := tui.NewStyle(c.Out)
-	fmt.Fprintln(c.Out, st.BoldCyan(fmt.Sprintf("Installed models (%d)", len(models))))
+	fmt.Fprintln(c.Out, st.BoldCyan(title))
 	for i, m := range models {
 		line := fmt.Sprintf("  %s %s", st.BoldBrightGreen(fmt.Sprintf("[%d]", i+1)), m.Name)
-		if tags := c.modelChoiceTags(m); len(tags) > 0 {
-			line += "  " + st.Dim(strings.Join(tags, " · "))
+		if tags := capabilityTagsFor(m, c.Cfg); len(tags) > 0 {
+			line += "  " + strings.Join(coloredCapabilityTags(st, tags), st.Dim(" · "))
 		}
 		if suffix := suffixFor(m); suffix != "" {
 			line += "  " + st.Dim(suffix)
 		}
 		fmt.Fprintln(c.Out, line)
 	}
-}
-
-// runModelsCommand lists every installed model, numbered, and explains how to
-// switch each role by number and persist the choice with /save. It is purely
-// informational: it never changes the configuration.
-func runModelsCommand(c *Ctx, args []string) error {
-	if len(args) > 0 {
-		fmt.Fprintln(c.Out, "Usage: /models (lists installed models; switch with /model, /sidecar, or /decision and a number)")
-		return nil
-	}
-	models := c.installedModels(context.Background())
-	if len(models) == 0 {
-		fmt.Fprintln(c.Out, "No installed models reported by /api/tags.")
-		return nil
-	}
-	c.printModelRows(models, func(m ollama.Model) string {
-		roles := c.modelRoles(m.Name)
-		if len(roles) == 0 {
-			return ""
-		}
-		return "(" + strings.Join(roles, " · ") + ")"
-	})
-	fmt.Fprintln(c.Out)
-	fmt.Fprintln(c.Out, "Switch with /model <n>, /sidecar <n>, or /decision <n>; run /save to persist.")
-	return nil
-}
-
-// modelRoles reports which configured role currently uses a model, so /models
-// can mark it in the list.
-func (c *Ctx) modelRoles(name string) []string {
-	if c.Cfg == nil {
-		return nil
-	}
-	matches := func(value string) bool {
-		value = strings.TrimSpace(value)
-		return value != "" && strings.EqualFold(value, strings.TrimSpace(name))
-	}
-	var roles []string
-	if matches(c.Cfg.Model) {
-		roles = append(roles, "model")
-	}
-	if matches(c.Cfg.SidecarModel) {
-		roles = append(roles, "sidecar")
-	}
-	if matches(c.Cfg.DecisionModel) {
-		roles = append(roles, "decision")
-	}
-	return roles
-}
-
-// modelChoiceTags reports the capability tags for a model, preferring the
-// per-model map cached at startup and falling back to the live capability.
-func (c *Ctx) modelChoiceTags(m ollama.Model) []string {
-	tools := m.SupportsTools()
-	vision := m.SupportsVision()
-	thinking := m.SupportsThinking()
-	if c.Cfg != nil {
-		if v, known := ollama.LookupVision(c.Cfg.ToolsByModel, m.Name); known {
-			tools = v
-		}
-		if v, known := ollama.LookupVision(c.Cfg.VisionByModel, m.Name); known {
-			vision = v
-		}
-		if v, known := ollama.LookupVision(c.Cfg.ThinkingByModel, m.Name); known {
-			thinking = v
-		}
-	}
-	var tags []string
-	if tools {
-		tags = append(tags, "tools")
-	}
-	if vision {
-		tags = append(tags, "vision")
-	}
-	if thinking {
-		tags = append(tags, "thinking")
-	}
-	return tags
 }
 
 // installedModels lists the host's models, falling back to the names cached at

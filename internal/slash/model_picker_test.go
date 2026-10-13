@@ -167,39 +167,6 @@ func TestNumericArgumentOutOfRangeIsRejected(t *testing.T) {
 	}
 }
 
-func TestModelsCommandListsAllWithGuidance(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t)
-	cfg.SidecarModel = "llama3.2:3b"
-	cfg.DecisionModel = "moondream"
-
-	handled, shouldExit, err := Dispatch(ctx, "/models")
-	if err != nil || !handled || shouldExit {
-		t.Fatalf("unexpected /models result: handled=%t exit=%t err=%v", handled, shouldExit, err)
-	}
-	rendered := out.String()
-	for _, want := range []string{
-		"Installed models (3)",
-		"[1] qwen3.5:4b",
-		"[2] llama3.2:3b",
-		"[3] moondream",
-		"(model)",
-		"(sidecar)",
-		"(decision)",
-		"Switch with /model <n>, /sidecar <n>, or /decision <n>; run /save to persist.",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected %q in /models output, got:\n%s", want, rendered)
-		}
-	}
-	if cfg.Model != "qwen3.5:4b" || cfg.SidecarModel != "llama3.2:3b" || cfg.DecisionModel != "moondream" {
-		t.Fatalf("expected /models to leave the config unchanged, got %+v", cfg)
-	}
-	// It must not prompt: /models is informational only.
-	if p, ok := ctx.Prompter.(*fakePrompter); ok && len(p.asked) != 0 {
-		t.Fatalf("expected no prompt from /models, asked %v", p.asked)
-	}
-}
-
 func TestPickerFallsBackToCachedModelsWithoutLister(t *testing.T) {
 	ctx, cfg, out := newPickerTestCtx(t, "2")
 	ctx.Models = nil

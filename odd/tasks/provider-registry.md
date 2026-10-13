@@ -26,8 +26,8 @@ Test runner: `go test ./...`
 ## Tasks
 
 - [x] T1 config: provider registry + role bindings + legacy migration + persisted keys + tests — S6, S13 — route: inline — commit: 69a7065
-- [ ] T2 ollama: completion/embedding/decision capability helpers + role validation + tests — S6, S7 — route: inline — commit: pending
-- [ ] T3 slash: `/providers`, `/provider`, `/models`, `/setmodel` + help + tests — S1, S2, S3, S4, S5, S7 — route: inline — commit: pending
+- [x] T2 ollama: completion/embedding/decision capability helpers + role validation + tests — S6, S7 — route: inline — commit: ba9df69
+- [x] T3 slash: `/providers`, `/provider`, `/models`, `/setmodel` + help + tests — S1, S2, S3, S4, S5, S7 — route: inline — commit: 9490638
 - [ ] T4 slash: remove old commands, relocate sidecar session-skip and `/decision assisted` + tests — S11 — route: inline — commit: pending
 - [ ] T5 onboarding: first run = host + main only + tests — S12 — route: inline — commit: pending
 - [ ] T6 vision: derive from main then sidecar + docs (README/CHANGELOG) — S8, S9, S10, S14, S15 — route: inline — commit: pending
@@ -42,3 +42,5 @@ Test runner: `go test ./...`
 - L6 (assumption accepted): unify onboarding's `defaultModel` with the RAM-based `autoDetectModel()`.
 - L7 (decision): persist the new `PROVIDER_*`/`ROLE_*` keys only; legacy keys are migrated on load and not rewritten. Downgrade to an older binary loses the new keys.
 - L8 (progress, T1): `internal/config/provider.go` adds the registry (`Provider`, `RoleModel`, `ProviderKind`, `Role`, `CapabilityRequirement`, add/remove/set/bind/clear). `Load` runs `reconcileRegistry()` (legacy fields + `ROLE_*`/`PROVIDER_*` keys → registry, then projects back onto the flat fields via `syncLegacyFields`), and `SaveModelSettings` runs `adoptLegacyFields()` first so a cleared flat field clears its role. Env/CLI mark the role they override so they keep winning over the file. Evidence: `go build ./...` clean; `go test ./...` fully green (config 0.294s, cmd/vibe 23.9s, all packages ok).
+- L9 (progress, T2): `internal/ollama/client_meta.go` adds `Model.Supports(capability)` plus `SupportsCompletion`/`SupportsEmbedding`/`SupportsDecision`; `HTTPClient` carries an API key (`NewHTTPWithAPIKey`) and sends `Authorization: Bearer` on `/api/tags`, `/api/show`, `/api/version`, `/api/pull` and `/api/chat`. `internal/config/capability.go` adds `CheckModelForRole(kind, role, model)` returning `ok`/`unverified`/`unsupported`/`not-required`. `createLLMClient` now passes the key to the native client too. Evidence: `go test ./...` fully green.
+- L10 (progress, T3): `internal/slash/providers.go` implements `/providers`, `/provider` (`add|endpoint|key|kind|test|remove|list`), `/models [PROVIDER]` and `/setmodel [PROVIDER] <role> <number|name|off>`; the shared row renderer in `model_picker.go` now prints colored capability tags (`capabilityTagsFor` + `capabilityTagStyle`), and the old role-less `/models` handler, `modelRoles` and `modelChoiceTags` were deleted. `help.go` gains a "Providers & roles" group. Capability refusals leave the config unchanged; non-Ollama bindings report the capability as unverified. Evidence: `go build ./...` clean; `go test ./...` fully green (slash 0.675s).
