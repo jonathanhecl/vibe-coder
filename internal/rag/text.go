@@ -111,3 +111,88 @@ func cosineOverlap(a, b []string) float64 {
 	}
 	return inter / (math.Sqrt(float64(len(setA))) * math.Sqrt(float64(len(setB))))
 }
+
+// codeExtensions lists the file types whose content is cut at declaration
+// boundaries instead of fixed windows.
+var codeExtensions = map[string]bool{
+	".go": true, ".py": true, ".js": true, ".ts": true, ".rs": true,
+	".java": true, ".c": true, ".cpp": true, ".h": true, ".rb": true, ".php": true,
+}
+
+// declarationPrefixes are the column-zero starts that open a top-level block in
+// the supported languages. A line at column zero beginning with one of them is a
+// natural chunk boundary.
+var declarationPrefixes = []string{
+	"func ", "type ", "var ", "const ",
+	"def ", "async def ", "class ",
+	"function ", "async function ", "export ", "interface ", "enum ", "let ",
+	"fn ", "pub ", "impl ", "trait ", "struct ", "mod ", "use ", "static ",
+	"module ", "namespace ", "template ", "public ", "private ", "protected ", "package ",
+}
+
+// isCodeFile reports whether the path is a source file we can split by symbols.
+func isCodeFile(path string) bool {
+	return codeExtensions[strings.ToLower(filepath.Ext(path))]
+}
+
+// isDeclarationLine reports whether a line opens a top-level block: it starts at
+// column zero and matches a declaration prefix (or an ATX heading in Markdown).
+func isDeclarationLine(line string) bool {
+	if line == "" || line[0] == ' ' || line[0] == '\t' {
+		return false
+	}
+	if strings.HasPrefix(line, "# ") {
+		return true
+	}
+	for _, prefix := range declarationPrefixes {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// splitCodeChunks cuts a source file at declaration boundaries so a chunk is a
+// whole function, type or class instead of an arbitrary window. Segments larger
+// than maxSize fall back to the fixed-size splitter, and non-code files use it
+// directly.
+func splitCodeChunks(text, path string, maxSize int) []Chunk {
+	if maxSize <= 0 {
+		maxSize = 800
+	}
+	if !isCodeFile(path) {
+		return splitChunks(text, maxSize, 200)
+	}
+	lines := strings.Split(text, "\n")
+	bounds := []int{1}
+	for i, line := range lines {
+		if i == 0 {
+			continue
+		}
+		if isDeclarationLine(line) {
+			bounds = append(bounds, i+1)
+		}
+	}
+	if len(bounds) < 2 {
+		return splitChunks(text, maxSize, 200)
+	}
+	bounds = append(bounds, len(lines)+1)
+
+	out := make([]Chunk, 0, len(bounds))
+	for i := 0; i < len(bounds)-1; i++ {
+		startLine := bounds[i]
+		endLine := bounds[i+1] - 1
+		if endLine < startLine {
+			continue
+		}
+		segment := strings.Join(lines[startLine-1:endLine], "\n")
+		if len([]rune(segment)) > maxSize {
+			for _, sub := range splitChunks(segment, maxSize, 200) {
+				out = append(out, Chunk{Start: startLine + sub.Start - 1, End: startLine + sub.End - 1, Text: sub.Text})
+			}
+			continue
+		}
+		out = append(out, Chunk{Start: startLine, End: endLine, Text: segment})
+	}
+	return out
+}
