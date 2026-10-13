@@ -352,7 +352,7 @@ func createLLMClient(endpoint, apiKey string, isOpenAI bool) ollama.Client {
 		}
 		return openai.New(endpoint, opts...)
 	}
-	return ollama.NewHTTP(endpoint)
+	return ollama.NewHTTPWithAPIKey(endpoint, apiKey)
 }
 
 // resolveVisionSupport detects once, at startup, whether the active model

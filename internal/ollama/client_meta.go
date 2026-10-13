@@ -15,6 +15,7 @@ func (c *HTTPClient) Tags(ctx context.Context) ([]Model, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build tags request: %w", err)
 	}
+	c.applyAuth(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -57,6 +58,7 @@ func (c *HTTPClient) Show(ctx context.Context, model string) (Model, error) {
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		c.applyAuth(req)
 		return req, nil
 	})
 	if err != nil {
@@ -110,6 +112,39 @@ func (m Model) SupportsThinking() bool {
 		}
 	}
 	return false
+}
+
+// Supports reports whether the model advertises the named capability, using
+// the exact capability names a provider reports (completion, tools, vision,
+// thinking, embedding, decision).
+func (m Model) Supports(capability string) bool {
+	want := strings.TrimSpace(strings.ToLower(capability))
+	if want == "" {
+		return false
+	}
+	for _, cap := range m.Capabilities {
+		if strings.TrimSpace(strings.ToLower(cap)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsCompletion reports whether the model can serve chat completions.
+// Ollama reports "completion" for chat models; "chat" is accepted as an alias.
+func (m Model) SupportsCompletion() bool {
+	return m.Supports("completion") || m.Supports("chat")
+}
+
+// SupportsEmbedding reports whether the model produces embeddings.
+func (m Model) SupportsEmbedding() bool {
+	return m.Supports("embedding")
+}
+
+// SupportsDecision reports whether the model advertises decision capability
+// for the System One decision protocol.
+func (m Model) SupportsDecision() bool {
+	return m.Supports("decision")
 }
 
 // LookupVision resolves vision support for name against a lowercase
@@ -254,6 +289,7 @@ func (c *HTTPClient) Version(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("build version request: %w", err)
 	}
+	c.applyAuth(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -282,6 +318,7 @@ func (c *HTTPClient) Pull(ctx context.Context, model string, progress func(PullE
 		return fmt.Errorf("build pull request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.applyAuth(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

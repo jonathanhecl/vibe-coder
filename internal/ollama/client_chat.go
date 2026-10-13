@@ -64,6 +64,7 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 				return nil, err
 			}
 			httpReq.Header.Set("Content-Type", "application/json")
+			c.applyAuth(httpReq)
 			return httpReq, nil
 		})
 		if err != nil {

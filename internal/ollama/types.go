@@ -27,6 +27,7 @@ type Client interface {
 
 type HTTPClient struct {
 	baseURL string
+	apiKey  string
 	http    *http.Client
 
 	mu                  sync.Mutex

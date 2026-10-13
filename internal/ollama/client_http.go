@@ -9,14 +9,30 @@ import (
 )
 
 func NewHTTP(baseURL string) Client {
+	return NewHTTPWithAPIKey(baseURL, "")
+}
+
+// NewHTTPWithAPIKey builds a native Ollama client. When apiKey is non-empty
+// every request carries an Authorization: Bearer header, which a self-hosted
+// or proxied deployment may require. Ollama itself ignores the header.
+func NewHTTPWithAPIKey(baseURL, apiKey string) Client {
 	return &HTTPClient{
 		baseURL: NormalizeURL(baseURL),
+		apiKey:  strings.TrimSpace(apiKey),
 		http: &http.Client{
 			Timeout: defaultHTTPTimeout,
 		},
 		thinkDisabledModels: make(map[string]bool),
 		toolsDisabledModels: make(map[string]bool),
 	}
+}
+
+// applyAuth adds the configured provider API key to a request.
+func (c *HTTPClient) applyAuth(req *http.Request) {
+	if c.apiKey == "" || req == nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 }
 
 func (c *HTTPClient) applyThinkSessionOverride(req *ChatRequest) {
