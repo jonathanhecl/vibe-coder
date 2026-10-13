@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
 
@@ -15,19 +16,6 @@ const (
 	compactionTimeout  = 90 * time.Second
 	compactionKeepTail = 30
 )
-
-// compactionSummaryPrompt instructs the sidecar to preserve the information
-// the agent needs to continue: the task, decisions, file paths, TODO state,
-// and what remains to do. A generic "summarize concisely" loses exactly the
-// details that cause the agent to repeat work or forget the goal.
-const compactionSummaryPrompt = `Summarize the earlier portion of this agent conversation. Preserve:
-- The user's original task and any constraints or preferences they stated.
-- Key decisions made and the reasoning behind them.
-- File paths that were read, created, or modified (with one-line descriptions).
-- Commands that were run and their outcome (success/failure, key findings).
-- The current TODO state: which steps are done and which remain.
-- Any errors or blockers encountered and how they were resolved.
-Do not include verbatim file contents or full command output. Be concise but complete.`
 
 func (s *Session) Compact(ctx context.Context, force bool) error {
 	if s == nil {
@@ -64,7 +52,10 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 			resp, err := client.ChatSync(compactCtx, ollama.ChatRequest{
 				Model: model,
 				Messages: []ollama.Message{
-					{Role: "system", Content: compactionSummaryPrompt},
+					// The compaction prompt is a compile-time template: it tells the
+					// sidecar to preserve the task, decisions, file paths, TODO state,
+					// and what remains to do.
+					{Role: "system", Content: prompt.Render("compaction_summary", nil)},
 					{Role: "user", Content: renderMessagesForSummary(old)},
 				},
 				Stream: false,
@@ -184,6 +175,12 @@ func reverseLines(s string) string {
 		lines[i], lines[j] = lines[j], lines[i]
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// EstimateTokens exposes the session's heuristic token estimator so metrics
+// and budgeting code can price prompts with the same ruler compaction uses.
+func EstimateTokens(text string) int {
+	return estimateTextTokens(text)
 }
 
 func estimateTextTokens(text string) int {

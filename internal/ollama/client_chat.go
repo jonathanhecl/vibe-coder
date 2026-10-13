@@ -137,7 +137,7 @@ func decodeSingleChatResponse(body io.ReadCloser) (<-chan Chunk, error) {
 		return nil, fmt.Errorf("decode chat response: %w", err)
 	}
 	ch := make(chan Chunk, 1)
-	ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: true}
+	ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: true, Usage: parsed.usage()}
 	close(ch)
 	return ch, nil
 }
@@ -236,7 +236,7 @@ func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 				// Ollama streams content deltas per line and delivers the complete
 				// tool_calls list on the final (done) message. Forward them as-is;
 				// the consumer keeps the last non-empty set.
-				ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done}
+				ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done, Usage: parsed.usage()}
 				if parsed.Done {
 					logger.Infof("Ollama chat stream done: chunk_count=%d", chunkCount)
 					return

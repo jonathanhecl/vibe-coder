@@ -136,6 +136,22 @@ func applyConfigFile(cfg *Config, path string) error {
 			}
 		case "CONTEXT":
 			cfg.ContextFiles = append(cfg.ContextFiles, splitPathList(value)...)
+		case "KEEP_TOOL_RESULTS":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.Harness.KeepToolResults = parsed
+			}
+		case "TOOL_OUTPUT_MAX_TOKENS":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.Harness.ToolOutputMaxTokens = parsed
+			}
+		case "COMPACT_AT_PERCENT":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.Harness.CompactAtPercent = parsed
+			}
+		case "METRICS_DISABLED":
+			if b, ok := parseBoolish(value); ok {
+				cfg.Harness.MetricsDisabled = b
+			}
 		}
 	}
 

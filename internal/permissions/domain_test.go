@@ -409,4 +409,3 @@ func TestDomain_GitDiff_OutDomain(t *testing.T) {
 		t.Fatalf("GitDiff should succeed with DecisionAllowOnce")
 	}
 }
-

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
@@ -120,13 +121,15 @@ func (a *Agent) BlockActiveMission(reason string) {
 }
 
 // missionCacheKey identifies the active mission for system-prompt cache
-// invalidation. It changes when the goal or continuation turn count does.
+// invalidation. It changes when the goal or status does; the continuation
+// turn count moved to the ephemeral runtime reminder so the system prompt
+// stays byte-identical across mission turns.
 func (a *Agent) missionCacheKey() string {
 	m := a.MissionSnapshot()
 	if m.Status != tools.MissionStatusActive {
 		return ""
 	}
-	return fmt.Sprintf("%s|%s|%d", m.Status, m.Goal, m.Turns)
+	return fmt.Sprintf("%s|%s", m.Status, m.Goal)
 }
 
 // missionPromptBlock renders the current mission for the system prompt so the
@@ -143,21 +146,7 @@ func (a *Agent) missionPromptBlock() string {
 		goal = strings.TrimSpace(a.currentGoal)
 		a.mu.RUnlock()
 	}
-	var b strings.Builder
-	b.WriteString("# Active Mission (agent-managed)\n")
-	if goal != "" {
-		b.WriteString("Goal: ")
-		b.WriteString(goal)
-		b.WriteString("\n")
-	}
-	if m.Turns > 0 {
-		fmt.Fprintf(&b, "Continuation turns so far: %d\n", m.Turns)
-	}
-	b.WriteString("The runtime keeps starting new turns for you until you end this mission. " +
-		"Keep executing the checklist with tool calls. When the goal is fully accomplished and verified, " +
-		"call MissionComplete with a summary. If you are truly blocked and need the user, call MissionBlocked " +
-		"with the reason. Do not stop with plain text while the mission is unfinished.")
-	return strings.TrimSpace(b.String())
+	return prompt.Render("mission", struct{ Goal string }{Goal: goal})
 }
 
 // MissionContinuationPrompt records one more autonomous turn and builds the

@@ -15,11 +15,13 @@ import (
 // the system prompt (base prompt, pinned session context, vision line, tools
 // block, skills block). The model name is included because the vision line
 // (and therefore the stable body) depends on the active model.
-func stableSystemCacheKey(cfg *config.Config, reg *tools.Registry, contextFingerprint string) string {
+func stableSystemCacheKey(cfg *config.Config, reg *tools.Registry, contextFingerprint string, xmlMode, offline bool) string {
 	parts := []string{
 		runtime.GOOS + "/" + runtime.GOARCH,
 		shellEnvFingerprint(),
 		strings.TrimSpace(contextFingerprint),
+		"xml=" + boolFlag(xmlMode),
+		"offline=" + boolFlag(offline),
 	}
 	if cfg != nil {
 		parts = append(parts,
@@ -33,6 +35,13 @@ func stableSystemCacheKey(cfg *config.Config, reg *tools.Registry, contextFinger
 		parts = append(parts, strings.Join(reg.Names(), ","))
 	}
 	return strings.Join(parts, "\x1e")
+}
+
+func boolFlag(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 func shellEnvFingerprint() string {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -276,12 +277,24 @@ func (t *ThinkSetting) UnmarshalJSON(data []byte) error {
 // (when supported by the model and Ollama version). ToolCalls carries
 // native function invocations when the model uses Ollama tool calling
 // instead of the XML fallback envelope.
+// Usage carries the token counts and timings Ollama reports on the final
+// (done) chunk of a chat turn. Durations arrive in nanoseconds.
+type Usage struct {
+	PromptTokens       int
+	CompletionTokens   int
+	PromptEvalDuration time.Duration
+	EvalDuration       time.Duration
+	TotalDuration      time.Duration
+}
+
 type Chunk struct {
 	Delta     string
 	Thinking  string
 	ToolCalls []MessageToolCall
 	Done      bool
 	Err       error
+	// Usage is set on the done chunk when the server reports token metrics.
+	Usage *Usage
 }
 
 type ChatResponse struct {
@@ -332,6 +345,28 @@ type chatResponseLine struct {
 	} `json:"message"`
 	Done  bool   `json:"done"`
 	Error string `json:"error"`
+
+	PromptEvalCount    int   `json:"prompt_eval_count"`
+	EvalCount          int   `json:"eval_count"`
+	PromptEvalDuration int64 `json:"prompt_eval_duration"`
+	EvalDuration       int64 `json:"eval_duration"`
+	TotalDuration      int64 `json:"total_duration"`
+}
+
+// usage converts the wire counters (durations in nanoseconds) into a Usage.
+// It returns nil when the server reported nothing so callers can tell
+// "no metrics" apart from a legitimately empty report.
+func (l *chatResponseLine) usage() *Usage {
+	if l.PromptEvalCount == 0 && l.EvalCount == 0 && l.TotalDuration == 0 {
+		return nil
+	}
+	return &Usage{
+		PromptTokens:       l.PromptEvalCount,
+		CompletionTokens:   l.EvalCount,
+		PromptEvalDuration: time.Duration(l.PromptEvalDuration),
+		EvalDuration:       time.Duration(l.EvalDuration),
+		TotalDuration:      time.Duration(l.TotalDuration),
+	}
 }
 
 type pullRequest struct {

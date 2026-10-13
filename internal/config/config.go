@@ -42,7 +42,7 @@ type Config struct {
 	// JevstyleV3Endpoint holds the optional JEV Style v3 endpoint URL.
 	// When set, it takes priority over JevstyleModel.
 	JevstyleV3Endpoint string
-	ConfigFileExists bool
+	ConfigFileExists   bool
 	// SidecarDisabled, when true, turns off the sidecar until changed in config (SIDECAR_DISABLED / SIDECAR_ENABLED).
 	SidecarDisabled bool
 	// SidecarSkipSession skips the sidecar for this process only (--no-sidecar, /sidecar off); not persisted.
@@ -59,15 +59,15 @@ type Config struct {
 	NewSession         bool
 	// Temporal runs an ephemeral session without persisting session history
 	// or updating project session indexes on exit.
-	Temporal           bool
+	Temporal bool
 	// Isolated runs a folder-local session stored exclusively in <cwd>/.vibe-isolated.jsonl
 	// rather than in the global state sessions directory.
-	Isolated           bool
+	Isolated bool
 	// Offline blocks external network tools and shell commands accessing the internet.
-	Offline            bool
-	SessionID          string
-	ListSessions       bool
-	Cwd                string
+	Offline      bool
+	SessionID    string
+	ListSessions bool
+	Cwd          string
 	// ContextFiles holds user-provided guide files pinned as persistent
 	// session instructions (repeatable --context flag). Contents are
 	// injected into the system prompt and never compacted.
@@ -127,6 +127,49 @@ type Config struct {
 	ToolsByModel map[string]bool
 	// OllamaHideThink hides native and in-band thinking blocks in TUI (shows response without thinking section).
 	OllamaHideThink bool
+	// Harness holds the agent-harness tunables (context budget, tool-result
+	// retention, metrics). Precedence: defaults < config file < env.
+	Harness HarnessConfig
+}
+
+// HarnessConfig centralizes the agent-harness tunables so they can be set
+// from the config file or the environment instead of being hardcoded.
+type HarnessConfig struct {
+	// KeepToolResults bounds how many recent tool results stay unmasked in
+	// the transcript window (default 6; values <1 fall back to default).
+	KeepToolResults int
+	// ToolOutputMaxTokens caps a single tool result's token size
+	// (default 0 = auto; negative values normalize to 0).
+	ToolOutputMaxTokens int
+	// CompactAtPercent is the context-window fill percentage that triggers
+	// compaction (default 85, clamped to 50..95).
+	CompactAtPercent int
+	// MetricsDisabled turns off JSONL metrics recording (the in-memory
+	// summary still updates).
+	MetricsDisabled bool
+}
+
+const (
+	defaultKeepToolResults  = 6
+	defaultCompactAtPercent = 85
+	minCompactAtPercent     = 50
+	maxCompactAtPercent     = 95
+)
+
+// normalize clamps the harness tunables to their documented ranges.
+func (h *HarnessConfig) normalize() {
+	if h.KeepToolResults < 1 {
+		h.KeepToolResults = defaultKeepToolResults
+	}
+	if h.ToolOutputMaxTokens < 0 {
+		h.ToolOutputMaxTokens = 0
+	}
+	if h.CompactAtPercent < minCompactAtPercent {
+		h.CompactAtPercent = minCompactAtPercent
+	}
+	if h.CompactAtPercent > maxCompactAtPercent {
+		h.CompactAtPercent = maxCompactAtPercent
+	}
 }
 
 func Load(args []string) (*Config, error) {
@@ -166,6 +209,7 @@ func Load(args []string) (*Config, error) {
 	}
 
 	applyEnv(cfg)
+	cfg.Harness.normalize()
 
 	cli, err := parseCLI(args)
 	if err != nil {
@@ -265,6 +309,10 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 		// PermFile is set in Load() to ConfigFile so permissions live in config.env.
 		PermFile:    "",
 		HistoryFile: filepath.Join(stateDir, "history.txt"),
+		Harness: HarnessConfig{
+			KeepToolResults:  defaultKeepToolResults,
+			CompactAtPercent: defaultCompactAtPercent,
+		},
 	}
 }
 

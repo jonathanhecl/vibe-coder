@@ -15,6 +15,9 @@ func buildChatRequest(req ollama.ChatRequest) (chatCompletionRequest, error) {
 		Model:  req.Model,
 		Stream: req.Stream,
 	}
+	if req.Stream {
+		out.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
 
 	if req.Options.Temperature > 0 {
 		temp := req.Options.Temperature

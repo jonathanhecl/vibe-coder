@@ -110,6 +110,26 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_CONTEXT")); v != "" {
 		cfg.ContextFiles = append(cfg.ContextFiles, splitPathList(v)...)
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_KEEP_TOOL_RESULTS")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.Harness.KeepToolResults = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_TOOL_OUTPUT_MAX_TOKENS")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.Harness.ToolOutputMaxTokens = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_COMPACT_AT_PERCENT")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.Harness.CompactAtPercent = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_METRICS_DISABLED")); v != "" {
+		if b, ok := parseBoolish(v); ok {
+			cfg.Harness.MetricsDisabled = b
+		}
+	}
 }
 
 // splitPathList splits an env/config path list on the OS path-list

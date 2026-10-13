@@ -10,45 +10,45 @@ import (
 )
 
 type cliOptions struct {
-	prompt        optionalString
-	interactive   optionalBool
-	model         optionalString
-	ui            optionalString
-	sidecar       optionalString
-	noSidecar     bool
-	jevstyleModel    optionalString
+	prompt             optionalString
+	interactive        optionalBool
+	model              optionalString
+	ui                 optionalString
+	sidecar            optionalString
+	noSidecar          bool
+	jevstyleModel      optionalString
 	jevstyleV3Endpoint optionalString
-	yesMode       optionalBool
-	assistedYes   optionalBool
-	offline       optionalBool
-	debug         optionalBool
-	resume        optionalBool
-	newSession    optionalBool
-	temporal      optionalBool
-	isolated      optionalBool
-	sessionID     optionalString
-	listSessions  optionalBool
-	ollamaHost      optionalString
-	endpoint        optionalString
-	modelProvider   optionalString
-	sidecarEndpoint optionalString
-	sidecarProvider optionalString
-	maxTokens       optionalInt
-	temperature   optionalFloat
-	contextWindow optionalInt
-	rag           optionalBool
-	ragMode       optionalString
-	ragPath       optionalString
-	ragTopK       optionalInt
-	ragModel      optionalString
-	ragIndex      optionalString
-	contextFiles  stringSlice
-	help          optionalBool
-	version       optionalBool
-	thinkLevel    optionalString
-	noThink       bool
-	hideThink     bool
-	showThink     bool
+	yesMode            optionalBool
+	assistedYes        optionalBool
+	offline            optionalBool
+	debug              optionalBool
+	resume             optionalBool
+	newSession         optionalBool
+	temporal           optionalBool
+	isolated           optionalBool
+	sessionID          optionalString
+	listSessions       optionalBool
+	ollamaHost         optionalString
+	endpoint           optionalString
+	modelProvider      optionalString
+	sidecarEndpoint    optionalString
+	sidecarProvider    optionalString
+	maxTokens          optionalInt
+	temperature        optionalFloat
+	contextWindow      optionalInt
+	rag                optionalBool
+	ragMode            optionalString
+	ragPath            optionalString
+	ragTopK            optionalInt
+	ragModel           optionalString
+	ragIndex           optionalString
+	contextFiles       stringSlice
+	help               optionalBool
+	version            optionalBool
+	thinkLevel         optionalString
+	noThink            bool
+	hideThink          bool
+	showThink          bool
 }
 
 func parseCLI(args []string) (cliOptions, error) {

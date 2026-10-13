@@ -60,10 +60,9 @@ func (a *Agent) compactBestEffort(ctx context.Context) {
 		logger.Errorf("context compaction failed: %v", err)
 		return
 	}
-	// Compaction may have summarized away the last injected TODO progress note.
-	// Forget the dedup cache so the durable checklist is re-injected next turn
-	// instead of silently disappearing from the model's context.
-	a.resetTodoNoteDedup()
+	if a.metrics != nil {
+		a.metrics.NoteCompaction()
+	}
 }
 func (a *Agent) BuildEmptyResponseRetryInput(baseInput string, repeatedState bool) string {
 	baseInput = strings.TrimSpace(baseInput)

@@ -743,4 +743,3 @@ func TestEndpointAndProviderPrecedence(t *testing.T) {
 		t.Errorf("expected sidecar endpoint not to be OpenAI")
 	}
 }
-

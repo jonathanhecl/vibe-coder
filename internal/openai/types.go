@@ -1,22 +1,48 @@
 package openai
 
+import "github.com/jonathanhecl/vibe-coder/internal/ollama"
+
 // chatCompletionRequest represents the standard OpenAI chat completions request payload.
 type chatCompletionRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Stream      bool          `json:"stream"`
-	Temperature *float64      `json:"temperature,omitempty"`
-	MaxTokens   *int          `json:"max_tokens,omitempty"`
-	Tools       []chatTool    `json:"tools,omitempty"`
+	Model         string         `json:"model"`
+	Messages      []chatMessage  `json:"messages"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	Temperature   *float64       `json:"temperature,omitempty"`
+	MaxTokens     *int           `json:"max_tokens,omitempty"`
+	Tools         []chatTool     `json:"tools,omitempty"`
+}
+
+// streamOptions asks the server to append a trailing usage-only chunk.
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+// usageReport is the provider-reported token accounting on a stream chunk
+// (or non-streaming response).
+type usageReport struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
+// toUsage converts the wire report into the shared Usage shape.
+func (u *usageReport) toUsage() *ollama.Usage {
+	if u == nil {
+		return nil
+	}
+	return &ollama.Usage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+	}
 }
 
 // chatMessage represents one message in an OpenAI conversation history.
 type chatMessage struct {
-	Role         string         `json:"role"`
-	Content      any            `json:"content"`
-	Name         string         `json:"name,omitempty"`
-	ToolCalls    []chatToolCall `json:"tool_calls,omitempty"`
-	ToolCallID   string         `json:"tool_call_id,omitempty"`
+	Role       string         `json:"role"`
+	Content    any            `json:"content"`
+	Name       string         `json:"name,omitempty"`
+	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
 }
 
 // chatContentPart represents a multimodal part in an OpenAI message.
@@ -85,6 +111,7 @@ type chatCompletionChunk struct {
 	ID      string            `json:"id"`
 	Object  string            `json:"object"`
 	Choices []chatChunkChoice `json:"choices"`
+	Usage   *usageReport      `json:"usage,omitempty"`
 	Error   *apiError         `json:"error,omitempty"`
 }
 

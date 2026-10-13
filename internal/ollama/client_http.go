@@ -59,6 +59,16 @@ func (c *HTTPClient) markToolsUnsupported(model string) {
 	c.toolsDisabledModels[model] = true
 }
 
+// ToolsUnsupported reports whether this model already rejected native tools
+// in-process (a 400 tool error on a previous turn), so the agent knows the
+// XML envelope protocol is required even when capability detection claimed
+// support.
+func (c *HTTPClient) ToolsUnsupported(model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.toolsDisabledModels[strings.TrimSpace(model)]
+}
+
 // applyToolsSessionOverride strips tools for models already known to
 // reject them in-process.
 func (c *HTTPClient) applyToolsSessionOverride(req *ChatRequest) {

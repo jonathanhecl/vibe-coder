@@ -11,6 +11,7 @@ import (
 	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
 	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
 	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
+	"github.com/jonathanhecl/vibe-coder/internal/metrics"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -63,11 +64,15 @@ type Agent struct {
 	// descCacheStore memoizes sidecar-generated image descriptions
 	// ("borrowed vision") per file revision.
 	descCacheStore *vision.Cache
-	// lastTodoNote is the last TODO progress note injected into the
-	// transcript. The note is re-injected only when its content changes,
-	// so long multi-step runs don't pay the full list cost every iteration.
-	// Reset at the start of each Run.
-	lastTodoNote string
+	// metrics records one entry per model request (token usage, prompt
+	// section sizes). It writes a JSONL file unless the session is
+	// temporal or metrics are disabled; the in-memory summary always runs.
+	metrics *metrics.Recorder
+	// metricsSeq numbers the recorded entries within this agent.
+	metricsSeq int
+	// lastUsage holds the provider-reported token usage of the most recent
+	// chat stream (nil until the first done chunk with usage arrives).
+	lastUsage *ollama.Usage
 
 	// sysPrompt caches the stable system prompt until disk/registry inputs change.
 	sysPrompt promptCache
@@ -75,16 +80,15 @@ type Agent struct {
 
 // promptCache holds memoized system prompt fragments between turns.
 type promptCache struct {
-	mu            sync.Mutex
-	stableKey     string
-	stableBody    string
-	cacheGoal     string
-	cachePlan     bool
-	cacheReview   bool
-	cacheMission  string
-	cacheProgress string
-	cacheOffline  bool
-	full          string
+	mu           sync.Mutex
+	stableKey    string
+	stableBody   string
+	cacheGoal    string
+	cachePlan    bool
+	cacheReview  bool
+	cacheMission string
+	cacheOffline bool
+	full         string
 }
 
 func IsEmptyAssistantResponseErr(err error) bool {
@@ -120,6 +124,9 @@ func New(
 		side:     sidecar.New(cfg, client),
 		mission:  tools.NewMissionStore(),
 	}
+	// Lazily resolved on each record: the session id can change (resume,
+	// /new) and temporal/isolated state lives on cfg.
+	a.metrics = metrics.NewRecorder(func() string { return a.MetricsPath() })
 	if cfg != nil && cfg.JevstyleV3InUse() {
 		a.jev = jevstylev3.New(cfg.JevstyleV3Endpoint)
 	} else if cfg != nil && cfg.JevstyleInUse() {

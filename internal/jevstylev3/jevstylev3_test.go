@@ -673,4 +673,3 @@ func TestCheckThinkingLoop(t *testing.T) {
 		t.Fatalf("expected loop=false for empty text, got %v, err=%v", isLoop, err)
 	}
 }
-

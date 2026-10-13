@@ -4,14 +4,26 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 )
 
-// RenderPromptBlock builds a system-prompt section that lists available tools
-// and explains the exact invocation format the agent will parse.
-//
-// Models without native tool-call support need this to know the tools exist
-// and the XML envelope expected by parseXMLFallback.
-func RenderPromptBlock(reg *Registry) string {
+// RenderGuidelinesBlock renders the shared tool-usage guidelines for the
+// system prompt. It applies to both tool modes: models with native function
+// calling and models that use the XML fallback envelope. It returns "" when
+// the registry is nil or empty.
+func RenderGuidelinesBlock(reg *Registry, offline bool) string {
+	if reg == nil || len(reg.Names()) == 0 {
+		return ""
+	}
+	return prompt.Render("tool_guidelines", struct{ Offline bool }{Offline: offline})
+}
+
+// RenderXMLProtocolBlock renders the XML invocation protocol plus the tool
+// catalogue for models without native tool-call support (the envelope the
+// agent's parseXMLFallback parses). It returns "" when the registry is nil
+// or empty.
+func RenderXMLProtocolBlock(reg *Registry) string {
 	if reg == nil {
 		return ""
 	}
@@ -19,89 +31,7 @@ func RenderPromptBlock(reg *Registry) string {
 	if len(names) == 0 {
 		return ""
 	}
-
-	var b strings.Builder
-	b.WriteString("# Tools\n")
-	b.WriteString("You can call tools to inspect files, run commands, and search the web.\n")
-	b.WriteString("To call tools, reply with one or more XML blocks in this exact format:\n\n")
-	b.WriteString("<invoke name=\"ToolName\">{\"param\":\"value\"}</invoke>\n\n")
-	b.WriteString("Rules:\n")
-	b.WriteString("- Emit up to 5 sequential <invoke> blocks per reply for independent calls\n")
-	b.WriteString("  (e.g. Glob + Read + Grep in one turn). Dependent calls must wait.\n")
-	b.WriteString("- Put each block on its own lines with no extra prose inside the block.\n")
-	b.WriteString("- The body MUST be valid JSON for that tool's parameters.\n")
-	b.WriteString("- File paths (Read/Write/Edit/DescribeImage) resolve against the session\n")
-	b.WriteString("  working directory by default: pass a relative path like src/main.go, or a\n")
-	b.WriteString("  path you saw from Glob or earlier tools. Use a full path only for files\n")
-	b.WriteString("  outside the session.\n")
-	b.WriteString("- If a tool returns a message starting with \"PATH ERROR:\", the path was wrong or\n")
-	b.WriteString("  unreachable; fix the path (Glob, verify spelling) and retry — do not repeat the\n")
-	b.WriteString("  same broken path.\n")
-	b.WriteString("- Wait for the tool result before deciding the next step.\n")
-	b.WriteString("- If no tool is needed, answer directly in plain text.\n\n")
-	b.WriteString("When to call a tool (be proactive):\n")
-	b.WriteString("- The user asks about \"the project\", \"this code\", \"my repo\", or any\n")
-	b.WriteString("  other workspace content -> use Glob/Grep to map the repo, then Read\n")
-	b.WriteString("  the most relevant files. Never ask the user to paste code.\n")
-	b.WriteString("- The user asks what a specific file or function does -> Read that file\n")
-	b.WriteString("  first; only after reading it may you summarize.\n")
-	b.WriteString("- The user asks to find something -> Grep for the symbol or string.\n")
-	b.WriteString("- A previous tool result is incomplete -> issue another tool call to\n")
-	b.WriteString("  gather the missing information.\n")
-	b.WriteString("- Only skip tool calls when the answer is purely conceptual and does\n")
-	b.WriteString("  not depend on workspace contents.\n\n")
-	b.WriteString("Internet access (you DO have it):\n")
-	b.WriteString("- The WebSearch tool gives you live results from DuckDuckGo, and Bash\n")
-	b.WriteString("  can run curl/wget. So you ARE connected to the internet through\n")
-	b.WriteString("  these tools — never tell the user \"I have no internet access\" or\n")
-	b.WriteString("  \"I cannot fetch real-time data\".\n")
-	b.WriteString("- For anything time-sensitive (weather, prices, news, current events,\n")
-	b.WriteString("  package versions, docs of a library you are unsure about, sports\n")
-	b.WriteString("  results, exchange rates, etc.) call WebSearch first and answer\n")
-	b.WriteString("  based on the results. Cite the source URL when relevant.\n")
-	b.WriteString("- If WebSearch returns nothing useful, say so explicitly and offer\n")
-	b.WriteString("  to retry with a different query — do not fall back to \"I cannot\n")
-	b.WriteString("  access the internet\".\n\n")
-	b.WriteString("When to use InteractiveBash vs Bash:\n")
-	b.WriteString("- Use Bash for one-shot commands that run and exit (ls, cat, grep, compile).\n")
-	b.WriteString("- Use InteractiveBash for commands that prompt for input (pip install, npm init, git add -p, setup scripts, password prompts).\n")
-	b.WriteString("- If InteractiveBash returns a session_id, use SendInput to respond to the prompt.\n")
-	b.WriteString("- Use TerminateSession to kill a hanging interactive session.\n")
-	b.WriteString("\nExample multi-turn interactive session:\n")
-	b.WriteString("  1. <invoke name=\"InteractiveBash\">{\"command\":\"npm init\"}</invoke>\n")
-	b.WriteString("  2. Tool returns output + [session_id: term-123] [status: running]\n")
-	b.WriteString("  3. <invoke name=\"SendInput\">{\"session_id\":\"term-123\",\"input\":\"my-app\"}</invoke>\n")
-	b.WriteString("  4. Repeat SendInput until status is exited.\n")
-	b.WriteString("  5. If stuck, use <invoke name=\"TerminateSession\">{\"session_id\":\"term-123\"}</invoke>\n\n")
-	b.WriteString("Be proactive and autonomous:\n")
-	b.WriteString("- When you detect platform incompatibilities (e.g. a Mac/Linux script on Windows),\n")
-	b.WriteString("  create the corrected file(s) immediately using Write or Edit. Do not just explain.\n")
-	b.WriteString("- If a user asks you to fix something, make the fix directly.\n\n")
-	b.WriteString("File editing with Read/Edit:\n")
-	b.WriteString("- Read returns numbered lines (e.g. '     5|code'). The number and '|' are NOT\n")
-	b.WriteString("  part of the file; do not include them in old_string.\n")
-	b.WriteString("- old_string must match the file content exactly, including indentation.\n")
-	b.WriteString("- For whole-line changes, prefer start_line/end_line over old_string.\n")
-	b.WriteString("- If a string appears more than once, set replace_all=true or make old_string\n")
-	b.WriteString("  a larger unique block.\n")
-	b.WriteString("- After every Write/Edit, verify: Read the edited region and run the\n")
-	b.WriteString("  relevant check (tests, build, or lint via Bash) before moving on.\n")
-	b.WriteString("- Use GitStatus/GitDiff to review working-tree changes and GitUndo to\n")
-	b.WriteString("  restore the latest vibe-coder checkpoint after a bad edit.\n\n")
-	b.WriteString("When to plan with TodoWrite:\n")
-	b.WriteString("- Before starting any task that needs 3+ distinct steps (multi-file edits,\n")
-	b.WriteString("  refactors, bug hunts, or anything where the user benefits from seeing\n")
-	b.WriteString("  the plan), call TodoWrite once with the full list and statuses.\n")
-	b.WriteString("- Mark exactly one item as \"in_progress\" at a time. After completing a\n")
-	b.WriteString("  step, call TodoWrite again with merge=true to flip it to \"completed\"\n")
-	b.WriteString("  and the next one to \"in_progress\". Add new items as they appear.\n")
-	b.WriteString("- Skip TodoWrite for trivial single-step tasks (one Read, one Bash, a\n")
-	b.WriteString("  short answer); the panel only adds noise there.\n\n")
-	b.WriteString("AskUserQuestion (multiple choice in the terminal):\n")
-	b.WriteString("- \"questions\" must be an array of objects, each with \"prompt\" and \"options\".\n")
-	b.WriteString("- \"options\" is a non-empty array: either strings [\"A\",\"B\"] or objects with \"label\".\n")
-	b.WriteString("- Do not send {\"questions\":[\"text?\",\"more?\"]} — that shape is invalid.\n\n")
-	b.WriteString("Available tools:\n")
+	lines := make([]string, 0, len(names))
 	for _, name := range names {
 		t := reg.Get(name)
 		if t == nil {
@@ -113,12 +43,12 @@ func RenderPromptBlock(reg *Registry) string {
 		}
 		params := summarizeParams(t.Schema())
 		if params != "" {
-			fmt.Fprintf(&b, "- %s(%s): %s\n", name, params, desc)
+			lines = append(lines, fmt.Sprintf("%s(%s): %s", name, params, desc))
 		} else {
-			fmt.Fprintf(&b, "- %s: %s\n", name, desc)
+			lines = append(lines, fmt.Sprintf("%s: %s", name, desc))
 		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return prompt.Render("tool_protocol_xml", struct{ Tools []string }{Tools: lines})
 }
 
 func summarizeParams(schema Schema) string {

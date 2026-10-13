@@ -257,4 +257,3 @@ func TestClientDecide(t *testing.T) {
 		t.Fatalf("expected thinking loop false for empty text, got %t (err: %v)", isLoop, err)
 	}
 }
-

@@ -623,4 +623,3 @@ func TestIsolatedSessionLifecycle(t *testing.T) {
 		t.Fatalf("expected isolated media dir to be removed after clear, got %v", err)
 	}
 }
-

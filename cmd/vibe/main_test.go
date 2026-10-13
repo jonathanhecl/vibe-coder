@@ -447,4 +447,3 @@ func TestStartupBannerIsolated(t *testing.T) {
 		t.Fatalf("expected plain banner to contain '(isolated)', got:\n%s", bannerPlain)
 	}
 }
-

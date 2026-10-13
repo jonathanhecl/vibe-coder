@@ -51,6 +51,9 @@ type Client struct {
 	mu                  sync.Mutex
 	toolsDisabledModels map[string]bool
 	modelsCache         map[string]modelData
+	// streamOptionsUnsupported remembers models/endpoints that answered 400
+	// to stream_options so later turns skip the doomed field.
+	streamOptionsUnsupported map[string]bool
 }
 
 // New creates an OpenAI-compatible client.
@@ -66,8 +69,9 @@ func New(baseURL string, opts ...Option) *Client {
 		http: &http.Client{
 			Timeout: defaultHTTPTimeout,
 		},
-		toolsDisabledModels: make(map[string]bool),
-		modelsCache:         make(map[string]modelData),
+		toolsDisabledModels:      make(map[string]bool),
+		modelsCache:              make(map[string]modelData),
+		streamOptionsUnsupported: make(map[string]bool),
 	}
 
 	for _, opt := range opts {
@@ -93,6 +97,38 @@ func (c *Client) isToolsUnsupported(model string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.toolsDisabledModels[strings.TrimSpace(model)]
+}
+
+// ToolsUnsupported reports whether this model already rejected native tools
+// in-process (a 400 tool error on a previous request), so the agent knows
+// the XML envelope protocol is required.
+func (c *Client) ToolsUnsupported(model string) bool {
+	return c.isToolsUnsupported(model)
+}
+
+func (c *Client) markStreamOptionsUnsupported(model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.streamOptionsUnsupported == nil {
+		c.streamOptionsUnsupported = make(map[string]bool)
+	}
+	c.streamOptionsUnsupported[model] = true
+}
+
+func (c *Client) isStreamOptionsUnsupported(model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.streamOptionsUnsupported[strings.TrimSpace(model)]
+}
+
+// isStreamOptionsError detects a 400 caused by the stream_options field so
+// the client can retry once without it.
+func isStreamOptionsError(body string) bool {
+	return strings.Contains(strings.ToLower(body), "stream_options")
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
@@ -135,6 +171,9 @@ func (c *Client) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollam
 		if err != nil {
 			return nil, fmt.Errorf("build chat request: %w", err)
 		}
+		if c.isStreamOptionsUnsupported(attempt.Model) {
+			wireReq.StreamOptions = nil
+		}
 
 		payload, err := json.Marshal(wireReq)
 		if err != nil {
@@ -159,6 +198,11 @@ func (c *Client) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollam
 		_ = resp.Body.Close()
 		bodyStr := string(bodyBytes)
 
+		if resp.StatusCode == http.StatusBadRequest && wireReq.StreamOptions != nil && isStreamOptionsError(bodyStr) {
+			logger.Infof("OpenAI model %q rejected stream_options; retrying without it", attempt.Model)
+			c.markStreamOptionsUnsupported(attempt.Model)
+			continue
+		}
 		if resp.StatusCode == http.StatusBadRequest && len(attempt.Tools) > 0 && isToolError(bodyStr) {
 			logger.Infof("OpenAI model %q does not support tools; retrying without tools", attempt.Model)
 			c.markToolsUnsupported(attempt.Model)
@@ -184,7 +228,19 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 		scanner.Buffer(make([]byte, 0, 4096), maxStreamBuffer)
 
 		accumulator := newStreamAccumulator()
+		var usage *ollama.Usage
 		doneEmitted := false
+		emitDone := func() {
+			if doneEmitted {
+				return
+			}
+			doneEmitted = true
+			ch <- ollama.Chunk{
+				ToolCalls: accumulator.buildToolCalls(),
+				Done:      true,
+				Usage:     usage,
+			}
+		}
 
 		stall := time.NewTimer(streamStallTimeout)
 		defer stall.Stop()
@@ -209,14 +265,7 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 
 			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if data == "[DONE]" {
-				if !doneEmitted {
-					toolCalls := accumulator.buildToolCalls()
-					ch <- ollama.Chunk{
-						ToolCalls: toolCalls,
-						Done:      true,
-					}
-					doneEmitted = true
-				}
+				emitDone()
 				return
 			}
 
@@ -233,6 +282,13 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 				return
 			}
 
+			// Usage can arrive on a trailing chunk with empty choices
+			// (stream_options include_usage), so read it before the
+			// choices check.
+			if chunk.Usage != nil {
+				usage = chunk.Usage.toUsage()
+			}
+
 			if len(chunk.Choices) == 0 {
 				continue
 			}
@@ -246,17 +302,13 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 				thinking = delta.Reasoning
 			}
 
-			isDone := choice.FinishReason != "" && choice.FinishReason != "null"
-			var toolCalls []ollama.MessageToolCall
-			if isDone {
-				toolCalls = accumulator.buildToolCalls()
-			}
-
+			// finish_reason does not end the turn anymore: emit this
+			// chunk's delta as a regular (non-done) chunk and keep a
+			// single terminal chunk for stream end, which carries the
+			// accumulated tool calls and the usage report.
 			outChunk := ollama.Chunk{
-				Delta:     delta.Content,
-				Thinking:  thinking,
-				ToolCalls: toolCalls,
-				Done:      isDone,
+				Delta:    delta.Content,
+				Thinking: thinking,
 			}
 
 			select {
@@ -264,19 +316,9 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 			case <-ctx.Done():
 				return
 			}
-
-			if isDone {
-				doneEmitted = true
-			}
 		}
 
-		if !doneEmitted {
-			toolCalls := accumulator.buildToolCalls()
-			ch <- ollama.Chunk{
-				ToolCalls: toolCalls,
-				Done:      true,
-			}
-		}
+		emitDone()
 	}()
 
 	return ch

@@ -66,9 +66,6 @@ func (a *Agent) applyWorkState(raw []byte) {
 	if snap.Mission != nil && a.mission != nil {
 		a.mission.Restore(*snap.Mission)
 	}
-	// The restored list must be re-injected even if an identical note was
-	// already sent before compaction; forget the dedup cache.
-	a.resetTodoNoteDedup()
 }
 
 // PersistWorkState snapshots the checklist/task state into the session so it

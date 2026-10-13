@@ -54,7 +54,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		a.perm.SetUnattended(a.MissionActive())
 	}
 	a.addRunContext(ctx, userInput)
-	a.resetTodoNoteDedup()
 
 	// ParallelAgents is explicit-only: the model calls it when a task is
 	// genuinely decomposable. Previous auto-detection split any message
@@ -82,7 +81,6 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			continue
 		}
 
-		a.addTodoProgressNoteIfChanged()
 		reply, nativeCalls, err := a.chatOnce(ctx)
 		if err != nil {
 			if IsThinkingLoopLimitErr(err) {

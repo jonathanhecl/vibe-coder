@@ -268,7 +268,7 @@ func fileEditCompletionNote(toolName string, params map[string]any) string {
 	if toolName == "Write" {
 		verb = "written"
 	}
-	return fmt.Sprintf("File %s: %s. Verify the change now: Read the edited region and run the relevant check (tests, build, or lint via Bash). Re-edit only if verification proves it is still wrong; otherwise move on to the next step.", verb, path)
+	return fmt.Sprintf("File %s: %s.", verb, path)
 }
 func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hintsForModel string, structured bool) {
 	a.mu.RLock()

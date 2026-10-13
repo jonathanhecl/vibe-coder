@@ -8,9 +8,10 @@ import (
 )
 
 // progressPromptBlock renders a compact, durable summary of the checklist and
-// tasks. It lives in the system prompt (rebuilt every turn), so unlike
-// transcript notes it can never be summarized away by compaction — the model
-// always knows what is done and what remains on a long run.
+// tasks. It rides in the trailing runtime-state note (rebuilt every
+// request), so unlike transcript notes it can never be summarized away by
+// compaction — the model always knows what is done and what remains on a
+// long run.
 func (a *Agent) progressPromptBlock() string {
 	tw := a.todoWriteTool()
 	total, done, pending := 0, 0, 0
@@ -69,20 +70,20 @@ func (a *Agent) progressPromptBlock() string {
 	return strings.TrimSpace(b.String())
 }
 
-// progressCacheKey identifies the durable progress state for system-prompt
-// cache invalidation.
-func (a *Agent) progressCacheKey() string {
+// runtimeStateNote assembles the ephemeral state appended after the
+// transcript window on every request: the durable work progress plus the
+// mission continuation turn count. Keeping it out of both the system prompt
+// and the stored transcript means it is always current and never accumulates.
+func (a *Agent) runtimeStateNote() string {
 	var b strings.Builder
-	if tw := a.todoWriteTool(); tw != nil {
-		for _, it := range tw.Store().Snapshot() {
-			if !isMeaningfulTodoContent(it.Content) {
-				continue
-			}
-			fmt.Fprintf(&b, "%s=%s;", it.ID, it.Status)
+	if block := a.progressPromptBlock(); block != "" {
+		b.WriteString(block)
+	}
+	if m := a.MissionSnapshot(); m.Status == tools.MissionStatusActive && m.Turns > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
 		}
+		fmt.Fprintf(&b, "Mission continuation turns so far: %d", m.Turns)
 	}
-	for _, task := range tools.SnapshotTasks() {
-		fmt.Fprintf(&b, "task:%s=%s;", task.ID, task.Status)
-	}
-	return b.String()
+	return strings.TrimSpace(b.String())
 }
