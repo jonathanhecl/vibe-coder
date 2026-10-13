@@ -573,6 +573,15 @@ SIDECAR_ENDPOINT=http://localhost:11434
 - `--rag-index <path>` — build/index RAG path and exit
 - `--save` — persist `MODEL`, `SIDECAR_MODEL`, `JEVSTYLE_MODEL`, `ASSISTED_YES`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
+Harness tunables (defaults < config file < env):
+
+- `KEEP_TOOL_RESULTS=<n>` / `VIBE_CODER_KEEP_TOOL_RESULTS` — how many recent tool results stay unmasked in the transcript window (default `6`; values below `1` fall back to the default)
+- `TOOL_OUTPUT_MAX_TOKENS=<n>` / `VIBE_CODER_TOOL_OUTPUT_MAX_TOKENS` — cap on a single tool result's token size (default `0` = auto; negative values normalize to `0`)
+- `COMPACT_AT_PERCENT=<n>` / `VIBE_CODER_COMPACT_AT_PERCENT` — context-window fill percentage that triggers compaction (default `85`, clamped to `50..95`)
+- `METRICS_DISABLED=true|false` / `VIBE_CODER_METRICS_DISABLED` — turn off JSONL metrics recording (the in-memory `/stats` summary still updates)
+
+Per-request harness metrics (model-reported token counts, estimated prompt-section sizes, timings) are appended as JSONL to `<state-dir>/metrics/<session-id>.jsonl`; isolated sessions write `<cwd>/.vibe-isolated-metrics.jsonl` and temporal sessions record memory-only. Inspect them live with `/stats`.
+
 ## MCP & Skills Management CLI
 
 `vibe` provides dedicated CLI subcommands to list, add, and remove MCP servers and custom skills.
@@ -638,7 +647,8 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status`, `/info`, `/stats` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, offline mode, mission, context usage)
+- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, offline mode, mission, context usage)
+- `/stats` — show session harness metrics (requests, provider-reported and estimated tokens, timings) plus the metrics JSONL file path
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
 - `/context replace <file...>` — drop all pinned files and pin these instead

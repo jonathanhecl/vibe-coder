@@ -47,7 +47,7 @@ func (a *Agent) MetricsSummary() metrics.Summary {
 // start is the moment the request was sent; toolCalls counts the parsed
 // tool invocations (0 on error); callErr is nil on success.
 func (a *Agent) recordChatAttempt(systemPrompt string, wstats windowStats, start time.Time, toolCalls int, callErr error) {
-	if a == nil || a.metrics == nil {
+	if a == nil || a.metrics == nil || a.sess == nil || a.cfg == nil {
 		return
 	}
 	a.metricsSeq++

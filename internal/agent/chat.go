@@ -182,6 +182,9 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 			ctx, cancel := context.WithTimeout(rootCtx, a.cfg.EffectiveChatTimeout())
 			systemPrompt := a.buildSystemPrompt()
 			messages, wstats := a.buildOllamaMessages(ctx, systemPrompt)
+			// Usage belongs to the request that produced it; clear it so a
+			// failed attempt never records the previous turn's counters.
+			a.lastUsage = nil
 			if thinkingLoopRetries > 0 {
 				a.ui.StartWaiting(fmt.Sprintf("restarting thinking after loop (attempt %d/%d)…", thinkingLoopRetries+1, maxThinkingLoopRetries))
 			} else {
