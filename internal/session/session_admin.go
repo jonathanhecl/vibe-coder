@@ -292,7 +292,7 @@ func ListSessions(cfg *config.Config) ([]SessionInfo, error) {
 		if projectPath == "" {
 			projectPath = loadProjectPathFor(dir, id)
 		}
-		if projectPath == "" && id == currentProjectID && cfg != nil {
+		if projectPath == "" && id == currentProjectID {
 			projectPath = cfg.Cwd
 		}
 
