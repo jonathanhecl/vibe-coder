@@ -138,6 +138,17 @@ func visionWord(known, available bool) string {
 	}
 }
 
+// visionStatusValue reports who looks at images for the main model: the
+// model's own capability, plus the model bound to the vision role when there
+// is one.
+func visionStatusValue(c *Ctx) string {
+	value := visionWord(c.Cfg.VisionKnown, c.Cfg.VisionAvailable)
+	if role := strings.TrimSpace(c.Cfg.RoleModelName(config.RoleVision)); role != "" {
+		value += " (vision role: " + role + ")"
+	}
+	return value
+}
+
 func setYesMode(c *Ctx, enabled bool) {
 	c.Cfg.YesMode = enabled
 	if c.Perm != nil {

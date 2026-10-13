@@ -9,6 +9,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
+	"github.com/jonathanhecl/vibe-coder/internal/visionrole"
 )
 
 func newBorrowedVisionAgent(t *testing.T, mainKnown, mainAvailable, sideKnown, sideAvailable bool) (*Agent, *stubClient) {
@@ -100,6 +101,52 @@ func TestMainVisionBeatsSidecar(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&sc.calls); got != 0 {
 		t.Fatalf("expected no sidecar calls, got %d", got)
+	}
+}
+
+// A model bound to the vision role wins over the main model and the sidecar:
+// the user asked for that model to be the eyes.
+func TestVisionRoleBeatsMainAndSidecar(t *testing.T) {
+	t.Parallel()
+	a, sc := newBorrowedVisionAgent(t, true, true, true, true)
+	a.SetVisionRole(visionrole.New(sc, "llava:latest"))
+	photo := filepath.Join(t.TempDir(), "jacket.png")
+	writeTestPNG(t, photo)
+	a.sess.AddToolObservation("Read", vision.MarkerFor(photo))
+
+	msgs, _ := a.buildOllamaMessages(context.Background(), "SYS")
+	last := msgs[len(msgs)-1]
+	if len(last.Images) != 0 {
+		t.Fatalf("expected no raw attach when a vision role is bound, got %d", len(last.Images))
+	}
+	if !strings.Contains(last.Content, "[vision-role]") {
+		t.Fatalf("expected a vision-role block, got %q", last.Content)
+	}
+	if strings.Contains(last.Content, "jacket.png") {
+		t.Fatalf("vision-role block must not leak the file path, got %q", last.Content)
+	}
+	if !strings.Contains(last.Content, "A blue jacket with red buttons.") {
+		t.Fatalf("expected the vision-role description, got %q", last.Content)
+	}
+
+	// Second build reuses the cached description: no new call.
+	_, _ = a.buildOllamaMessages(context.Background(), "SYS")
+	if got := atomic.LoadInt32(&sc.calls); got != 1 {
+		t.Fatalf("expected 1 vision-role call, got %d", got)
+	}
+}
+
+func TestUnbindingVisionRoleRestoresDerivedRouting(t *testing.T) {
+	t.Parallel()
+	a, _ := newBorrowedVisionAgent(t, true, true, true, true)
+	a.SetVisionRole(visionrole.New(&stubClient{reply: "x"}, "llava:latest"))
+	a.SetVisionRole(nil)
+	photo := filepath.Join(t.TempDir(), "jacket.png")
+	writeTestPNG(t, photo)
+	a.sess.AddToolObservation("Read", vision.MarkerFor(photo))
+	msgs, _ := a.buildOllamaMessages(context.Background(), "SYS")
+	if len(msgs[len(msgs)-1].Images) != 1 {
+		t.Fatal("expected a direct attach again after unbinding the vision role")
 	}
 }
 

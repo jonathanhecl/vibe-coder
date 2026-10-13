@@ -26,6 +26,46 @@ func TestBuildVisionBorrowedAndSecondOpinion(t *testing.T) {
 	}
 }
 
+func TestBuildVisionRoleTakesPrecedence(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd: t.TempDir(), Model: "text-model", SidecarModel: "moondream",
+		VisionKnown: true, VisionAvailable: false,
+		SidecarVisionKnown: true, SidecarVisionAvailable: true,
+		RoleModels: map[config.Role]config.RoleModel{
+			config.RoleVision: {Provider: config.DefaultProviderName, Model: "llava:latest"},
+		},
+	}
+	got := Build(cfg)
+	if !strings.Contains(got, "Vision: via VISION MODEL") || !strings.Contains(got, "llava:latest") {
+		t.Fatalf("expected vision-role guidance, got:\n%s", got)
+	}
+	if strings.Contains(got, "Vision: via SIDECAR") {
+		t.Fatalf("the vision role must win over the sidecar route, got:\n%s", got)
+	}
+
+	// With a seeing main model the vision role is offered for a second opinion.
+	cfg.VisionAvailable = true
+	got = Build(cfg)
+	if !strings.Contains(got, "Vision: AVAILABLE") || !strings.Contains(got, "vision role") {
+		t.Fatalf("expected the vision role named for second opinions, got:\n%s", got)
+	}
+}
+
+// Without a bound vision role the derived routes stay exactly as before.
+func TestBuildVisionWithoutRoleKeepsDerivedRoutes(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd: t.TempDir(), Model: "text-model", SidecarModel: "moondream",
+		VisionKnown: true, VisionAvailable: false,
+		SidecarVisionKnown: true, SidecarVisionAvailable: true,
+	}
+	got := Build(cfg)
+	if !strings.Contains(got, "Vision: via SIDECAR") || strings.Contains(got, "vision role") {
+		t.Fatalf("expected the sidecar route and no vision role, got:\n%s", got)
+	}
+}
+
 func TestBuildVisionSectionStates(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

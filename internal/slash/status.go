@@ -106,7 +106,7 @@ func statusRows(c *Ctx) []statusRow {
 	rows = append(rows, statusRow{Label: "UI", Plain: ui})
 
 	rows = append(rows, statusRow{Label: "Model", Plain: c.Cfg.Model})
-	rows = append(rows, statusRow{Label: "Vision", Plain: visionWord(c.Cfg.VisionKnown, c.Cfg.VisionAvailable)})
+	rows = append(rows, statusRow{Label: "Vision", Plain: visionStatusValue(c)})
 	rows = append(rows, statusRow{Label: "Thinking", Plain: thinkingStatus(c)})
 	rows = append(rows, statusRow{
 		Label: "Hide think",

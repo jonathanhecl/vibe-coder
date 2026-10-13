@@ -25,6 +25,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/version"
+	"github.com/jonathanhecl/vibe-coder/internal/visionrole"
 	"github.com/jonathanhecl/vibe-coder/internal/watcher"
 )
 
@@ -119,11 +120,12 @@ func main() {
 
 	client := createLLMClient(cfg.EffectiveModelEndpoint(), cfg.ModelApiKey, cfg.IsModelOpenAI())
 	var sideClient ollama.Client
-	if cfg.EffectiveSidecarEndpoint() == cfg.EffectiveModelEndpoint() && cfg.IsSidecarOpenAI() == cfg.IsModelOpenAI() {
+	if reuseClientTarget(cfg.EffectiveModelEndpoint(), cfg.EffectiveSidecarEndpoint(), cfg.IsModelOpenAI(), cfg.IsSidecarOpenAI()) {
 		sideClient = client
 	} else {
 		sideClient = createLLMClient(cfg.EffectiveSidecarEndpoint(), cfg.SidecarApiKey, cfg.IsSidecarOpenAI())
 	}
+	visionRole := newVisionRole(cfg, client, sideClient)
 
 	sess := session.New(cfg)
 	sess.SetClient(client)
@@ -163,7 +165,7 @@ func main() {
 	if cfg.DecisionInUse() {
 		sidePool.SetDecider(decider)
 	}
-	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool))
+	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool).SetVisionRole(visionRole))
 
 	mcpCtx, mcpCancel := mcp.DefaultInitContext()
 	defer mcpCancel()
@@ -184,6 +186,7 @@ func main() {
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	ag.SetContextStore(ctxStore)
 	ag.SetSidecar(sidePool)
+	ag.SetVisionRole(visionRole)
 	if cfg.DecisionInUse() {
 		ag.SetDecider(decider)
 	}
@@ -353,6 +356,46 @@ func createLLMClient(endpoint, apiKey string, isOpenAI bool) ollama.Client {
 		return openai.New(endpoint, opts...)
 	}
 	return ollama.NewHTTPWithAPIKey(endpoint, apiKey)
+}
+
+// reuseClientTarget reports whether the sidecar can share the main client:
+// the two roles point at the same endpoint and speak the same protocol. One
+// client per provider is the point of the provider registry, so the common
+// single-provider setup never builds a second one.
+func reuseClientTarget(mainEndpoint, sideEndpoint string, mainOpenAI, sideOpenAI bool) bool {
+	return mainEndpoint == sideEndpoint && mainOpenAI == sideOpenAI
+}
+
+// newVisionRole builds the describer for the optional vision role. It returns
+// nil unless the role is bound.
+func newVisionRole(cfg *config.Config, client, sideClient ollama.Client) *visionrole.Describer {
+	vc := visionClientFor(cfg, client, sideClient)
+	if vc == nil {
+		return nil
+	}
+	return visionrole.New(vc, cfg.RoleModelName(config.RoleVision))
+}
+
+// visionClientFor returns the client the vision role should use: the main or
+// sidecar client when the role points at the same provider, otherwise a
+// dedicated client for that provider. It returns nil when the role is unbound
+// or its provider has no endpoint.
+func visionClientFor(cfg *config.Config, client, sideClient ollama.Client) ollama.Client {
+	if cfg == nil || !cfg.RoleInUse(config.RoleVision) {
+		return nil
+	}
+	provider, ok := cfg.RoleProvider(config.RoleVision)
+	if !ok || strings.TrimSpace(provider.Endpoint) == "" {
+		return nil
+	}
+	switch provider.Name {
+	case cfg.RoleBinding(config.RoleMain).Provider:
+		return client
+	case cfg.RoleBinding(config.RoleSidecar).Provider:
+		return sideClient
+	default:
+		return createLLMClient(provider.Endpoint, provider.APIKey, provider.Kind == config.ProviderOpenAI)
+	}
 }
 
 // resolveVisionSupport detects once, at startup, whether the active model

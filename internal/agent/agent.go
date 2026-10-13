@@ -18,6 +18,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
+	"github.com/jonathanhecl/vibe-coder/internal/visionrole"
 	"github.com/jonathanhecl/vibe-coder/internal/watcher"
 )
 
@@ -45,6 +46,10 @@ type Agent struct {
 	rag         ragProvider
 	paths       *pathMemory
 	side        *sidecar.Pool
+	// visionRole is the model explicitly bound to the vision role
+	// (/setmodel vision). When set it describes images before the main
+	// model and the sidecar are consulted.
+	visionRole  *visionrole.Describer
 	decider     decision.Decider
 	currentGoal string // verbatim text of the user's request for this Run()
 	ctxStore    *contextfiles.Store
@@ -178,6 +183,15 @@ func (a *Agent) SetSidecar(p *sidecar.Pool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.side = p
+}
+
+// SetVisionRole installs the optional vision-role describer. A nil describer
+// (the default) means no vision role is bound and image routing falls back to
+// the main model and then the sidecar.
+func (a *Agent) SetVisionRole(d *visionrole.Describer) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.visionRole = d
 }
 
 func (a *Agent) SetRAG(r ragProvider) {

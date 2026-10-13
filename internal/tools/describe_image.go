@@ -11,6 +11,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
+	"github.com/jonathanhecl/vibe-coder/internal/visionrole"
 )
 
 // DescribeImageTool has a vision-capable model look at an image file and
@@ -18,17 +19,27 @@ import (
 // attachment happens through Read, while this tool asks for a closer look,
 // a second opinion, or a follow-up about specific details.
 //
-// Routing: the sidecar answers when it has (or may have) vision, so the
-// main model stays focused; otherwise the main model looks itself; when
-// neither can see, the call fails with a clear error instead of guessing.
+// Routing: a model explicitly bound to the vision role answers first; then
+// the sidecar when it has (or may have) vision, so the main model stays
+// focused; otherwise the main model looks itself; when nobody can see, the
+// call fails with a clear error instead of guessing.
 type DescribeImageTool struct {
-	cfg    *config.Config
-	client ollama.Client
-	pool   *sidecar.Pool
+	cfg        *config.Config
+	client     ollama.Client
+	pool       *sidecar.Pool
+	visionRole *visionrole.Describer
 }
 
 func NewDescribeImageTool(cfg *config.Config, client ollama.Client, pool *sidecar.Pool) *DescribeImageTool {
 	return &DescribeImageTool{cfg: cfg, client: client, pool: pool}
+}
+
+// SetVisionRole installs the optional vision-role describer. A nil describer
+// (the default) means no vision role is bound and routing falls back to the
+// sidecar and then the main model.
+func (t *DescribeImageTool) SetVisionRole(d *visionrole.Describer) *DescribeImageTool {
+	t.visionRole = d
+	return t
 }
 
 func (t *DescribeImageTool) Name() string { return "DescribeImage" }
@@ -76,6 +87,21 @@ func (t *DescribeImageTool) Execute(ctx context.Context, params map[string]any) 
 		question = sidecar.DefaultDescribeQuestion
 	}
 
+	if t.visionRole.Enabled() {
+		name := t.visionRole.Model()
+		desc, err := t.visionRole.Describe(ctx, path, question)
+		if err == nil {
+			return Result{Output: fmt.Sprintf("Visual answer from %s about %s:\n%s", name, filepath.Base(path), desc)}
+		}
+		if t.mainMaySee() {
+			descMain, errMain := describeWithMain(ctx, t.client, t.cfg, path, question)
+			if errMain == nil {
+				return Result{Output: fmt.Sprintf("Visual answer from %s about %s:\n%s", t.cfg.Model, filepath.Base(path), descMain)}
+			}
+			return errResult(fmt.Sprintf("vision role (%s) failed: %v, and main model fallback failed: %v", name, err, errMain))
+		}
+		return errResult(fmt.Sprintf("vision role (%s) failed: %v", name, err))
+	}
 	if t.sidecarMaySee() {
 		desc, err := t.pool.DescribeImage(ctx, path, question)
 		if err == nil {
@@ -97,7 +123,7 @@ func (t *DescribeImageTool) Execute(ctx context.Context, params map[string]any) 
 		}
 		return Result{Output: fmt.Sprintf("Visual answer from %s about %s:\n%s", t.cfg.Model, filepath.Base(path), desc)}
 	}
-	return errResult(fmt.Sprintf("neither the main model (%s) nor the sidecar (%s) has vision capability; cannot look at images", t.cfg.Model, t.cfg.SidecarModel))
+	return errResult(fmt.Sprintf("neither the main model (%s) nor the sidecar (%s) has vision capability; bind one with /setmodel vision <number|name>", t.cfg.Model, t.cfg.SidecarModel))
 }
 
 // sidecarMaySee reports whether the sidecar route is worth trying: enabled

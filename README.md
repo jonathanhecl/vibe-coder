@@ -328,6 +328,8 @@ Model keys and overrides:
 - Config file key: `DECISION_API_KEY=<token>`
 - Config file key: `ASSISTED_YES=true|false`
 - Config file key: `THINK=off|low|medium|high|max`
+- Config file key: `PROVIDER_<NAME>_ENDPOINT=<url>`, `PROVIDER_<NAME>_KIND=ollama|openai`, `PROVIDER_<NAME>_API_KEY=<token>` — named provider registry (see [Providers & roles](#providers--roles))
+- Config file key: `ROLE_<ROLE>_PROVIDER=<name>`, `ROLE_<ROLE>_MODEL=<model-name>` with `<ROLE>` in `MAIN|SIDECAR|DECISION|EMBEDDING|VISION` — role bindings
 - Environment: `VIBE_CODER_MODEL=<model-name>`
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
@@ -413,7 +415,7 @@ When configured, the decision model acts as a fast, discrete decision engine for
    - **Startup banner status**: When assisted mode is active, the startup banner highlights `(assisted enabled)` in green alongside the configured decision model; when inactive, it displays `(run '/yes assisted' to enable)` in standard white.
    - **Configuration persistence**: Setting assisted mode can be saved across runs in `vibe-coder.env` (`ASSISTED_YES=true`, `/save`, `--save`).
    - **Absence and error fallback**: If no decision model is configured or if it experiences network or inference errors, assisted mode automatically deactivates and safely reverts to standard user confirmation prompts (`AskPermission`).
-   - **Setup suggestion**: Configuring a decision model via `/decision <model>` automatically suggests enabling assisted mode.
+   - **Setup suggestion**: Configuring a decision model via `/setmodel decision <number|name>` automatically suggests enabling assisted mode.
 2. **Workspace path disambiguation**:
    When the agent references an ambiguous file basename matched across multiple repository paths, the decision model selects the best matching candidate according to user context and intent.
 3. **Autonomous mission completion verification**:
@@ -447,11 +449,13 @@ DECISION_ENDPOINT=http://192.168.0.33:8765
 DECISION_API_KEY=<bearer token>
 
 # Interactive (inside vibe)
-/decision tev1:0.8b
-/decision endpoint http://192.168.0.33:8765
-/decision endpoint ollama     # back to the Ollama host
+/setmodel decision tev1:0.8b      # or /setmodel decision 3 by list number
+/provider systemone endpoint http://192.168.0.33:8765
+/setmodel systemone decision tev1:0.8b
 /decision test
 ```
+
+An endpoint that is not the Ollama host needs its own provider: add it with `/provider add systemone http://192.168.0.33:8765` and bind the role with `/setmodel systemone decision <model>`. To go back to the Ollama host, bind `/setmodel decision <number|name>` with no provider argument, or unbind with `/setmodel decision off`.
 
 At startup `vibe` runs a backend check: a `GET /healthz` that returns `{"status":"ok"}` means a System One server; a `404` means Ollama, where `/api/show` must report the `decision` capability for the configured model. When `DECISION_ENDPOINT` is set it is used directly; otherwise `DECISION_MODEL` is queried on the Ollama host.
 
@@ -491,7 +495,7 @@ those settings in one command, without changing global environment variables:
 What this does:
 
 - Applies model, sidecar model, and host for the current run.
-- Writes `MODEL`, `SIDECAR_MODEL`, and `OLLAMA_HOST` to
+- Writes `ROLE_MAIN_MODEL`, `ROLE_SIDECAR_MODEL`, and `PROVIDER_OLLAMA_ENDPOINT` to
   `%LOCALAPPDATA%\vibe-coder\vibe-coder.env`.
 - Keeps the change scoped to `vibe` only (no `setx` needed).
 
@@ -509,7 +513,7 @@ If you use PowerShell and want to run from source with the same flags:
 
 ### OpenAI-compatible endpoints (llama.cpp, vLLM, LM Studio, etc.)
 
-`vibe` natively supports OpenAI-compatible endpoints (`/v1`). You can configure independent endpoints for the main model and sidecar model. Any URL ending in `/v1` (such as `http://127.0.0.1:8080/v1`) is automatically detected as an OpenAI-compatible endpoint.
+`vibe` natively supports OpenAI-compatible endpoints (`/v1`). Each provider has its own endpoint, and every role can bind to any provider. Any URL ending in `/v1` (such as `http://127.0.0.1:8080/v1`) is automatically detected as an OpenAI-compatible endpoint.
 
 Run with a custom endpoint via CLI:
 
@@ -520,13 +524,19 @@ vibe --endpoint http://127.0.0.1:8080/v1 --model my-model
 Or configure via `vibe-coder.env`:
 
 ```env
-MODEL=my-model
-MODEL_ENDPOINT=http://127.0.0.1:8080/v1
+PROVIDER_OLLAMA_ENDPOINT=http://localhost:11434
+PROVIDER_OPENAI_KIND=openai
+PROVIDER_OPENAI_ENDPOINT=http://127.0.0.1:8080/v1
 
-# Optional: keep sidecar on local Ollama, or point it to another endpoint
-SIDECAR_MODEL=qwen3.5:4b
-SIDECAR_ENDPOINT=http://localhost:11434
+ROLE_MAIN_PROVIDER=openai
+ROLE_MAIN_MODEL=my-model
+
+# Optional: keep the sidecar on local Ollama
+ROLE_SIDECAR_PROVIDER=ollama
+ROLE_SIDECAR_MODEL=qwen3.5:4b
 ```
+
+Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OLLAMA_HOST`, …) are still read and migrated to this form on the next save.
 
 ## CLI Flags
 
@@ -569,7 +579,7 @@ SIDECAR_ENDPOINT=http://localhost:11434
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `DECISION_MODEL`, `DECISION_ENDPOINT`, `ASSISTED_YES`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
+- `--save` — persist `ROLE_<ROLE>_PROVIDER`/`ROLE_<ROLE>_MODEL`, `PROVIDER_<NAME>_ENDPOINT`/`_KIND`/`_API_KEY`, `ASSISTED_YES`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
 Harness tunables (defaults < config file < env):
 
@@ -674,21 +684,51 @@ Slash commands are entered at the `>` prompt during an interactive session.
 
 Pinned context files are injected into the system prompt on every turn, so they stay alive for the whole session: compaction and transcript truncation can never drop them. The pinned list is saved with the session and restored on `--resume`/`/resume` (file contents are re-read from disk). CLI `--context` flags accumulate: `vibe --context guide.md --context rules.txt`.
 
+### Providers & roles
+
+A **provider** is a named, reusable endpoint (`ollama` by default). A **role** binds to a `(provider, model)` pair. The five roles are `main`, `sidecar`, `decision`, `embedding` and `vision`.
+
+- `/providers` — list the configured providers and, for each role, the model bound to it
+- `/provider <NAME>` — show one provider (kind, endpoint, API key state, roles)
+- `/provider add <NAME> [endpoint]` — add a reusable provider (the endpoint is prompted when omitted; if you skip it, create it later with `/provider <NAME> endpoint <url>`)
+- `/provider <NAME> endpoint <url>` — set a provider endpoint (creates the provider when it does not exist); when the provider needs an API key it is requested
+- `/provider <NAME> key <api-key>` — store an API key (also prompted when omitted)
+- `/provider <NAME> kind <ollama|openai>` — force the protocol; otherwise it is inferred from the endpoint (`/v1` → openai)
+- `/provider <NAME> test` — check reachability and count the models the provider reports
+- `/provider <NAME> remove` — remove a provider (refused while a role is bound to it)
+- `/models [PROVIDER]` — list that provider's models, numbered and tagged with colored capability tags (`PROVIDER` defaults to `ollama`)
+- `/setmodel [PROVIDER] <role> <number|name>` — bind a role to a model by list number or by name (`PROVIDER` defaults to `ollama`, so `/setmodel main 5` works as before)
+- `/setmodel [PROVIDER] <role> off` — unbind a role
+- `/setmodel` — show the current role assignments and usage
+
+Roles and the capability each one requires:
+
+| Role | Required capability | Notes |
+| --- | --- | --- |
+| `main` | completion | The only role required to operate |
+| `sidecar` | completion | Compaction, summarization, image descriptions |
+| `decision` | decision | System One decision backend |
+| `embedding` | embedding | Stored and validated, pending of use |
+| `vision` | vision | Optional; derived from `main` then `sidecar` when unbound |
+
+Model validation uses the model's capability tag for Ollama models. For other providers the tag is trusted and shown as **unverified**, because the provider cannot report capabilities. At startup the models are re-checked and the result is reported.
+
+**Vision without a vision role:** when no model is bound to `vision`, images are routed automatically: the `main` model describes them when it can see, otherwise the `sidecar` when it can, and when neither can the request is answered with an honest note instead of guessing. Bind `/setmodel vision <number|name>` to make a specific model the eyes.
+
+**One client per provider:** when `main` and `sidecar` share a provider, a single client is reused instead of one per role.
+
+These settings persist as `PROVIDER_<NAME>_KIND`, `PROVIDER_<NAME>_ENDPOINT`, `PROVIDER_<NAME>_API_KEY`, `ROLE_<ROLE>_PROVIDER` and `ROLE_<ROLE>_MODEL`. Legacy keys (`MODEL`, `SIDECAR_MODEL`, `MODEL_ENDPOINT`, `MODEL_PROVIDER`, `SIDECAR_ENDPOINT`, `SIDECAR_PROVIDER`, `DECISION_MODEL`, `DECISION_ENDPOINT`, `OLLAMA_HOST`) are read on load and migrated; on save they are replaced by the new keys, so an older binary will no longer find them.
+
 ### Model
 
-- `/model` — list installed models (numbered, with capability tags) and switch the active one
-- `/model <name|number>` — switch the active model for this run (vision, thinking and native-tools support are re-checked and reported)
-- `/models` — list all installed models, numbered and tagged; switch a role with `/model <n>`, `/sidecar <n>`, or `/decision <n>` and persist with `/save`
+- `/models [PROVIDER]` — list the provider's models, numbered and tagged
+- `/setmodel [PROVIDER] <role> <number|name>` — bind a role to a model
 - `/think` — show the thinking level and model capability
 - `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it)
-- `/sidecar` — list installed models and choose one; `[0]` disables it for the session
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/sidecar status` — show current sidecar state
-- `/decision` — show decision model status (backend, endpoint, model, assisted mode) and usage
-- `/decision <name|number>` — switch decision model for this session (resolved on the Ollama host)
-- `/decision endpoint <url|ollama>` — set a custom System One endpoint, or clear it to use Ollama
-- `/decision off` — disable the decision model for this session
+- `/decision status` — show the decision backend and assisted mode
 - `/decision test` — run a connectivity and decision test
 - `/decision assisted on|off` — toggle assisted command execution mode
 - `/hide-think` — hide model thinking blocks in CLI output
@@ -783,7 +823,7 @@ Checkpoint creation rejects paths outside the repository, Git metadata, symlink 
 `vibe` detects at startup whether the active model advertises vision
 capability (`/api/tags`) and tells the agent about it in the system prompt,
 so it knows whether attached images actually reach it. `/status` reports
-`Vision: yes|no|unknown`, and `/model` re-checks on every switch.
+`Vision: yes|no|unknown`, and `/setmodel` re-checks on every switch.
 
 With a vision-capable model (e.g. `llava`, `qwen2-vl`, `moondream`), ask
 about pictures directly — `Read` on an image file attaches it:

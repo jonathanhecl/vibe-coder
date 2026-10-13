@@ -15,6 +15,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/sidecar"
+	"github.com/jonathanhecl/vibe-coder/internal/visionrole"
 )
 
 type visionFakeClient struct {
@@ -168,8 +169,8 @@ func TestDescribeImageFailsHonestly(t *testing.T) {
 	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc))
 
 	res := tool.Execute(context.Background(), map[string]any{"file_path": path})
-	if !res.IsError || !strings.Contains(res.Output, "neither") {
-		t.Fatalf("expected honest failure, got %+v", res)
+	if !res.IsError || !strings.Contains(res.Output, "neither") || !strings.Contains(res.Output, "/setmodel vision") {
+		t.Fatalf("expected honest failure naming /setmodel vision, got %+v", res)
 	}
 	if atomic.LoadInt32(&fc.calls) != 0 {
 		t.Fatal("expected no network calls")
@@ -183,6 +184,59 @@ func TestDescribeImageFailsHonestly(t *testing.T) {
 		if res := tool.Execute(context.Background(), params); !res.IsError {
 			t.Fatalf("expected error for %v", params)
 		}
+	}
+}
+
+// A bound vision role answers first, ahead of the sidecar and the main model.
+func TestDescribeImagePrefersVisionRole(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "photo.png")
+	writeDescribeToolImage(t, path)
+	cfg := &config.Config{
+		Model: "text-model", SidecarModel: "moondream",
+		VisionKnown: true, VisionAvailable: false,
+		SidecarVisionKnown: true, SidecarVisionAvailable: true,
+	}
+	fc := &visionFakeClient{reply: "A vintage bicycle."}
+	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc)).
+		SetVisionRole(visionrole.New(fc, "llava:latest"))
+
+	res := tool.Execute(context.Background(), map[string]any{"file_path": path})
+	if res.IsError {
+		t.Fatalf("expected answer, got error: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "A vintage bicycle.") || !strings.Contains(res.Output, "llava:latest") {
+		t.Fatalf("expected an answer attributed to the vision role, got %q", res.Output)
+	}
+	if fc.last.Model != "llava:latest" {
+		t.Fatalf("expected the vision-role model, got %q", fc.last.Model)
+	}
+	if atomic.LoadInt32(&fc.calls) != 1 {
+		t.Fatalf("expected 1 vision call, got %d", fc.calls)
+	}
+}
+
+// When the bound vision role fails, the main model still gets a chance.
+func TestDescribeImageVisionRoleFailureFallsBackToMain(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "photo.png")
+	writeDescribeToolImage(t, path)
+	cfg := &config.Config{Model: "llava", VisionKnown: true, VisionAvailable: true}
+	fc := &mockRoutingVisionClient{
+		sidecarErr: errors.New("connection refused"),
+		mainReply:  "A dog from main model.",
+	}
+	// The mock fails every call for "moondream", so binding it as the vision
+	// role exercises the failure path.
+	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc)).
+		SetVisionRole(visionrole.New(fc, "moondream"))
+
+	res := tool.Execute(context.Background(), map[string]any{"file_path": path})
+	if res.IsError {
+		t.Fatalf("expected fallback to the main model, got error: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, "A dog from main model.") || !strings.Contains(res.Output, "llava") {
+		t.Fatalf("expected main-model fallback answer, got %q", res.Output)
 	}
 }
 

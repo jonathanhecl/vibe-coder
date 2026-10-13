@@ -335,3 +335,35 @@ func TestSetModelPickerKeepsCurrent(t *testing.T) {
 		t.Errorf("output missing unchanged message:\n%s", out.String())
 	}
 }
+
+// S10: the embedding role is stored and validated like the others, but no
+// consumer reads it yet.
+func TestSetModelEmbeddingRoleIsStoredAndValidated(t *testing.T) {
+	ctx, cfg, out := newProviderTestCtx(t)
+	ctx.Models = &fakeModelLister{models: append(providerTestModels(),
+		ollama.Model{Name: "nomic-embed-text", Capabilities: []string{"embedding"}, CapabilitiesKnown: true},
+	)}
+
+	// A model without the embedding capability is refused, and nothing changes.
+	if _, _, err := Dispatch(ctx, "/setmodel embedding 1"); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, `does not report the "embedding" capability`) {
+		t.Fatalf("expected a capability refusal, got %q", got)
+	}
+	if cfg.RoleInUse(config.RoleEmbedding) {
+		t.Fatal("expected the embedding role to stay unbound")
+	}
+
+	// A model that advertises embedding binds.
+	out.Reset()
+	if _, _, err := Dispatch(ctx, "/setmodel embedding 4"); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if got := cfg.RoleModelName(config.RoleEmbedding); got != "nomic-embed-text" {
+		t.Fatalf("expected the embedding role bound to nomic-embed-text, got %q", got)
+	}
+	if !strings.Contains(out.String(), "embedding role set to nomic-embed-text") {
+		t.Fatalf("expected a confirmation, got %q", out.String())
+	}
+}
