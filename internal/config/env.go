@@ -24,32 +24,46 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("OLLAMA_HOST")); v != "" {
 		cfg.OllamaHost = v
 	}
+	if v := strings.TrimSpace(os.Getenv("OLLAMA_API_KEY")); v != "" {
+		p := cfg.ensureProviderMap()[DefaultProviderName]
+		p.Name = DefaultProviderName
+		p.APIKey = v
+		cfg.Providers[DefaultProviderName] = p
+	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL_ENDPOINT", "VIBE_CODER_ENDPOINT", "MODEL_ENDPOINT", "ENDPOINT")); v != "" {
 		cfg.ModelEndpoint = v
+		cfg.markRoleOverride(RoleMain)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL_API_KEY", "MODEL_API_KEY", "OPENAI_API_KEY")); v != "" {
 		cfg.ModelApiKey = v
+		cfg.markRoleOverride(RoleMain)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL_PROVIDER", "MODEL_PROVIDER", "PROVIDER")); v != "" {
 		cfg.ModelProvider = v
+		cfg.markRoleOverride(RoleMain)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_ENDPOINT", "SIDECAR_ENDPOINT")); v != "" {
 		cfg.SidecarEndpoint = v
+		cfg.markRoleOverride(RoleSidecar)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_API_KEY", "SIDECAR_API_KEY")); v != "" {
 		cfg.SidecarApiKey = v
+		cfg.markRoleOverride(RoleSidecar)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_PROVIDER", "SIDECAR_PROVIDER")); v != "" {
 		cfg.SidecarProvider = v
+		cfg.markRoleOverride(RoleSidecar)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_MODEL", "VIBEGO_MODEL")); v != "" {
 		cfg.Model = v
+		cfg.markRoleOverride(RoleMain)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_UI", "VIBEGO_UI")); v != "" {
 		cfg.UI = v
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_MODEL", "VIBEGO_SIDECAR_MODEL")); v != "" {
 		cfg.SidecarModel = v
+		cfg.markRoleOverride(RoleSidecar)
 	}
 	for _, key := range []string{
 		"VIBE_CODER_JEVSTYLE_MODEL", "VIBEGO_JEVSTYLE_MODEL", "VIBE_JEVSTYLE_MODEL", "JEVSTYLE_MODEL",
@@ -61,12 +75,15 @@ func applyEnv(cfg *Config) {
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DECISION_MODEL", "DECISION_MODEL")); v != "" {
 		cfg.DecisionModel = v
+		cfg.markRoleOverride(RoleDecision)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DECISION_ENDPOINT", "DECISION_ENDPOINT")); v != "" {
 		cfg.DecisionEndpoint = v
+		cfg.markRoleOverride(RoleDecision)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DECISION_API_KEY", "DECISION_API_KEY")); v != "" {
 		cfg.DecisionAPIKey = v
+		cfg.markRoleOverride(RoleDecision)
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_ASSISTED_YES", "VIBEGO_ASSISTED_YES", "ASSISTED_YES")); v != "" {
 		if b, ok := parseBoolish(v); ok {

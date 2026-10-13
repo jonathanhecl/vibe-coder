@@ -61,6 +61,13 @@ func applyConfigFile(cfg *Config, path string) error {
 		value = strings.TrimSpace(value)
 		value = strings.Trim(value, `"`)
 
+		if applyProviderKey(cfg, key, value) {
+			continue
+		}
+		if applyRoleKey(cfg, key, value) {
+			continue
+		}
+
 		switch key {
 		case "MODEL":
 			cfg.Model = value
@@ -102,6 +109,11 @@ func applyConfigFile(cfg *Config, path string) error {
 			cfg.SidecarProvider = value
 		case "OLLAMA_HOST":
 			cfg.OllamaHost = value
+		case "OLLAMA_API_KEY":
+			p := cfg.ensureProviderMap()[DefaultProviderName]
+			p.Name = DefaultProviderName
+			p.APIKey = value
+			cfg.Providers[DefaultProviderName] = p
 		case "MAX_TOKENS":
 			if parsed, err := strconv.Atoi(value); err == nil {
 				cfg.MaxTokens = parsed
@@ -165,8 +177,137 @@ func applyConfigFile(cfg *Config, path string) error {
 	return nil
 }
 
+// applyProviderKey parses PROVIDER_<NAME>_KIND|ENDPOINT|API_KEY config keys.
+// It reports whether the key belonged to the provider namespace.
+func applyProviderKey(cfg *Config, key, value string) bool {
+	rest, ok := strings.CutPrefix(key, "PROVIDER_")
+	if !ok {
+		return false
+	}
+	suffix := ""
+	for _, candidate := range []string{"_ENDPOINT", "_API_KEY", "_KIND"} {
+		if strings.HasSuffix(rest, candidate) {
+			suffix = candidate
+			break
+		}
+	}
+	if suffix == "" {
+		return true
+	}
+	name := NormalizeProviderName(strings.TrimSuffix(rest, suffix))
+	if !ValidProviderName(name) {
+		return true
+	}
+	providers := cfg.ensureProviderMap()
+	p := providers[name]
+	p.Name = name
+	switch suffix {
+	case "_ENDPOINT":
+		p.Endpoint = value
+		if p.Kind == "" {
+			p.Kind = KindForEndpoint(value)
+		}
+		if name == DefaultProviderName {
+			cfg.OllamaHost = value
+		}
+	case "_API_KEY":
+		p.APIKey = value
+	case "_KIND":
+		kind, ok := ParseProviderKind(value)
+		if !ok {
+			return true
+		}
+		p.Kind = kind
+	}
+	providers[name] = p
+	return true
+}
+
+// applyRoleKey parses ROLE_<ROLE>_PROVIDER|MODEL config keys.
+// It reports whether the key belonged to the role namespace.
+func applyRoleKey(cfg *Config, key, value string) bool {
+	rest, ok := strings.CutPrefix(key, "ROLE_")
+	if !ok {
+		return false
+	}
+	suffix := ""
+	for _, candidate := range []string{"_PROVIDER", "_MODEL"} {
+		if strings.HasSuffix(rest, candidate) {
+			suffix = candidate
+			break
+		}
+	}
+	if suffix == "" {
+		return true
+	}
+	role, ok := ParseRole(strings.TrimSuffix(rest, suffix))
+	if !ok {
+		return true
+	}
+	binding := cfg.ensureRoleMap()[role]
+	switch suffix {
+	case "_PROVIDER":
+		binding.Provider = NormalizeProviderName(value)
+	case "_MODEL":
+		binding.Model = value
+	}
+	cfg.RoleModels[role] = binding
+	return true
+}
+
+// isMigratedKey reports whether a legacy key is now represented by
+// PROVIDER_*/ROLE_* keys and should be dropped on save.
+func isMigratedKey(key string) bool {
+	switch key {
+	case "MODEL", "SIDECAR_MODEL", "MODEL_ENDPOINT", "MODEL_PROVIDER", "MODEL_API_KEY",
+		"SIDECAR_ENDPOINT", "SIDECAR_PROVIDER", "SIDECAR_API_KEY",
+		"DECISION_MODEL", "DECISION_ENDPOINT", "DECISION_API_KEY",
+		"OLLAMA_HOST", "OLLAMA_API_KEY", "ENDPOINT", "PROVIDER":
+		return true
+	}
+	return false
+}
+
+// persistEntries returns the config keys to write and their canonical order.
+func (c *Config) persistEntries() (map[string]string, []string) {
+	updates := map[string]string{
+		"ASSISTED_YES": strconv.FormatBool(c.AssistedYes),
+		"HIDE_THINK":   strconv.FormatBool(c.OllamaHideThink),
+		"THINK":        strings.TrimSpace(c.OllamaThinkLevel),
+	}
+	ordered := []string{"HIDE_THINK", "THINK"}
+
+	for _, name := range c.ProviderNames() {
+		p := c.Providers[name]
+		upper := strings.ToUpper(name)
+		kindKey := "PROVIDER_" + upper + "_KIND"
+		endpointKey := "PROVIDER_" + upper + "_ENDPOINT"
+		keyKey := "PROVIDER_" + upper + "_API_KEY"
+		kind := p.Kind
+		if kind == "" {
+			kind = KindForEndpoint(p.Endpoint)
+		}
+		updates[kindKey] = string(kind)
+		updates[endpointKey] = strings.TrimSpace(p.Endpoint)
+		updates[keyKey] = strings.TrimSpace(p.APIKey)
+		ordered = append(ordered, kindKey, endpointKey, keyKey)
+	}
+	for _, role := range AllRoles {
+		binding := c.RoleModels[role]
+		upper := strings.ToUpper(string(role))
+		providerKey := "ROLE_" + upper + "_PROVIDER"
+		modelKey := "ROLE_" + upper + "_MODEL"
+		updates[providerKey] = strings.TrimSpace(binding.Provider)
+		updates[modelKey] = strings.TrimSpace(binding.Model)
+		ordered = append(ordered, providerKey, modelKey)
+	}
+	return updates, ordered
+}
+
 // SaveModelSettings persists runtime model settings to the vibe-coder config file.
-// It updates MODEL, SIDECAR_MODEL, DECISION_*, OLLAMA_HOST, and SIDECAR_DISABLED while preserving other keys/comments.
+// It writes the PROVIDER_*/ROLE_* keys, keeps HIDE_THINK/THINK/ASSISTED_YES and
+// SIDECAR_DISABLED, and drops the legacy model/endpoint keys it replaces while
+// preserving unrelated keys and comments.
 func SaveModelSettings(cfg *Config) error {
 	path := strings.TrimSpace(cfg.ConfigFile)
 	if path == "" {
@@ -176,6 +317,8 @@ func SaveModelSettings(cfg *Config) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
+	cfg.adoptLegacyFields()
+
 	lines := []string{}
 	if data, err := os.ReadFile(path); err == nil {
 		raw := strings.ReplaceAll(string(data), "\r\n", "\n")
@@ -184,22 +327,10 @@ func SaveModelSettings(cfg *Config) error {
 		return fmt.Errorf("read config file: %w", err)
 	}
 
-	updates := map[string]string{
-		"MODEL":             strings.TrimSpace(cfg.Model),
-		"SIDECAR_MODEL":     strings.TrimSpace(cfg.SidecarModel),
-		"MODEL_ENDPOINT":    strings.TrimSpace(cfg.ModelEndpoint),
-		"MODEL_PROVIDER":    strings.TrimSpace(cfg.ModelProvider),
-		"SIDECAR_ENDPOINT":  strings.TrimSpace(cfg.SidecarEndpoint),
-		"SIDECAR_PROVIDER":  strings.TrimSpace(cfg.SidecarProvider),
-		"DECISION_MODEL":    strings.TrimSpace(cfg.DecisionModel),
-		"DECISION_ENDPOINT": strings.TrimSpace(cfg.DecisionEndpoint),
-		"ASSISTED_YES":      strconv.FormatBool(cfg.AssistedYes),
-		"OLLAMA_HOST":       strings.TrimSpace(cfg.OllamaHost),
-		"HIDE_THINK":        strconv.FormatBool(cfg.OllamaHideThink),
-		"THINK":             strings.TrimSpace(cfg.OllamaThinkLevel),
-	}
+	updates, ordered := cfg.persistEntries()
+
 	seen := map[string]bool{}
-	out := make([]string, 0, len(lines)+4)
+	out := make([]string, 0, len(lines)+len(ordered))
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -212,11 +343,14 @@ func SaveModelSettings(cfg *Config) error {
 			continue
 		}
 		key = strings.TrimSpace(key)
-		if key == "SIDECAR_DISABLED" {
+		if key == "SIDECAR_DISABLED" || isMigratedKey(key) {
 			continue
 		}
 		value, shouldUpdate := updates[key]
 		if !shouldUpdate {
+			if strings.HasPrefix(key, "PROVIDER_") || strings.HasPrefix(key, "ROLE_") {
+				continue // stale provider or role key
+			}
 			out = append(out, line)
 			continue
 		}
@@ -226,7 +360,7 @@ func SaveModelSettings(cfg *Config) error {
 		}
 		out = append(out, key+"="+value)
 	}
-	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "MODEL_ENDPOINT", "MODEL_PROVIDER", "SIDECAR_ENDPOINT", "SIDECAR_PROVIDER", "DECISION_MODEL", "DECISION_ENDPOINT", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
+	for _, key := range ordered {
 		if seen[key] {
 			continue
 		}

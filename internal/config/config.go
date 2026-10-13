@@ -135,6 +135,15 @@ type Config struct {
 	// Harness holds the agent-harness tunables (context budget, tool-result
 	// retention, metrics). Precedence: defaults < config file < env.
 	Harness HarnessConfig
+	// Providers is the named provider registry. The default provider
+	// "ollama" always exists; see provider.go.
+	Providers map[string]Provider
+	// RoleModels binds each role (main, sidecar, decision, embedding, vision)
+	// to a provider and a model name; see provider.go.
+	RoleModels map[Role]RoleModel
+	// roleOverridden marks roles whose legacy flat fields were set by env or
+	// CLI, so they win over config-file ROLE_* bindings.
+	roleOverridden map[Role]bool
 }
 
 // HarnessConfig centralizes the agent-harness tunables so they can be set
@@ -222,8 +231,15 @@ func Load(args []string) (*Config, error) {
 	}
 	applyCLI(cfg, cli)
 
-	if strings.TrimSpace(cfg.Model) == "" {
-		cfg.Model = autoDetectModel()
+	cfg.reconcileRegistry()
+	if strings.TrimSpace(cfg.RoleModels[RoleMain].Model) == "" {
+		provider := NormalizeProviderName(cfg.RoleModels[RoleMain].Provider)
+		if provider == "" {
+			provider = DefaultProviderName
+		}
+		if err := cfg.SetRoleModel(RoleMain, provider, autoDetectModel()); err != nil {
+			return nil, err
+		}
 	}
 	if err := validateUIMode(cfg.UI); err != nil {
 		return nil, err
@@ -317,6 +333,14 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 			KeepToolResults:  defaultKeepToolResults,
 			CompactAtPercent: defaultCompactAtPercent,
 		},
+		Providers: map[string]Provider{
+			DefaultProviderName: {
+				Name:     DefaultProviderName,
+				Kind:     ProviderOllama,
+				Endpoint: defaultOllamaHost,
+			},
+		},
+		RoleModels: map[Role]RoleModel{},
 	}
 }
 

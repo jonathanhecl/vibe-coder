@@ -130,21 +130,25 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.model.set {
 		cfg.Model = cli.model.value
+		cfg.markRoleOverride(RoleMain)
 	}
 	if cli.ui.set {
 		cfg.UI = cli.ui.value
 	}
 	if cli.sidecar.set {
 		cfg.SidecarModel = cli.sidecar.value
+		cfg.markRoleOverride(RoleSidecar)
 	}
 	if cli.noSidecar {
 		cfg.SidecarSkipSession = true
 	}
 	if cli.decisionModel.set {
 		cfg.DecisionModel = cli.decisionModel.value
+		cfg.markRoleOverride(RoleDecision)
 	}
 	if cli.decisionEndpoint.set {
 		cfg.DecisionEndpoint = cli.decisionEndpoint.value
+		cfg.markRoleOverride(RoleDecision)
 	}
 	if cli.yesMode.set {
 		cfg.YesMode = cli.yesMode.value
@@ -184,15 +188,19 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.endpoint.set {
 		cfg.ModelEndpoint = cli.endpoint.value
+		cfg.markRoleOverride(RoleMain)
 	}
 	if cli.modelProvider.set {
 		cfg.ModelProvider = cli.modelProvider.value
+		cfg.markRoleOverride(RoleMain)
 	}
 	if cli.sidecarEndpoint.set {
 		cfg.SidecarEndpoint = cli.sidecarEndpoint.value
+		cfg.markRoleOverride(RoleSidecar)
 	}
 	if cli.sidecarProvider.set {
 		cfg.SidecarProvider = cli.sidecarProvider.value
+		cfg.markRoleOverride(RoleSidecar)
 	}
 	if cli.maxTokens.set {
 		cfg.MaxTokens = cli.maxTokens.value

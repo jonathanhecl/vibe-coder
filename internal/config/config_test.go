@@ -258,9 +258,9 @@ func TestSaveModelSettingsPreservesOtherConfig(t *testing.T) {
 	for _, want := range []string{
 		"# keep this comment",
 		"MAX_TOKENS=2048",
-		"MODEL=qwen3.5:9b",
-		"SIDECAR_MODEL=qwen3.5:4b",
-		"OLLAMA_HOST=http://192.168.1.50:11434",
+		"ROLE_MAIN_MODEL=qwen3.5:9b",
+		"ROLE_SIDECAR_MODEL=qwen3.5:4b",
+		"PROVIDER_OLLAMA_ENDPOINT=http://192.168.1.50:11434",
 	} {
 		if !strings.Contains(saved, want) {
 			t.Fatalf("saved config missing %q:\n%s", want, saved)
@@ -617,11 +617,11 @@ func TestSaveModelSettingsDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "DECISION_MODEL=decision-model-v1") {
-		t.Fatalf("expected DECISION_MODEL=decision-model-v1, got:\n%s", string(data))
+	if !strings.Contains(string(data), "ROLE_DECISION_MODEL=decision-model-v1") {
+		t.Fatalf("expected ROLE_DECISION_MODEL=decision-model-v1, got:\n%s", string(data))
 	}
 
-	// When cleared, DECISION_MODEL should be removed
+	// When cleared, the decision role should be removed
 	cfg.DecisionModel = ""
 	if err := SaveModelSettings(cfg); err != nil {
 		t.Fatal(err)
@@ -630,8 +630,8 @@ func TestSaveModelSettingsDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "DECISION_MODEL") {
-		t.Fatalf("expected DECISION_MODEL removed, got:\n%s", string(data))
+	if strings.Contains(string(data), "ROLE_DECISION_MODEL") {
+		t.Fatalf("expected ROLE_DECISION_MODEL removed, got:\n%s", string(data))
 	}
 }
 
