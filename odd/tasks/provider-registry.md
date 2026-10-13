@@ -27,7 +27,7 @@ Test runner: `go test ./...`
 
 - [x] T1 config: provider registry + role bindings + legacy migration + persisted keys + tests — S6, S13 — route: inline — commit: 69a7065
 - [x] T2 ollama: completion/embedding/decision capability helpers + role validation + tests — S6, S7 — route: inline — commit: ba9df69
-- [x] T3 slash: `/providers`, `/provider`, `/models`, `/setmodel` + help + tests — S1, S2, S3, S4, S5, S7 — route: inline — commit: 9490638
+- [x] T3 slash: `/providers`, `/provider`, `/models`, `/setmodel` + help + tests — S1, S2, S3, S4, S5, S7 — route: inline — commit: 0924dc1
 - [ ] T4 slash: remove old commands, relocate sidecar session-skip and `/decision assisted` + tests — S11 — route: inline — commit: pending
 - [ ] T5 onboarding: first run = host + main only + tests — S12 — route: inline — commit: pending
 - [ ] T6 vision: derive from main then sidecar + docs (README/CHANGELOG) — S8, S9, S10, S14, S15 — route: inline — commit: pending
