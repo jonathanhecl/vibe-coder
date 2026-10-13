@@ -161,8 +161,9 @@ func describeWithMain(ctx context.Context, client ollama.Client, cfg *config.Con
 		// on capable models. OpenAI-compatible servers ignore this flag, so the
 		// budget is generous and ExtractAnswer recovers the observations from
 		// reasoning output when Content comes back empty.
-		Think:   ollama.ThinkOff(),
-		Options: ollama.ChatOptions{Temperature: 0, NumPredict: sidecar.DescribeNumPredict},
+		Think:     ollama.ThinkOff(),
+		KeepAlive: cfg.KeepAliveFor(config.RoleMain),
+		Options:   ollama.ChatOptions{Temperature: 0, NumPredict: sidecar.DescribeNumPredict},
 	})
 	if err != nil {
 		return "", err

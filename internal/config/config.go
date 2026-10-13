@@ -18,6 +18,10 @@ const (
 	defaultTemperature   = 0.7
 	defaultContextWindow = 32768
 	maxConfigFileSize    = 64 * 1024
+	// defaultKeepAliveMain pins the main model in memory forever.
+	defaultKeepAliveMain = -1
+	// defaultKeepAliveWorker unloads a worker model after 5 idle minutes.
+	defaultKeepAliveWorker = 300
 )
 
 type Config struct {
@@ -55,13 +59,22 @@ type Config struct {
 	MaxTokens          int
 	Temperature        float64
 	ContextWindow      int
-	Prompt             string
-	Interactive        bool
-	YesMode            bool
-	AssistedYes        bool
-	Debug              bool
-	Resume             bool
-	NewSession         bool
+	// KeepAliveMain is the Ollama keep_alive (idle seconds, may be -1) for the
+	// main role: -1 pins the model forever, 0 omits the field so the provider
+	// applies its own default, N > 0 unloads it after N idle seconds.
+	// Default -1 so the main model stays hot.
+	KeepAliveMain int
+	// KeepAliveWorker is the keep_alive for every worker role (sidecar,
+	// decision, embedding, vision). Default 300 so a worker does not pin
+	// VRAM while the main model needs it.
+	KeepAliveWorker int
+	Prompt          string
+	Interactive     bool
+	YesMode         bool
+	AssistedYes     bool
+	Debug           bool
+	Resume          bool
+	NewSession      bool
 	// Temporal runs an ephemeral session without persisting session history
 	// or updating project session indexes on exit.
 	Temporal bool
@@ -298,6 +311,8 @@ Flags:
   --max-tokens int          Max generated tokens
   --temperature float       Sampling temperature
   --context-window int      Model context window
+  --keep-alive-main int     Ollama keep_alive (idle seconds) for the main model: -1 pins forever, 0 provider default, N unload after N seconds (default -1)
+  --keep-alive-worker int   Ollama keep_alive (idle seconds) for worker roles (sidecar, decision, embedding, vision) (default 300)
   --context string          Pin a .md/.txt guide file as persistent session instruction (repeatable)
   --rag                     Enable RAG mode
   --rag-mode string         RAG mode
@@ -321,11 +336,15 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 		MaxTokens:     defaultMaxTokens,
 		Temperature:   defaultTemperature,
 		ContextWindow: defaultContextWindow,
-		UI:            "plain",
-		Cwd:           cwd,
-		ConfigDir:     configDir,
-		StateDir:      stateDir,
-		SessionsDir:   filepath.Join(stateDir, "sessions"),
+		// The main model stays hot; worker roles unload after a short idle
+		// window so they do not pin VRAM while the main model needs it.
+		KeepAliveMain:   defaultKeepAliveMain,
+		KeepAliveWorker: defaultKeepAliveWorker,
+		UI:              "plain",
+		Cwd:             cwd,
+		ConfigDir:       configDir,
+		StateDir:        stateDir,
+		SessionsDir:     filepath.Join(stateDir, "sessions"),
 		// PermFile is set in Load() to ConfigFile so permissions live in config.env.
 		PermFile:    "",
 		HistoryFile: filepath.Join(stateDir, "history.txt"),
@@ -342,6 +361,20 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 		},
 		RoleModels: map[Role]RoleModel{},
 	}
+}
+
+// KeepAliveFor returns the configured Ollama keep_alive (idle seconds, may be
+// -1) for a role. The main role is pinned hot by default; every other role
+// uses the worker value. It is nil-safe and returns 0 (provider default) when
+// the config is nil.
+func (c *Config) KeepAliveFor(role Role) int {
+	if c == nil {
+		return 0
+	}
+	if role == RoleMain {
+		return c.KeepAliveMain
+	}
+	return c.KeepAliveWorker
 }
 
 func (c *Config) rawModelEndpoint() string {

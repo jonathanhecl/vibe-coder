@@ -22,19 +22,21 @@ import (
 // Describer looks at image files with the model bound to the vision role.
 // A nil *Describer is safe to use: Enabled reports false.
 type Describer struct {
-	client ollama.Client
-	model  string
-	cache  *vision.Cache
+	client    ollama.Client
+	model     string
+	keepAlive int
+	cache     *vision.Cache
 }
 
 // New returns a Describer for the given client and model, or nil when the
-// role is unbound or no client is available.
-func New(client ollama.Client, model string) *Describer {
+// role is unbound or no client is available. keepAlive is the seconds the
+// vision model stays loaded after a description (see config.KeepAliveFor).
+func New(client ollama.Client, model string, keepAlive int) *Describer {
 	trimmed := strings.TrimSpace(model)
 	if client == nil || trimmed == "" {
 		return nil
 	}
-	return &Describer{client: client, model: trimmed, cache: vision.NewCache()}
+	return &Describer{client: client, model: trimmed, keepAlive: keepAlive, cache: vision.NewCache()}
 }
 
 // Enabled reports whether the vision role can describe images.
@@ -90,8 +92,9 @@ func (d *Describer) Describe(ctx context.Context, imagePath, question string) (s
 		// default on capable models, and reasoning tokens would eat the
 		// NumPredict budget, returning an empty Content instead of a
 		// description.
-		Think:   ollama.ThinkOff(),
-		Options: ollama.ChatOptions{Temperature: 0, NumPredict: sidecar.DescribeNumPredict},
+		Think:     ollama.ThinkOff(),
+		KeepAlive: d.keepAlive,
+		Options:   ollama.ChatOptions{Temperature: 0, NumPredict: sidecar.DescribeNumPredict},
 	})
 	if err != nil {
 		return "", err

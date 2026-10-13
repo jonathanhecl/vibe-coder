@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
@@ -35,7 +36,8 @@ func (p *Pool) chat(ctx context.Context, system, user string, numPredict int) (s
 		// on capable models, and the reasoning would consume the small
 		// NumPredict budget, returning an empty Content for these short,
 		// structured sidecar tasks (summary bullets, path picks).
-		Think: ollama.ThinkOff(),
+		Think:     ollama.ThinkOff(),
+		KeepAlive: p.cfg.KeepAliveFor(config.RoleSidecar),
 		Options: ollama.ChatOptions{
 			Temperature: 0,
 			NumPredict:  numPredict,

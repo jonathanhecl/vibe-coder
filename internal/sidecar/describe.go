@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
 )
@@ -90,7 +91,8 @@ func (p *Pool) chatWithImages(ctx context.Context, system, question, imagePath, 
 		// Thinking must be off, not merely omitted: Ollama enables it by default
 		// on capable models, and reasoning tokens would eat the small
 		// NumPredict budget, returning an empty Content instead of a description.
-		Think: ollama.ThinkOff(),
+		Think:     ollama.ThinkOff(),
+		KeepAlive: p.cfg.KeepAliveFor(config.RoleSidecar),
 		Options: ollama.ChatOptions{
 			Temperature: 0,
 			NumPredict:  DescribeNumPredict,

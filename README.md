@@ -330,6 +330,7 @@ Model keys and overrides:
 - Config file key: `THINK=off|low|medium|high|max`
 - Config file key: `PROVIDER_<NAME>_ENDPOINT=<url>`, `PROVIDER_<NAME>_KIND=ollama|openai`, `PROVIDER_<NAME>_API_KEY=<token>` — named provider registry (see [Providers & roles](#providers--roles))
 - Config file key: `ROLE_<ROLE>_PROVIDER=<name>`, `ROLE_<ROLE>_MODEL=<model-name>` with `<ROLE>` in `MAIN|SIDECAR|DECISION|EMBEDDING|VISION` — role bindings
+- Config file key: `KEEP_ALIVE_MAIN=<seconds>`, `KEEP_ALIVE_WORKER=<seconds>` — how long a role's model stays loaded after a request: `-1` pins it forever, `0` uses the provider default, `N>0` unloads it after `N` idle seconds (defaults: main `-1`, workers `300`)
 - Environment: `VIBE_CODER_MODEL=<model-name>`
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
@@ -338,6 +339,7 @@ Model keys and overrides:
 - Environment: `VIBE_CODER_DECISION_API_KEY=<token>`
 - Environment: `VIBE_CODER_ASSISTED_YES=true|false`
 - Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
+- Environment: `VIBE_CODER_KEEP_ALIVE_MAIN=<seconds>`, `VIBE_CODER_KEEP_ALIVE_WORKER=<seconds>` — per-role model keep_alive (`-1` pins, `0` provider default, `N` unload after N idle seconds)
 - Environment: `VIBE_CODER_TEMPORAL=true|false` (aliases: `VIBEGO_TEMPORAL`, `TEMPORAL`)
 - Environment: `VIBE_CODER_ISOLATED=true|false` (aliases: `VIBEGO_ISOLATED`, `ISOLATED`)
 - Config file key / environment: `CHAT_TIMEOUT` / `VIBE_CODER_CHAT_TIMEOUT` (Go duration, e.g. `30m`; default `15m`) — deadline for a single `/api/chat` turn, useful for slow local models in long missions
@@ -348,6 +350,7 @@ Model keys and overrides:
 - CLI: `--decision-endpoint <url>` — custom System One server (e.g. `http://192.168.0.33:8765`)
 - CLI: `--assisted-yes` (auto-approve safe commands via the decision model)
 - CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
+- CLI: `--keep-alive-main <seconds>`, `--keep-alive-worker <seconds>` — per-role model keep_alive (`-1` pins forever, `0` provider default, `N` unload after N idle seconds)
 
 If no model is set, `vibe` auto-selects one based on detected RAM tier.
 

@@ -153,6 +153,16 @@ func applyEnv(cfg *Config) {
 			cfg.Harness.CompactAtPercent = parsed
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_KEEP_ALIVE_MAIN")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.KeepAliveMain = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_KEEP_ALIVE_WORKER")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.KeepAliveWorker = parsed
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_METRICS_DISABLED")); v != "" {
 		if b, ok := parseBoolish(v); ok {
 			cfg.Harness.MetricsDisabled = b

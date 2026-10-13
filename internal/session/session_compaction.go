@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
@@ -94,6 +95,12 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 		}
 		if model != "" {
 			compactCtx, cancel := context.WithTimeout(ctx, compactionTimeout)
+			// Compaction runs on the sidecar when it is in use, otherwise on the
+			// main model; keep_alive follows whichever model actually runs it.
+			keepAlive := cfg.KeepAliveFor(config.RoleMain)
+			if cfg.SidecarInUse() {
+				keepAlive = cfg.KeepAliveFor(config.RoleSidecar)
+			}
 			resp, err := client.ChatSync(compactCtx, ollama.ChatRequest{
 				Model: model,
 				Messages: []ollama.Message{
@@ -103,7 +110,8 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 					{Role: "system", Content: prompt.Render("compaction_summary", nil)},
 					{Role: "user", Content: renderMessagesForSummary(old)},
 				},
-				Stream: false,
+				Stream:    false,
+				KeepAlive: keepAlive,
 			})
 			cancel()
 			if err == nil && strings.TrimSpace(resp.Content) != "" {

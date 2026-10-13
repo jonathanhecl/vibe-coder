@@ -373,7 +373,7 @@ func newVisionRole(cfg *config.Config, client, sideClient ollama.Client) *vision
 	if vc == nil {
 		return nil
 	}
-	return visionrole.New(vc, cfg.RoleModelName(config.RoleVision))
+	return visionrole.New(vc, cfg.RoleModelName(config.RoleVision), cfg.KeepAliveFor(config.RoleVision))
 }
 
 // visionClientFor returns the client the vision role should use: the main or

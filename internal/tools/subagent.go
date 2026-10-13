@@ -178,9 +178,10 @@ func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (stri
 func (t *SubAgentTool) chat(ctx context.Context, messages []ollama.Message) (string, error) {
 	model, numCtx, numPredict, temperature := subAgentChatSettings(t.cfg)
 	stream, err := t.client.Chat(ctx, ollama.ChatRequest{
-		Model:    model,
-		Messages: messages,
-		Stream:   true,
+		Model:     model,
+		Messages:  messages,
+		Stream:    true,
+		KeepAlive: t.cfg.KeepAliveFor(config.RoleMain),
 		Options: ollama.ChatOptions{
 			NumCtx:      numCtx,
 			NumPredict:  numPredict,

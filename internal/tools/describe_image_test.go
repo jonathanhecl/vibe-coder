@@ -199,7 +199,7 @@ func TestDescribeImagePrefersVisionRole(t *testing.T) {
 	}
 	fc := &visionFakeClient{reply: "A vintage bicycle."}
 	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc)).
-		SetVisionRole(visionrole.New(fc, "llava:latest"))
+		SetVisionRole(visionrole.New(fc, "llava:latest", 0))
 
 	res := tool.Execute(context.Background(), map[string]any{"file_path": path})
 	if res.IsError {
@@ -229,7 +229,7 @@ func TestDescribeImageVisionRoleFailureFallsBackToMain(t *testing.T) {
 	// The mock fails every call for "moondream", so binding it as the vision
 	// role exercises the failure path.
 	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc)).
-		SetVisionRole(visionrole.New(fc, "moondream"))
+		SetVisionRole(visionrole.New(fc, "moondream", 0))
 
 	res := tool.Execute(context.Background(), map[string]any{"file_path": path})
 	if res.IsError {

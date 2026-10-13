@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -231,11 +232,12 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 			}
 			chatStart := time.Now()
 			stream, err := a.client.Chat(ctx, ollama.ChatRequest{
-				Model:    a.cfg.Model,
-				Messages: messages,
-				Stream:   true,
-				Think:    ollama.ResolveThinkSetting(a.cfg.OllamaThinkLevel, a.cfg.OllamaNoThink, a.cfg.ThinkingKnown, a.cfg.ThinkingSupported),
-				Tools:    a.nativeChatTools(),
+				Model:     a.cfg.Model,
+				Messages:  messages,
+				Stream:    true,
+				Think:     ollama.ResolveThinkSetting(a.cfg.OllamaThinkLevel, a.cfg.OllamaNoThink, a.cfg.ThinkingKnown, a.cfg.ThinkingSupported),
+				Tools:     a.nativeChatTools(),
+				KeepAlive: a.cfg.KeepAliveFor(config.RoleMain),
 				Options: ollama.ChatOptions{
 					NumCtx:      a.cfg.ContextWindow,
 					NumPredict:  a.cfg.MaxTokens,

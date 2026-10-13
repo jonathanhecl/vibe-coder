@@ -36,6 +36,8 @@ type cliOptions struct {
 	maxTokens        optionalInt
 	temperature      optionalFloat
 	contextWindow    optionalInt
+	keepAliveMain    optionalInt
+	keepAliveWorker  optionalInt
 	rag              optionalBool
 	ragMode          optionalString
 	ragPath          optionalString
@@ -94,6 +96,8 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.maxTokens, "max-tokens", "max tokens")
 	fs.Var(&opts.temperature, "temperature", "temperature")
 	fs.Var(&opts.contextWindow, "context-window", "context window")
+	fs.Var(&opts.keepAliveMain, "keep-alive-main", "seconds to keep the main model loaded (-1 pins forever, 0 uses the provider default)")
+	fs.Var(&opts.keepAliveWorker, "keep-alive-worker", "seconds to keep worker models loaded (-1 pins forever, 0 uses the provider default)")
 	fs.Var(&opts.rag, "rag", "rag mode")
 	fs.Var(&opts.ragMode, "rag-mode", "rag mode type")
 	fs.Var(&opts.ragPath, "rag-path", "rag path")
@@ -210,6 +214,12 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.contextWindow.set {
 		cfg.ContextWindow = cli.contextWindow.value
+	}
+	if cli.keepAliveMain.set {
+		cfg.KeepAliveMain = cli.keepAliveMain.value
+	}
+	if cli.keepAliveWorker.set {
+		cfg.KeepAliveWorker = cli.keepAliveWorker.value
 	}
 	if cli.rag.set {
 		cfg.RAG = cli.rag.value

@@ -109,7 +109,7 @@ func TestMainVisionBeatsSidecar(t *testing.T) {
 func TestVisionRoleBeatsMainAndSidecar(t *testing.T) {
 	t.Parallel()
 	a, sc := newBorrowedVisionAgent(t, true, true, true, true)
-	a.SetVisionRole(visionrole.New(sc, "llava:latest"))
+	a.SetVisionRole(visionrole.New(sc, "llava:latest", 0))
 	photo := filepath.Join(t.TempDir(), "jacket.png")
 	writeTestPNG(t, photo)
 	a.sess.AddToolObservation("Read", vision.MarkerFor(photo))
@@ -139,7 +139,7 @@ func TestVisionRoleBeatsMainAndSidecar(t *testing.T) {
 func TestUnbindingVisionRoleRestoresDerivedRouting(t *testing.T) {
 	t.Parallel()
 	a, _ := newBorrowedVisionAgent(t, true, true, true, true)
-	a.SetVisionRole(visionrole.New(&stubClient{reply: "x"}, "llava:latest"))
+	a.SetVisionRole(visionrole.New(&stubClient{reply: "x"}, "llava:latest", 0))
 	a.SetVisionRole(nil)
 	photo := filepath.Join(t.TempDir(), "jacket.png")
 	writeTestPNG(t, photo)

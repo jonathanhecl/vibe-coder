@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
@@ -50,7 +51,8 @@ func runCommitFlow(c *Ctx) (string, string, error) {
 				{Role: "system", Content: "Return one concise conventional commit message only."},
 				{Role: "user", Content: "Diff:\n" + promptDiff},
 			},
-			Stream: false,
+			Stream:    false,
+			KeepAlive: c.Cfg.KeepAliveFor(config.RoleMain),
 		})
 		if err == nil && strings.TrimSpace(resp.Content) != "" {
 			msg = sanitizeCommitMessage(resp.Content)

@@ -112,9 +112,6 @@ func (c *HTTPClient) Chat(ctx context.Context, req ChatRequest) (<-chan Chunk, e
 	} else {
 		req.Stream = true
 	}
-	if req.KeepAlive == 0 {
-		req.KeepAlive = -1
-	}
 	c.applyThinkSessionOverride(&req)
 	c.applyToolsSessionOverride(&req)
 	resp, err := c.postChat(ctx, req)

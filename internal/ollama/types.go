@@ -86,13 +86,17 @@ type ChatOptions struct {
 }
 
 type ChatRequest struct {
-	Model     string        `json:"model"`
-	Messages  []Message     `json:"messages"`
-	Stream    bool          `json:"stream"`
-	Think     *ThinkSetting `json:"think,omitempty"`
-	Tools     []ChatTool    `json:"tools,omitempty"`
-	Options   ChatOptions   `json:"options"`
-	KeepAlive int           `json:"keep_alive"`
+	Model    string        `json:"model"`
+	Messages []Message     `json:"messages"`
+	Stream   bool          `json:"stream"`
+	Think    *ThinkSetting `json:"think,omitempty"`
+	Tools    []ChatTool    `json:"tools,omitempty"`
+	Options  ChatOptions   `json:"options"`
+	// KeepAlive is the idle window before the provider unloads the model.
+	// It is omitted when zero so the provider applies its own default
+	// (Ollama: 5 minutes); -1 pins the model forever and N > 0 unloads it
+	// after N idle seconds.
+	KeepAlive int `json:"keep_alive,omitempty"`
 }
 
 // ChatTool declares one callable function to Ollama /api/chat following

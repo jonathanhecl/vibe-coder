@@ -69,13 +69,13 @@ func writePNG(t *testing.T, path string) {
 func TestNewIsNilUnlessBound(t *testing.T) {
 	t.Parallel()
 	fc := &fakeClient{}
-	if got := New(nil, "llava:latest"); got != nil {
+	if got := New(nil, "llava:latest", 0); got != nil {
 		t.Fatalf("expected nil without a client, got %+v", got)
 	}
-	if got := New(fc, ""); got != nil {
+	if got := New(fc, "", 0); got != nil {
 		t.Fatalf("expected nil without a model, got %+v", got)
 	}
-	if got := New(fc, "   "); got != nil {
+	if got := New(fc, "   ", 0); got != nil {
 		t.Fatalf("expected nil for a blank model, got %+v", got)
 	}
 	// A nil *Describer stays safe to use.
@@ -96,7 +96,7 @@ func TestDescribeUsesBoundModelAndCaches(t *testing.T) {
 	photo := filepath.Join(t.TempDir(), "photo.png")
 	writePNG(t, photo)
 	fc := &fakeClient{reply: "  A red bicycle against a wall.  "}
-	d := New(fc, "llava:latest")
+	d := New(fc, "llava:latest", 0)
 	if !d.Enabled() || d.Model() != "llava:latest" {
 		t.Fatalf("unexpected describer state: enabled=%v model=%q", d.Enabled(), d.Model())
 	}
@@ -139,7 +139,7 @@ func TestDescribeDefaultsTheQuestion(t *testing.T) {
 	photo := filepath.Join(t.TempDir(), "photo.png")
 	writePNG(t, photo)
 	fc := &fakeClient{reply: "A cat."}
-	d := New(fc, "moondream")
+	d := New(fc, "moondream", 0)
 	if _, err := d.Describe(context.Background(), photo, "  "); err != nil {
 		t.Fatalf("describe: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestDescribeDefaultsTheQuestion(t *testing.T) {
 func TestDescribeRejectsBadInput(t *testing.T) {
 	t.Parallel()
 	fc := &fakeClient{reply: "x"}
-	d := New(fc, "moondream")
+	d := New(fc, "moondream", 0)
 
 	if _, err := d.Describe(context.Background(), "  ", ""); err == nil || !strings.Contains(err.Error(), "image path is empty") {
 		t.Fatalf("expected an empty-path error, got %v", err)
@@ -174,12 +174,12 @@ func TestDescribeReportsFailures(t *testing.T) {
 	writePNG(t, photo)
 
 	empty := &fakeClient{reply: "   "}
-	if _, err := New(empty, "moondream").Describe(context.Background(), photo, ""); err == nil || !strings.Contains(err.Error(), "empty description") {
+	if _, err := New(empty, "moondream", 0).Describe(context.Background(), photo, ""); err == nil || !strings.Contains(err.Error(), "empty description") {
 		t.Fatalf("expected an empty-description error, got %v", err)
 	}
 
 	broken := &fakeClient{err: errors.New("connection refused")}
-	if _, err := New(broken, "moondream").Describe(context.Background(), photo, ""); err == nil || !strings.Contains(err.Error(), "connection refused") {
+	if _, err := New(broken, "moondream", 0).Describe(context.Background(), photo, ""); err == nil || !strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("expected the client error, got %v", err)
 	}
 }
@@ -204,7 +204,7 @@ func TestDescribeRecoversReasoningOnlyReply(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fc := &fakeClient{reply: tc.reply, thinking: tc.thinking}
-			got, err := New(fc, "moondream").Describe(context.Background(), photo, "")
+			got, err := New(fc, "moondream", 0).Describe(context.Background(), photo, "")
 			if err != nil {
 				t.Fatalf("describe: %v", err)
 			}

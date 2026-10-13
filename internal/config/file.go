@@ -164,6 +164,14 @@ func applyConfigFile(cfg *Config, path string) error {
 			if parsed, err := strconv.Atoi(value); err == nil {
 				cfg.Harness.CompactAtPercent = parsed
 			}
+		case "KEEP_ALIVE_MAIN":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.KeepAliveMain = parsed
+			}
+		case "KEEP_ALIVE_WORKER":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.KeepAliveWorker = parsed
+			}
 		case "METRICS_DISABLED":
 			if b, ok := parseBoolish(value); ok {
 				cfg.Harness.MetricsDisabled = b
@@ -271,11 +279,13 @@ func isMigratedKey(key string) bool {
 // persistEntries returns the config keys to write and their canonical order.
 func (c *Config) persistEntries() (map[string]string, []string) {
 	updates := map[string]string{
-		"ASSISTED_YES": strconv.FormatBool(c.AssistedYes),
-		"HIDE_THINK":   strconv.FormatBool(c.OllamaHideThink),
-		"THINK":        strings.TrimSpace(c.OllamaThinkLevel),
+		"ASSISTED_YES":      strconv.FormatBool(c.AssistedYes),
+		"HIDE_THINK":        strconv.FormatBool(c.OllamaHideThink),
+		"THINK":             strings.TrimSpace(c.OllamaThinkLevel),
+		"KEEP_ALIVE_MAIN":   strconv.Itoa(c.KeepAliveMain),
+		"KEEP_ALIVE_WORKER": strconv.Itoa(c.KeepAliveWorker),
 	}
-	ordered := []string{"HIDE_THINK", "THINK"}
+	ordered := []string{"HIDE_THINK", "THINK", "KEEP_ALIVE_MAIN", "KEEP_ALIVE_WORKER"}
 
 	for _, name := range c.ProviderNames() {
 		p := c.Providers[name]
