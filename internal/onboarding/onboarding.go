@@ -18,10 +18,16 @@ import (
 
 const (
 	defaultOllamaHost = "http://localhost:11434"
-	defaultModel      = "qwen3.5:4b"
 )
 
 var ErrInterrupted = errors.New("first-run setup interrupted")
+
+// recommendedModel is the model the runtime would auto-detect for this machine.
+// The wizard offers it as the default main model so the first run matches what
+// Load would pick when no main model is configured.
+func recommendedModel() string {
+	return config.RecommendedModel()
+}
 
 type wizard struct {
 	reader *bufio.Reader
@@ -51,18 +57,14 @@ func RunFirstRun(ctx context.Context, cfg *config.Config, buildVersion string, i
 	}
 	cfg.OllamaHost = host
 
-	selection, err := w.chooseModels(sigCtx, client, models)
+	main, err := w.chooseMainModel(sigCtx, client, models)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return ErrInterrupted
 		}
 		return err
 	}
-	cfg.Model = selection.Main
-	cfg.SidecarModel = selection.Sidecar
-	cfg.SidecarDisabled = selection.SidecarDisabled
-	cfg.SidecarSkipSession = false
-	cfg.DecisionModel = selection.Decision
+	cfg.Model = main
 
 	if err := config.SaveModelSettings(cfg); err != nil {
 		return fmt.Errorf("save first-run settings: %w", err)

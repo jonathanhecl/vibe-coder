@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// RecommendedModel returns the model auto-detected for this machine's RAM. It
+// is the same value Load falls back to when no main model is configured, so the
+// first-run wizard can offer the model the runtime would pick anyway.
+func RecommendedModel() string {
+	return autoDetectModel()
+}
+
 func autoDetectModel() string {
 	ramGB := detectRAMGB()
 	switch {

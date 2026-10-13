@@ -9,67 +9,38 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
-// modelSelection holds the models chosen in the single model-selection step.
-type modelSelection struct {
-	Main            string
-	Sidecar         string
-	SidecarDisabled bool
-	Decision        string
-}
+// chooseMainModel lists the installed models once and asks for the primary
+// model. It is the only model the first run configures: the sidecar, decision,
+// embedding and vision roles are bound later from inside vibe with /setmodel.
+func (w *wizard) chooseMainModel(ctx context.Context, client ollama.Client, models []ollama.Model) (string, error) {
+	recommended := recommendedModel()
 
-// chooseModels lists the installed models once and then asks for the primary,
-// optional sidecar, and optional decision models, reusing the same list
-// numbers instead of printing the list again for each role.
-func (w *wizard) chooseModels(ctx context.Context, client ollama.Client, models []ollama.Model) (modelSelection, error) {
-	var sel modelSelection
-
-	w.section(2, 2, "Model selection")
-	w.printModelList(models)
-	w.option("Enter", "Use recommended "+defaultModel, "primary only")
+	w.section(2, 2, "Main model")
+	w.printModelList(models, recommended)
+	w.option("Enter", "Use recommended "+recommended, "main")
 	w.option("c", "Pull and use another model now", "no tools validation")
 	w.hint("Enter a number from the list, or press Enter for the default.")
+	w.hint("Bind the other roles later with /providers, /models and /setmodel.")
 
-	main, err := w.choosePrimaryModel(ctx, client, models)
-	if err != nil {
-		return sel, err
-	}
-	sel.Main = main
-
-	sidecar, sidecarDisabled, err := w.chooseOptionalModel(ctx, client, models,
-		"Sidecar model choice [Enter to disable]: ", "Sidecar selected: ", "Sidecar disabled")
-	if err != nil {
-		return sel, err
-	}
-	sel.Sidecar = sidecar
-	sel.SidecarDisabled = sidecarDisabled
-
-	decisionModel, _, err := w.chooseOptionalModel(ctx, client, models,
-		"Decision model choice [Enter to disable]: ", "Decision model selected: ", "Decision model disabled")
-	if err != nil {
-		return sel, err
-	}
-	sel.Decision = decisionModel
-
-	return sel, nil
+	return w.choosePrimaryModel(ctx, client, models, recommended)
 }
 
-// printModelList renders the single numbered list shared by every role. The
-// capability tags let the user pick a tool-capable primary and an optional
-// sidecar/decision model without a second listing.
-func (w *wizard) printModelList(models []ollama.Model) {
+// printModelList renders the numbered list of installed models. The capability
+// tags let the user pick a tool-capable main model without a second listing.
+func (w *wizard) printModelList(models []ollama.Model, recommended string) {
 	if len(models) == 0 {
 		w.warn("No installed models were reported by /api/tags.")
 		return
 	}
 	w.label(fmt.Sprintf("Installed models (%d)", len(models)))
 	for i, model := range models {
-		w.option(fmt.Sprintf("%d", i+1), model.Name, modelTags(model)...)
+		w.option(fmt.Sprintf("%d", i+1), model.Name, modelTags(model, recommended)...)
 	}
 }
 
-func modelTags(model ollama.Model) []string {
+func modelTags(model ollama.Model, recommended string) []string {
 	var tags []string
-	if strings.EqualFold(strings.TrimSpace(model.Name), defaultModel) {
+	if strings.EqualFold(strings.TrimSpace(model.Name), recommended) {
 		tags = append(tags, "recommended")
 	}
 	if model.SupportsTools() {
@@ -84,27 +55,27 @@ func modelTags(model ollama.Model) []string {
 	return tags
 }
 
-// choosePrimaryModel resolves the required primary model. Enter selects the
+// choosePrimaryModel resolves the required main model. Enter selects the
 // recommended default, c pulls a custom model, and a list number must point at
 // a tool-capable model (when `/api/show` reported capabilities).
-func (w *wizard) choosePrimaryModel(ctx context.Context, client ollama.Client, models []ollama.Model) (string, error) {
+func (w *wizard) choosePrimaryModel(ctx context.Context, client ollama.Client, models []ollama.Model, recommended string) (string, error) {
 	for {
-		choice, err := w.prompt(ctx, "Primary model choice: ")
+		choice, err := w.prompt(ctx, "Main model choice: ")
 		if err != nil {
 			return "", err
 		}
 		switch choice = strings.TrimSpace(strings.ToLower(choice)); {
 		case choice == "":
-			if hasModel(models, defaultModel) {
-				w.selected("Using installed recommended model: " + defaultModel)
-				return defaultModel, nil
+			if hasModel(models, recommended) {
+				w.selected("Using installed recommended model: " + recommended)
+				return recommended, nil
 			}
-			if err := w.pullModel(ctx, client, defaultModel); err != nil {
-				w.warn(fmt.Sprintf("Pull failed for %s: %v", defaultModel, err))
+			if err := w.pullModel(ctx, client, recommended); err != nil {
+				w.warn(fmt.Sprintf("Pull failed for %s: %v", recommended, err))
 				continue
 			}
-			w.selected("Primary model selected: " + defaultModel)
-			return defaultModel, nil
+			w.selected("Main model selected: " + recommended)
+			return recommended, nil
 		case choice == "c":
 			custom, err := w.promptModelName(ctx, "Model name to pull and use: ")
 			if err != nil {
@@ -114,7 +85,7 @@ func (w *wizard) choosePrimaryModel(ctx context.Context, client ollama.Client, m
 				w.warn(fmt.Sprintf("Pull failed for %s: %v", custom, err))
 				continue
 			}
-			w.selected("Primary model selected: " + custom)
+			w.selected("Main model selected: " + custom)
 			return custom, nil
 		default:
 			idx, ok := parseListIndex(choice, len(models))
@@ -124,48 +95,11 @@ func (w *wizard) choosePrimaryModel(ctx context.Context, client ollama.Client, m
 			}
 			selected := models[idx]
 			if selected.CapabilitiesKnown && !selected.SupportsTools() {
-				w.warn(fmt.Sprintf("%s does not report tool support; pick another model for the primary role.", selected.Name))
+				w.warn(fmt.Sprintf("%s does not report tool support; pick another model for the main role.", selected.Name))
 				continue
 			}
-			w.selected("Primary model selected: " + selected.Name)
+			w.selected("Main model selected: " + selected.Name)
 			return selected.Name, nil
-		}
-	}
-}
-
-// chooseOptionalModel resolves an optional model (sidecar or decision). Enter
-// leaves it disabled, c pulls a custom model, and a list number selects any
-// installed model. It returns the chosen name and whether the role is disabled.
-func (w *wizard) chooseOptionalModel(ctx context.Context, client ollama.Client, models []ollama.Model, promptLabel, selectedLabel, disabledLabel string) (string, bool, error) {
-	for {
-		choice, err := w.prompt(ctx, promptLabel)
-		if err != nil {
-			return "", false, err
-		}
-		switch choice = strings.TrimSpace(strings.ToLower(choice)); {
-		case choice == "":
-			w.selected(disabledLabel)
-			return "", true, nil
-		case choice == "c":
-			custom, err := w.promptModelName(ctx, "Model name to pull and use: ")
-			if err != nil {
-				return "", false, err
-			}
-			if err := w.pullModel(ctx, client, custom); err != nil {
-				w.warn(fmt.Sprintf("Pull failed for %s: %v", custom, err))
-				continue
-			}
-			w.selected(selectedLabel + custom)
-			return custom, false, nil
-		default:
-			idx, ok := parseListIndex(choice, len(models))
-			if !ok {
-				w.warn("Invalid choice. Pick a listed number, Enter, or c.")
-				continue
-			}
-			selected := models[idx].Name
-			w.selected(selectedLabel + selected)
-			return selected, false, nil
 		}
 	}
 }

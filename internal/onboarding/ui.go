@@ -226,14 +226,6 @@ func truncateRunes(text string, max int) string {
 }
 
 func (w *wizard) printFinal(cfg *config.Config) {
-	sidecar := "(disabled)"
-	if cfg != nil && !cfg.SidecarDisabled && strings.TrimSpace(cfg.SidecarModel) != "" {
-		sidecar = strings.TrimSpace(cfg.SidecarModel)
-	}
-	decisionModel := "(disabled)"
-	if cfg != nil && strings.TrimSpace(cfg.DecisionModel) != "" {
-		decisionModel = strings.TrimSpace(cfg.DecisionModel)
-	}
 	host := ""
 	model := ""
 	if cfg != nil {
@@ -243,10 +235,16 @@ func (w *wizard) printFinal(cfg *config.Config) {
 
 	w.summaryBox("vibe is ready", []kvRow{
 		{Key: "Host", Value: host},
-		{Key: "Model", Value: model},
-		{Key: "Sidecar", Value: sidecar},
-		{Key: "Decision model", Value: decisionModel},
+		{Key: "Main model", Value: model},
 	})
+
+	if w.style.Enabled() {
+		fmt.Fprintf(w.out, "%s %s\n", w.style.DimGreen("next"), w.style.Gray("bind the sidecar, decision, embedding and vision roles from inside vibe"))
+		fmt.Fprintf(w.out, "%s %s\n", w.style.DimGreen("commands"), w.style.BoldBrightGreen("/providers")+" · "+w.style.BoldBrightGreen("/models")+" · "+w.style.BoldBrightGreen("/setmodel <role> <number|name>"))
+	} else {
+		fmt.Fprintln(w.out, "Next: bind the sidecar, decision, embedding and vision roles from inside vibe.")
+		fmt.Fprintln(w.out, "Commands: /providers, /models, /setmodel <role> <number|name>")
+	}
 
 	if cfg != nil && cfg.ConfigFile != "" {
 		if w.style.Enabled() {
