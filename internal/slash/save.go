@@ -6,8 +6,8 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
-// runSaveCommand persists the model/thinking settings changed by /model,
-// /sidecar, /decision, /think, and /hide-think so they apply on the next run.
+// runSaveCommand persists the model/thinking settings changed by /setmodel,
+// /provider, /sidecar, /decision, /think, and /hide-think so they apply on the next run.
 // It also saves the current session when it is permanent; temporal sessions
 // stay ephemeral and must be kept explicitly with /promote.
 func runSaveCommand(c *Ctx) error {

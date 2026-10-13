@@ -82,7 +82,7 @@ type Config struct {
 	// unreachable at startup); the agent then stays honest about trying.
 	VisionAvailable bool
 	VisionKnown     bool
-	// VisionByModel caches vision support per model name so /model switches
+	// VisionByModel caches vision support per model name so /setmodel switches
 	// resolve without extra network calls.
 	VisionByModel map[string]bool
 	// SidecarVisionAvailable/Known mirror the main vision flags for the
@@ -117,7 +117,7 @@ type Config struct {
 	// capability as advertised by Ollama Tags. Unknown until detection runs.
 	ThinkingSupported bool
 	ThinkingKnown     bool
-	// ThinkingByModel caches thinking support per model name so /model and
+	// ThinkingByModel caches thinking support per model name so /setmodel and
 	// /think resolve without extra network calls.
 	ThinkingByModel map[string]bool
 	// ToolsSupported/ToolsKnown describe the active model's native function-
@@ -127,7 +127,7 @@ type Config struct {
 	// session on a 400 tool error).
 	ToolsSupported bool
 	ToolsKnown     bool
-	// ToolsByModel caches native tool support per model name so /model
+	// ToolsByModel caches native tool support per model name so /setmodel
 	// switches resolve without extra network calls.
 	ToolsByModel map[string]bool
 	// OllamaHideThink hides native and in-band thinking blocks in TUI (shows response without thinking section).

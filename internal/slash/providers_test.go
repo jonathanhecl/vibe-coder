@@ -59,6 +59,20 @@ func addTestProvider(t *testing.T, cfg *config.Config, name, endpoint string, ki
 	}
 }
 
+// initTestRegistry gives a hand-built config the default provider registry so
+// /setmodel and /provider work against it without going through Load.
+func initTestRegistry(cfg *config.Config) {
+	if cfg.OllamaHost == "" {
+		cfg.OllamaHost = "http://localhost:11434"
+	}
+	cfg.Providers = map[string]config.Provider{
+		config.DefaultProviderName: {Name: config.DefaultProviderName, Kind: config.ProviderOllama, Endpoint: cfg.OllamaHost},
+	}
+	if cfg.RoleModels == nil {
+		cfg.RoleModels = map[config.Role]config.RoleModel{}
+	}
+}
+
 // providerTestModels mirrors real Ollama capability tags, including the
 // completion capability every chat-capable model reports.
 func providerTestModels() []ollama.Model {

@@ -54,7 +54,7 @@ func TestBuildVisionSectionStates(t *testing.T) {
 			if tc.available && !strings.Contains(got, "do NOT call Read or DescribeImage on them") {
 				t.Fatalf("expected attached-image guidance, got:\n%s", got)
 			}
-			if !tc.available && tc.known && !strings.Contains(got, "/model") {
+			if !tc.available && tc.known && !strings.Contains(got, "/setmodel") {
 				t.Fatalf("expected model-switch suggestion, got:\n%s", got)
 			}
 		})

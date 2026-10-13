@@ -93,43 +93,6 @@ func TestDecisionNotConfigured(t *testing.T) {
 	}
 }
 
-func TestDecisionEndpointSetAndClear(t *testing.T) {
-	srv := decisionTestServer(t)
-	defer srv.Close()
-	lastDecisionCheck = nil
-
-	ctx, cfg, out := newDecisionTestCtx(t, "")
-	if _, _, err := Dispatch(ctx, "/decision endpoint "+srv.URL); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DecisionEndpoint != srv.URL {
-		t.Fatalf("expected endpoint set, got %q", cfg.DecisionEndpoint)
-	}
-	if !strings.Contains(out.String(), "Decision backend: systemone-server") {
-		t.Fatalf("expected backend line, got %q", out.String())
-	}
-
-	if _, _, err := Dispatch(ctx, "/decision endpoint ollama"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DecisionEndpoint != "" {
-		t.Fatalf("expected endpoint cleared, got %q", cfg.DecisionEndpoint)
-	}
-}
-
-func TestDecisionEndpointInvalid(t *testing.T) {
-	ctx, cfg, out := newDecisionTestCtx(t, "")
-	if _, _, err := Dispatch(ctx, "/decision endpoint example.com"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DecisionEndpoint != "" {
-		t.Fatalf("expected endpoint unchanged, got %q", cfg.DecisionEndpoint)
-	}
-	if !strings.Contains(out.String(), "must start with http://") {
-		t.Fatalf("expected invalid-endpoint message, got %q", out.String())
-	}
-}
-
 func TestDecisionAssistedToggle(t *testing.T) {
 	ctx, cfg, _ := newDecisionTestCtx(t, "http://example:8765")
 	if _, _, err := Dispatch(ctx, "/decision assisted on"); err != nil {
@@ -146,15 +109,31 @@ func TestDecisionAssistedToggle(t *testing.T) {
 	}
 }
 
-func TestDecisionOff(t *testing.T) {
-	ctx, cfg, _ := newDecisionTestCtx(t, "http://example:8765")
+func TestDecisionRemovedModelRoutes(t *testing.T) {
+	ctx, cfg, out := newDecisionTestCtx(t, "http://example:8765")
 	cfg.DecisionModel = "tev1:0.8b"
 	cfg.AssistedYes = true
-	if _, _, err := Dispatch(ctx, "/decision off"); err != nil {
-		t.Fatal(err)
+
+	for _, line := range []string{"/decision endpoint http://other:9000", "/decision off", "/decision tev1:0.8b"} {
+		if _, _, err := Dispatch(ctx, line); err != nil {
+			t.Fatalf("%s: %v", line, err)
+		}
 	}
-	if cfg.DecisionInUse() || cfg.AssistedYes {
-		t.Fatalf("expected decision disabled, got %+v", cfg)
+	if cfg.DecisionEndpoint != "http://example:8765" {
+		t.Fatalf("expected the decision endpoint untouched, got %q", cfg.DecisionEndpoint)
+	}
+	if cfg.DecisionModel != "tev1:0.8b" {
+		t.Fatalf("expected the decision model untouched, got %q", cfg.DecisionModel)
+	}
+	if !cfg.AssistedYes {
+		t.Fatal("expected assisted mode untouched")
+	}
+	rendered := out.String()
+	if !strings.Contains(rendered, "bound with the provider commands now") {
+		t.Fatalf("expected the provider-commands hint, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "Unknown /decision action") {
+		t.Fatalf("expected the unknown-action message, got %q", rendered)
 	}
 }
 
@@ -172,23 +151,5 @@ func TestDecisionTestSubcommand(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected %q in output, got:\n%s", want, rendered)
 		}
-	}
-}
-
-func TestDecisionModelArg(t *testing.T) {
-	srv := decisionTestServer(t)
-	defer srv.Close()
-
-	ctx, cfg, out := newDecisionTestCtx(t, "")
-	// Point the Ollama fallback at the test server so Check succeeds.
-	cfg.OllamaHost = srv.URL
-	if _, _, err := Dispatch(ctx, "/decision tev1:0.8b"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DecisionModel != "tev1:0.8b" {
-		t.Fatalf("expected model set, got %q", cfg.DecisionModel)
-	}
-	if !strings.Contains(out.String(), "Decision model set to: tev1:0.8b") {
-		t.Fatalf("expected set message, got %q", out.String())
 	}
 }

@@ -87,15 +87,16 @@ func TestStatusShowsThinking(t *testing.T) {
 
 func TestModelSwitchReportsThinking(t *testing.T) {
 	ctx, _, out := newContextTestCtx(t)
+	initTestRegistry(ctx.Cfg)
 	ctx.Cfg.ThinkingByModel = map[string]bool{"thinker:latest": true}
-	if _, _, err := Dispatch(ctx, "/model thinker"); err != nil {
+	if _, _, err := Dispatch(ctx, "/setmodel main thinker:latest"); err != nil {
 		t.Fatal(err)
 	}
 	if !ctx.Cfg.ThinkingKnown || !ctx.Cfg.ThinkingSupported {
 		t.Fatal("expected thinking flags refreshed from cache")
 	}
-	if !strings.Contains(out.String(), "thinking: yes") {
-		t.Fatalf("expected thinking word, got %q", out.String())
+	if !strings.Contains(out.String(), "main role set to thinker:latest") {
+		t.Fatalf("expected role confirmation, got %q", out.String())
 	}
 }
 

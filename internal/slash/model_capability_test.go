@@ -47,6 +47,7 @@ func TestModelSwitchProbesCapabilitiesLive(t *testing.T) {
 		ThinkingByModel: map[string]bool{"gemma:q4_k_m": false},
 		ToolsByModel:    map[string]bool{"gemma:q4_k_m": true},
 	}
+	initTestRegistry(cfg)
 	out := &bytes.Buffer{}
 	ctx := &Ctx{
 		Cfg: cfg,
@@ -61,7 +62,7 @@ func TestModelSwitchProbesCapabilitiesLive(t *testing.T) {
 		},
 	}
 
-	if _, _, err := Dispatch(ctx, "/model gemma:fixed"); err != nil {
+	if _, _, err := Dispatch(ctx, "/setmodel main gemma:fixed"); err != nil {
 		t.Fatal(err)
 	}
 	if !cfg.VisionKnown || !cfg.VisionAvailable {
@@ -74,8 +75,8 @@ func TestModelSwitchProbesCapabilitiesLive(t *testing.T) {
 		t.Fatalf("expected native tools after live probe, got known=%t supported=%t", cfg.ToolsKnown, cfg.ToolsSupported)
 	}
 	rendered := out.String()
-	if !strings.Contains(rendered, "vision: yes") || !strings.Contains(rendered, "thinking: yes") {
-		t.Fatalf("expected honest capability report, got %q", rendered)
+	if !strings.Contains(rendered, "main role set to gemma:fixed") {
+		t.Fatalf("expected the role assignment report, got %q", rendered)
 	}
 }
 
@@ -95,6 +96,7 @@ func TestModelSwitchFallsBackWhenProbeFails(t *testing.T) {
 		ThinkingByModel: map[string]bool{"gemma:q4_k_m": false},
 		ToolsByModel:    map[string]bool{"gemma:q4_k_m": true},
 	}
+	initTestRegistry(cfg)
 	out := &bytes.Buffer{}
 	ctx := &Ctx{
 		Cfg: cfg,
@@ -107,14 +109,14 @@ func TestModelSwitchFallsBackWhenProbeFails(t *testing.T) {
 		},
 	}
 
-	if _, _, err := Dispatch(ctx, "/model gemma:fixed"); err != nil {
+	if _, _, err := Dispatch(ctx, "/setmodel main gemma:fixed"); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.VisionKnown || cfg.ThinkingKnown {
 		t.Fatalf("expected unknown when the probe fails and the tag is absent, got vision=%t/%t thinking=%t/%t",
 			cfg.VisionKnown, cfg.VisionAvailable, cfg.ThinkingKnown, cfg.ThinkingSupported)
 	}
-	if !strings.Contains(out.String(), "vision: unknown") {
-		t.Fatalf("expected unknown vision, got %q", out.String())
+	if !strings.Contains(out.String(), "main role set to gemma:fixed") {
+		t.Fatalf("expected the role assignment report, got %q", out.String())
 	}
 }

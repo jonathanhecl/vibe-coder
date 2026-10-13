@@ -54,132 +54,68 @@ func newPickerTestCtx(t *testing.T, answers ...string) (*Ctx, *config.Config, *b
 	return ctx, cfg, out
 }
 
-func TestModelCommandListsAndSelectsByNumber(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t, "2")
+func TestSidecarToggleCommands(t *testing.T) {
+	ctx, cfg, out := newPickerTestCtx(t)
+
+	if _, _, err := Dispatch(ctx, "/sidecar off"); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SidecarSkipSession {
+		t.Fatal("expected /sidecar off to disable the sidecar for this session")
+	}
+	if !strings.Contains(out.String(), "Sidecar disabled for this session") {
+		t.Fatalf("expected disable confirmation, got %q", out.String())
+	}
+
+	if _, _, err := Dispatch(ctx, "/sidecar on"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SidecarSkipSession {
+		t.Fatal("expected /sidecar on to re-enable the sidecar")
+	}
+}
+
+func TestSidecarStatusCommand(t *testing.T) {
+	ctx, cfg, out := newPickerTestCtx(t)
+	cfg.SidecarModel = "moondream"
+
+	if _, _, err := Dispatch(ctx, "/sidecar status"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Sidecar: on (moondream") {
+		t.Fatalf("expected sidecar status line, got %q", out.String())
+	}
+}
+
+func TestSidecarUnknownAction(t *testing.T) {
+	ctx, cfg, out := newPickerTestCtx(t)
+
+	if _, _, err := Dispatch(ctx, "/sidecar 7"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SidecarSkipSession {
+		t.Fatal("expected an unknown action to leave the sidecar untouched")
+	}
+	if !strings.Contains(out.String(), "Unknown /sidecar action") {
+		t.Fatalf("expected unknown-action message, got %q", out.String())
+	}
+	if !strings.Contains(out.String(), "Usage: /sidecar") {
+		t.Fatalf("expected sidecar usage, got %q", out.String())
+	}
+}
+
+func TestRemovedModelCommandIsUnknown(t *testing.T) {
+	ctx, cfg, out := newPickerTestCtx(t)
 
 	handled, shouldExit, err := Dispatch(ctx, "/model")
 	if err != nil || !handled || shouldExit {
 		t.Fatalf("unexpected /model result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
-	if cfg.Model != "llama3.2:3b" {
-		t.Fatalf("expected model switched by number, got %q", cfg.Model)
-	}
-	rendered := out.String()
-	if !strings.Contains(rendered, "Installed models (3)") {
-		t.Fatalf("expected numbered model list, got %q", rendered)
-	}
-	if !strings.Contains(rendered, "[2] llama3.2:3b") {
-		t.Fatalf("expected entry [2], got %q", rendered)
-	}
-	if !strings.Contains(rendered, "(current)") {
-		t.Fatalf("expected current model marker, got %q", rendered)
-	}
-}
-
-func TestSidecarCommandListsAndSelectsByNumber(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t, "3")
-
-	handled, shouldExit, err := Dispatch(ctx, "/sidecar")
-	if err != nil || !handled || shouldExit {
-		t.Fatalf("unexpected /sidecar result: handled=%t exit=%t err=%v", handled, shouldExit, err)
-	}
-	if cfg.SidecarModel != "moondream" {
-		t.Fatalf("expected sidecar switched by number, got %q", cfg.SidecarModel)
-	}
-	if !strings.Contains(out.String(), "Disable Sidecar") {
-		t.Fatalf("expected a disable option for the sidecar, got %q", out.String())
-	}
-}
-
-func TestSidecarCommandDisableOption(t *testing.T) {
-	ctx, cfg, _ := newPickerTestCtx(t, "0")
-
-	if _, _, err := Dispatch(ctx, "/sidecar"); err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.SidecarSkipSession {
-		t.Fatal("expected sidecar disabled for the session")
-	}
-}
-
-func TestDecisionCommandSelectsByNumber(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t)
-
-	handled, shouldExit, err := Dispatch(ctx, "/decision 1")
-	if err != nil || !handled || shouldExit {
-		t.Fatalf("unexpected /decision result: handled=%t exit=%t err=%v", handled, shouldExit, err)
-	}
-	if cfg.DecisionModel != "qwen3.5:4b" {
-		t.Fatalf("expected decision model switched by number, got %q", cfg.DecisionModel)
-	}
-	if !strings.Contains(out.String(), "Decision model set to: qwen3.5:4b") {
-		t.Fatalf("expected selection message, got %q", out.String())
-	}
-}
-
-func TestPickerEnterKeepsCurrent(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t, "")
-
-	if _, _, err := Dispatch(ctx, "/model"); err != nil {
-		t.Fatal(err)
-	}
 	if cfg.Model != "qwen3.5:4b" {
-		t.Fatalf("expected Enter to keep the current model, got %q", cfg.Model)
+		t.Fatalf("expected the removed /model command to change nothing, got %q", cfg.Model)
 	}
-	if !strings.Contains(out.String(), "Model unchanged") {
-		t.Fatalf("expected unchanged confirmation, got %q", out.String())
-	}
-}
-
-func TestPickerAcceptsModelName(t *testing.T) {
-	ctx, cfg, _ := newPickerTestCtx(t, "plain-text-model")
-
-	if _, _, err := Dispatch(ctx, "/model"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Model != "plain-text-model" {
-		t.Fatalf("expected typed model name to be applied, got %q", cfg.Model)
-	}
-}
-
-func TestModelCommandByNumericArgumentResolvesFromList(t *testing.T) {
-	ctx, cfg, _ := newPickerTestCtx(t)
-
-	if _, _, err := Dispatch(ctx, "/model 2"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Model != "llama3.2:3b" {
-		t.Fatalf("expected /model 2 to pick the second listed model, got %q", cfg.Model)
-	}
-}
-
-func TestNumericArgumentOutOfRangeIsRejected(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t)
-
-	if _, _, err := Dispatch(ctx, "/model 99"); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Model != "qwen3.5:4b" {
-		t.Fatalf("expected out-of-range number to leave the model unchanged, got %q", cfg.Model)
-	}
-	if !strings.Contains(out.String(), "No model number 99") {
-		t.Fatalf("expected out-of-range message, got %q", out.String())
-	}
-}
-
-func TestPickerFallsBackToCachedModelsWithoutLister(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t, "2")
-	ctx.Models = nil
-
-	if _, _, err := Dispatch(ctx, "/model"); err != nil {
-		t.Fatal(err)
-	}
-	// Cached names are sorted alphabetically: llama3.2:3b, moondream, qwen3.5:4b.
-	if cfg.Model != "moondream" {
-		t.Fatalf("expected cached-list selection, got %q", cfg.Model)
-	}
-	if !strings.Contains(out.String(), "Installed models (3)") {
-		t.Fatalf("expected cached model list, got %q", out.String())
+	if !strings.Contains(out.String(), "Unknown command: /model") {
+		t.Fatalf("expected /model to be unknown, got %q", out.String())
 	}
 }
 
@@ -195,8 +131,11 @@ func TestSavePersistsModelSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read saved config: %v", err)
 	}
-	if !strings.Contains(string(data), "MODEL=changed-model:v2") {
-		t.Fatalf("expected MODEL persisted, got:\n%s", data)
+	if !strings.Contains(string(data), "ROLE_MAIN_MODEL=changed-model:v2") {
+		t.Fatalf("expected the main role model persisted, got:\n%s", data)
+	}
+	if strings.Contains(string(data), "\nMODEL=") {
+		t.Fatalf("expected the legacy MODEL key to be dropped, got:\n%s", data)
 	}
 	if !strings.Contains(out.String(), "Saved") {
 		t.Fatalf("expected save confirmation, got %q", out.String())

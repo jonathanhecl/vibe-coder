@@ -21,9 +21,9 @@ type Ctx struct {
 	Client   commitClient
 	Out      io.Writer
 	Contexts *contextfiles.Store
-	// Models lists the models installed on the host so /model, /sidecar, and
-	// /decision can offer a numbered picker. Optional: when nil the pickers
-	// fall back to the capability maps cached at startup.
+	// Models lists the models installed on the host so /models and /setmodel
+	// can offer a numbered picker. Optional: when nil the pickers fall back to
+	// the capability maps cached at startup.
 	Models ModelLister
 	// Prompter asks interactive questions (e.g. Append vs Replace for
 	// /context). It is optional: when nil, commands print the
@@ -186,7 +186,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		}
 		if assisted {
 			if !c.Cfg.DecisionInUse() {
-				fmt.Fprintln(c.Out, "A decision model is not configured. Configure one first with /decision <model>.")
+				fmt.Fprintln(c.Out, "A decision model is not configured. Bind one first with /setmodel decision <number|name>.")
 				return true, false, nil
 			}
 			c.Cfg.AssistedYes = true
@@ -221,8 +221,6 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		after := c.Session.TokenEstimate()
 		fmt.Fprintf(c.Out, "Compacted session tokens: %d -> %d\n", before, after)
 		return true, false, nil
-	case "/model":
-		return true, false, runModelCommand(c, fields[1:])
 	case "/models":
 		return true, false, runModelsCommand(c, fields[1:])
 	case "/providers":

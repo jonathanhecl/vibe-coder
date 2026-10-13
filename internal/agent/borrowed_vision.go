@@ -32,7 +32,7 @@ func (a *Agent) resolveOutgoingImages(ctx context.Context, msgs []ollama.Message
 			continue
 		}
 		out[i].Content = replaceAllMarkers(m.Content,
-			"(image unavailable: neither "+a.cfg.Model+" nor the sidecar can see images; switch to a vision-capable model with /model)")
+			"(image unavailable: neither "+a.cfg.Model+" nor the sidecar can see images; switch to a vision-capable model with /setmodel)")
 	}
 	return out
 }

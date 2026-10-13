@@ -13,40 +13,27 @@ import (
 
 var modelNameRe = regexp.MustCompile(`^[a-zA-Z0-9_.:\-/]+$`)
 
+// runSidecarCommand toggles the sidecar on and off. The sidecar model itself is
+// bound with /setmodel sidecar <number|name>, so this command only carries the
+// session and config state that /setmodel cannot express.
 func runSidecarCommand(c *Ctx, args []string) error {
 	if len(args) == 0 {
 		printSidecarStatus(c)
-		chosen, changed, err := c.pickModel(context.Background(), "sidecar", "Sidecar", c.Cfg.SidecarModel, true)
-		if err != nil {
-			return err
-		}
-		if !changed {
-			return nil
-		}
-		if chosen == "" {
-			c.Cfg.SidecarSkipSession = true
-			fmt.Fprintln(c.Out, "Sidecar disabled for this session. Run /sidecar perm-off to disable it permanently.")
-			return nil
-		}
-		c.Cfg.SidecarModel = chosen
-		c.Cfg.SidecarDisabled = false
-		c.Cfg.SidecarSkipSession = false
-		fmt.Fprintf(c.Out, "Sidecar model set to: %s. Run /save to persist.\n", chosen)
+		printSidecarUsage(c)
 		return nil
 	}
-	raw := strings.TrimSpace(args[0])
-	sub := strings.ToLower(raw)
+	sub := strings.ToLower(strings.TrimSpace(args[0]))
 	switch sub {
-	case "off", "disable":
-		c.Cfg.SidecarSkipSession = true
-		fmt.Fprintln(c.Out, "Sidecar disabled for this session. Use /sidecar on to re-enable.")
 	case "on", "enable":
 		c.Cfg.SidecarSkipSession = false
 		if c.Cfg.SidecarDisabled {
 			fmt.Fprintln(c.Out, "Sidecar is still off in config (SIDECAR_DISABLED). Use /sidecar perm-on or edit vibe-coder.env.")
 		} else {
-			fmt.Fprintln(c.Out, "Sidecar enabled for this session (if SIDECAR_MODEL is set).")
+			fmt.Fprintln(c.Out, "Sidecar enabled for this session (when a sidecar model is bound).")
 		}
+	case "off", "disable":
+		c.Cfg.SidecarSkipSession = true
+		fmt.Fprintln(c.Out, "Sidecar disabled for this session. Use /sidecar on to re-enable.")
 	case "perm-off", "permanent-off", "config-off":
 		c.Cfg.SidecarDisabled = true
 		if err := config.SaveModelSettings(c.Cfg); err != nil {
@@ -58,84 +45,45 @@ func runSidecarCommand(c *Ctx, args []string) error {
 		if err := config.SaveModelSettings(c.Cfg); err != nil {
 			return err
 		}
-		fmt.Fprintf(c.Out, "Removed SIDECAR_DISABLED from %s (sidecar allowed when SIDECAR_MODEL is set).\n", c.Cfg.ConfigFile)
-	case "status", "":
+		fmt.Fprintf(c.Out, "Removed SIDECAR_DISABLED from %s (sidecar allowed when a sidecar model is bound).\n", c.Cfg.ConfigFile)
+	case "status":
 		printSidecarStatus(c)
 	default:
-		resolved, ok := c.resolveModelArg(context.Background(), raw)
-		if !ok {
-			fmt.Fprintf(c.Out, "No model number %s in the installed list.\n", raw)
-			return nil
-		}
-		if !modelNameRe.MatchString(resolved) {
-			fmt.Fprintln(c.Out, "Usage: /sidecar [model] | on|off|status|perm-on|perm-off")
-			return nil
-		}
-		c.Cfg.SidecarModel = resolved
-		c.Cfg.SidecarDisabled = false
-		c.Cfg.SidecarSkipSession = false
-		fmt.Fprintf(c.Out, "Sidecar model set to: %s. Run /save to persist.\n", resolved)
+		fmt.Fprintf(c.Out, "Unknown /sidecar action %q.\n", sub)
+		printSidecarUsage(c)
 	}
 	return nil
+}
+
+func printSidecarUsage(c *Ctx) {
+	fmt.Fprintln(c.Out, "Usage: /sidecar on|off|status|perm-on|perm-off")
+	fmt.Fprintln(c.Out, "Bind the sidecar model with /setmodel sidecar <number|name> (see /models).")
+}
+
+// sidecarModelName reads the sidecar model from the role registry, falling back
+// to the legacy flat field for contexts built without a registry.
+func sidecarModelName(c *Ctx) string {
+	if name := c.Cfg.RoleModelName(config.RoleSidecar); name != "" {
+		return name
+	}
+	return strings.TrimSpace(c.Cfg.SidecarModel)
 }
 
 func printSidecarStatus(c *Ctx) {
-	if c.Cfg.SidecarDisabled {
-		fmt.Fprintln(c.Out, "Sidecar: permanently off in config (SIDECAR_DISABLED=true). Remove it or set SIDECAR_ENABLED=true, then /save if you use that flow.")
-	} else if c.Cfg.SidecarSkipSession {
-		fmt.Fprintln(c.Out, "Sidecar: off for this session. Model: "+strings.TrimSpace(c.Cfg.SidecarModel))
-	} else if strings.TrimSpace(c.Cfg.SidecarModel) == "" {
-		fmt.Fprintln(c.Out, "Sidecar: no model configured (SIDECAR_MODEL).")
-	} else {
-		fmt.Fprintln(c.Out, "Sidecar: on ("+strings.TrimSpace(c.Cfg.SidecarModel)+", vision: "+visionWord(c.Cfg.SidecarVisionKnown, c.Cfg.SidecarVisionAvailable)+")")
+	switch {
+	case c.Cfg.SidecarDisabled:
+		fmt.Fprintln(c.Out, "Sidecar: permanently off in config (SIDECAR_DISABLED=true). Use /sidecar perm-on to re-enable.")
+	case c.Cfg.SidecarSkipSession:
+		fmt.Fprintln(c.Out, "Sidecar: off for this session. Model: "+sidecarModelName(c))
+	case sidecarModelName(c) == "":
+		fmt.Fprintln(c.Out, "Sidecar: no model bound. Use /setmodel sidecar <number|name> (see /models).")
+	default:
+		fmt.Fprintln(c.Out, "Sidecar: on ("+sidecarModelName(c)+", vision: "+visionWord(c.Cfg.SidecarVisionKnown, c.Cfg.SidecarVisionAvailable)+")")
 	}
-}
-
-func runModelCommand(c *Ctx, args []string) error {
-	if len(args) == 0 {
-		fmt.Fprintf(c.Out, "Current model: %s\n", c.Cfg.Model)
-		chosen, changed, err := c.pickModel(context.Background(), "model", "Model", c.Cfg.Model, false)
-		if err != nil {
-			return err
-		}
-		if changed {
-			applyModelSwitch(c, chosen)
-		}
-		return nil
-	}
-	next := strings.TrimSpace(args[0])
-	resolved, ok := c.resolveModelArg(context.Background(), next)
-	if !ok {
-		fmt.Fprintf(c.Out, "No model number %s in the installed list.\n", next)
-		return nil
-	}
-	if !modelNameRe.MatchString(resolved) {
-		fmt.Fprintln(c.Out, "Invalid model name format.")
-		return nil
-	}
-	applyModelSwitch(c, resolved)
-	return nil
-}
-
-// applyModelSwitch activates a model and refreshes the vision, thinking, and
-// tool-calling flags for the session.
-func applyModelSwitch(c *Ctx, next string) {
-	c.Cfg.Model = next
-	// The startup capability maps are a frozen snapshot, but a model can be
-	// installed, re-created, or re-quantized during a session. Re-check the
-	// selected model live so the reported flags match this exact tag; fall
-	// back to the cached maps when /api/show is unavailable.
-	probeCapabilities(c, next)
-	available, known := ollama.LookupVision(c.Cfg.VisionByModel, c.Cfg.Model)
-	c.Cfg.VisionAvailable, c.Cfg.VisionKnown = available, known
-	refreshThinkingFlags(c)
-	refreshToolsFlags(c)
-	fmt.Fprintf(c.Out, "Model set to: %s (vision: %s, thinking: %s, tools: %s). Run /save to persist.\n",
-		c.Cfg.Model, visionWord(known, available), thinkingWord(c), toolsWord(c))
 }
 
 // probeCapabilities asks /api/show for one model's capabilities and caches
-// them in the per-model maps, so a switch reports the truth for that exact
+// them in the per-model maps, so a role switch reports the truth for that exact
 // tag instead of a stale snapshot (or a sibling tag). It is a no-op when the
 // client cannot inspect models or the probe fails, leaving the cached values
 // in place (unknown when absent).
@@ -177,28 +125,6 @@ func probeCapabilities(c *Ctx, name string) {
 func refreshToolsFlags(c *Ctx) {
 	supported, known := ollama.LookupVision(c.Cfg.ToolsByModel, c.Cfg.Model)
 	c.Cfg.ToolsSupported, c.Cfg.ToolsKnown = supported, known
-}
-
-func toolsWord(c *Ctx) string {
-	switch {
-	case c.Cfg.ToolsKnown && c.Cfg.ToolsSupported:
-		return "native"
-	case c.Cfg.ToolsKnown && !c.Cfg.ToolsSupported:
-		return "xml"
-	default:
-		return "auto"
-	}
-}
-
-func thinkingWord(c *Ctx) string {
-	switch {
-	case c.Cfg.ThinkingKnown && c.Cfg.ThinkingSupported:
-		return "yes"
-	case c.Cfg.ThinkingKnown && !c.Cfg.ThinkingSupported:
-		return "no"
-	default:
-		return "unknown"
-	}
 }
 
 func visionWord(known, available bool) string {

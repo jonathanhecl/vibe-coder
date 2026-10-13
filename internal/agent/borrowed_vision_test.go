@@ -77,7 +77,7 @@ func TestNoVisionAnywhereMarksUnavailable(t *testing.T) {
 	a.sess.AddToolObservation("Read", vision.MarkerFor(photo))
 	msgs, _ := a.buildOllamaMessages(context.Background(), "SYS")
 	got := msgs[len(msgs)-1].Content
-	if !strings.Contains(got, "(image unavailable: neither") || !strings.Contains(got, "/model") {
+	if !strings.Contains(got, "(image unavailable: neither") || !strings.Contains(got, "/setmodel") {
 		t.Fatalf("expected honest unavailable note, got %q", got)
 	}
 	if len(msgs[len(msgs)-1].Images) != 0 {

@@ -13,36 +13,22 @@ import (
 // can report the detected backend without probing again.
 var lastDecisionCheck *decision.Info
 
+// runDecisionCommand carries only the decision behavior that is not model
+// configuration: the backend status, a connectivity test, and the assisted
+// execution toggle. The decision model and its endpoint are bound with
+// /setmodel decision <number|name>.
 func runDecisionCommand(c *Ctx, args []string) error {
 	if len(args) == 0 {
 		printDecisionStatus(c)
 		printDecisionUsage(c)
 		return nil
 	}
-	sub := strings.TrimSpace(args[0])
-	switch strings.ToLower(sub) {
+	sub := strings.ToLower(strings.TrimSpace(args[0]))
+	switch sub {
 	case "status":
 		printDecisionStatus(c)
 	case "test":
 		return runDecisionTest(c)
-	case "endpoint":
-		if len(args) < 2 {
-			fmt.Fprintln(c.Out, "Usage: /decision endpoint <url|ollama>")
-			return nil
-		}
-		url := strings.TrimSpace(args[1])
-		if strings.EqualFold(url, "ollama") {
-			c.Cfg.DecisionEndpoint = ""
-			fmt.Fprintln(c.Out, "Decision endpoint cleared; the Ollama host will be used. Run /save to persist.")
-		} else {
-			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-				fmt.Fprintf(c.Out, "Invalid endpoint %q: must start with http:// or https://\n", url)
-				return nil
-			}
-			c.Cfg.DecisionEndpoint = url
-			fmt.Fprintf(c.Out, "Decision endpoint set to: %s (run /save to persist)\n", url)
-		}
-		checkDecision(c)
 	case "assisted":
 		if len(args) > 1 {
 			switch strings.ToLower(strings.TrimSpace(args[1])) {
@@ -68,60 +54,20 @@ func runDecisionCommand(c *Ctx, args []string) error {
 			}
 			fmt.Fprintf(c.Out, "Decision assisted execution mode: %s\n", status)
 		}
-	case "off", "disable", "none":
-		c.Cfg.DecisionModel = ""
-		c.Cfg.DecisionEndpoint = ""
-		c.Cfg.AssistedYes = false
-		if c.Perm != nil {
-			c.Perm.SetAssistedMode(false)
-		}
-		fmt.Fprintln(c.Out, "Decision model disabled for this session.")
+	case "endpoint", "url", "off", "disable", "none", "set":
+		printDecisionModelHint(c)
 	default:
-		if strings.EqualFold(sub, "set") && len(args) > 1 {
-			sub = strings.TrimSpace(args[1])
-		} else if len(args) > 1 {
-			fmt.Fprintln(c.Out, "Invalid model name format.")
-			return nil
-		}
-		resolved, ok := c.resolveModelArg(context.Background(), sub)
-		if !ok {
-			fmt.Fprintf(c.Out, "No model number %s in the installed list.\n", sub)
-			return nil
-		}
-		if !modelNameRe.MatchString(resolved) {
-			fmt.Fprintln(c.Out, "Invalid model name format.")
-			return nil
-		}
-		c.Cfg.DecisionModel = resolved
-		c.Cfg.DecisionEndpoint = ""
-		fmt.Fprintf(c.Out, "Decision model set to: %s (run /save to persist)\n", c.Cfg.DecisionModel)
-		checkDecision(c)
-		if !c.Cfg.AssistedYes {
-			fmt.Fprintln(c.Out, "Tip: Enable assisted execution mode with /yes assisted or /decision assisted on (auto-approves safe commands, prompts for dangerous ones).")
-		}
+		fmt.Fprintf(c.Out, "Unknown /decision action %q.\n", sub)
+		printDecisionUsage(c)
 	}
 	return nil
 }
 
-// checkDecision builds a client from the config, runs Check, records the
-// backend for /decision status, and prints the outcome.
-func checkDecision(c *Ctx) {
-	client := decision.FromConfig(c.Cfg)
-	if client == nil {
-		lastDecisionCheck = nil
-		fmt.Fprintln(c.Out, "No decision model configured.")
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	info, err := client.Check(ctx)
-	if err != nil {
-		lastDecisionCheck = nil
-		fmt.Fprintf(c.Out, "Decision check failed: %v\n", err)
-		return
-	}
-	lastDecisionCheck = &info
-	fmt.Fprintf(c.Out, "Decision backend: %s (model: %s)\n", info.Backend, info.Model)
+// printDecisionModelHint points at the command that replaced the removed
+// model and endpoint routes, so an old habit lands somewhere useful.
+func printDecisionModelHint(c *Ctx) {
+	fmt.Fprintln(c.Out, "The decision model and endpoint are bound with the provider commands now.")
+	fmt.Fprintln(c.Out, "Use /setmodel decision <number|name> (see /models), or /setmodel decision off to unbind it.")
 }
 
 func printDecisionStatus(c *Ctx) {
@@ -142,7 +88,7 @@ func printDecisionStatus(c *Ctx) {
 		model = "(server default)"
 	}
 	if !c.Cfg.DecisionInUse() {
-		fmt.Fprintln(c.Out, "Decision model: not configured (DECISION_MODEL or DECISION_ENDPOINT).")
+		fmt.Fprintln(c.Out, "Decision model: not configured. Bind it with /setmodel decision <number|name>.")
 		return
 	}
 	fmt.Fprintf(c.Out, "Decision model: %s | endpoint: %s | backend: %s | assisted mode: %s\n",
@@ -151,18 +97,16 @@ func printDecisionStatus(c *Ctx) {
 
 func printDecisionUsage(c *Ctx) {
 	fmt.Fprintln(c.Out, "Usage:")
-	fmt.Fprintln(c.Out, "  /decision <name|number>      set decision model (resolved against the Ollama host)")
-	fmt.Fprintln(c.Out, "  /decision endpoint <url>     use a custom System One server endpoint")
-	fmt.Fprintln(c.Out, "  /decision endpoint ollama    use the Ollama host (native System One)")
+	fmt.Fprintln(c.Out, "  /decision status             show the decision backend and assisted mode")
 	fmt.Fprintln(c.Out, "  /decision test               run a connectivity and decision test")
 	fmt.Fprintln(c.Out, "  /decision assisted on|off    toggle assisted execution mode")
-	fmt.Fprintln(c.Out, "  /decision off                disable the decision model for this session")
+	fmt.Fprintln(c.Out, "Bind the decision model with /setmodel decision <number|name> (see /models).")
 }
 
 func runDecisionTest(c *Ctx) error {
 	client := decision.FromConfig(c.Cfg)
 	if client == nil {
-		fmt.Fprintln(c.Out, "Cannot test: no decision model configured. Use /decision <model> or /decision endpoint <url>.")
+		fmt.Fprintln(c.Out, "Cannot test: no decision model configured. Bind it with /setmodel decision <number|name>.")
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
