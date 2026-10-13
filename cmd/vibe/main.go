@@ -200,7 +200,7 @@ func main() {
 	installSignalHandler(ui, sess, globalInterrupter)
 
 	logger.Infof("Configuring RAG...")
-	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, client, ag)
+	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, embeddingClientFor(cfg, client, sideClient), ag)
 	if ragErr != nil {
 		exitWithError(ragErr)
 	}
@@ -387,6 +387,29 @@ func visionClientFor(cfg *config.Config, client, sideClient ollama.Client) ollam
 	provider, ok := cfg.RoleProvider(config.RoleVision)
 	if !ok || strings.TrimSpace(provider.Endpoint) == "" {
 		return nil
+	}
+	switch provider.Name {
+	case cfg.RoleBinding(config.RoleMain).Provider:
+		return client
+	case cfg.RoleBinding(config.RoleSidecar).Provider:
+		return sideClient
+	default:
+		return createLLMClient(provider.Endpoint, provider.APIKey, provider.Kind == config.ProviderOpenAI)
+	}
+}
+
+// embeddingClientFor returns the client the embedding role should use for RAG
+// embeddings: the main or sidecar client when the role points at the same
+// provider, a dedicated client otherwise. Unlike the vision role it never
+// returns nil for an unbound role: retrieval then falls back to the main client
+// which has no Embed method, so the engine runs in text-only mode.
+func embeddingClientFor(cfg *config.Config, client, sideClient ollama.Client) ollama.Client {
+	if cfg == nil || !cfg.RoleInUse(config.RoleEmbedding) {
+		return client
+	}
+	provider, ok := cfg.RoleProvider(config.RoleEmbedding)
+	if !ok || strings.TrimSpace(provider.Endpoint) == "" {
+		return client
 	}
 	switch provider.Name {
 	case cfg.RoleBinding(config.RoleMain).Provider:

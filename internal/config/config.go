@@ -105,7 +105,6 @@ type Config struct {
 	SidecarVisionKnown     bool
 
 	RAG         bool
-	RAGModel    string
 	RAGPath     string
 	RAGTopK     int
 	RAGIndex    string
@@ -318,7 +317,6 @@ Flags:
   --rag-mode string         RAG mode
   --rag-path string         RAG path
   --rag-topk int            RAG top-k chunks
-  --rag-model string        RAG embedding model
   --rag-index string        Build/index RAG path and exit
   --no-think                Disable Ollama native thinking (faster replies)
   --think <level>           Thinking effort: off|low|medium|high|max (default: model default)

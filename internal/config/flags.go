@@ -42,7 +42,6 @@ type cliOptions struct {
 	ragMode          optionalString
 	ragPath          optionalString
 	ragTopK          optionalInt
-	ragModel         optionalString
 	ragIndex         optionalString
 	contextFiles     stringSlice
 	help             optionalBool
@@ -102,7 +101,6 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ragMode, "rag-mode", "rag mode type")
 	fs.Var(&opts.ragPath, "rag-path", "rag path")
 	fs.Var(&opts.ragTopK, "rag-topk", "rag top-k")
-	fs.Var(&opts.ragModel, "rag-model", "rag model")
 	fs.Var(&opts.ragIndex, "rag-index", "rag index path")
 	fs.Var(&opts.contextFiles, "context", "pin a .md/.txt guide file as persistent session instruction (repeatable)")
 	fs.Var(&opts.help, "help", "show help")
@@ -232,9 +230,6 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.ragTopK.set {
 		cfg.RAGTopK = cli.ragTopK.value
-	}
-	if cli.ragModel.set {
-		cfg.RAGModel = cli.ragModel.value
 	}
 	if cli.ragIndex.set {
 		cfg.RAGIndex = cli.ragIndex.value

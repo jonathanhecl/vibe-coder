@@ -141,7 +141,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 
 ### Integrations
 
-- **RAG** (optional, `-tags rag`) — SQLite-backed indexing and cosine-similarity retrieval. Build with `--rag-index`, query with `--rag`.
+- **RAG** (optional, `-tags rag`) — SQLite-backed indexing with incremental (content-hash) re-indexing and hybrid retrieval: lexical token overlap fused with embedding cosine similarity (reciprocal rank fusion) when the `embedding` role is bound, lexical-only otherwise. Build with `--rag-index`, query with `--rag`.
 - **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`.
 - **Skills auto-load** — searches three directories for skill markdown files (50 KiB cap, sanitized).
 - **File checkpoint + auto-test** — pre-Edit/Write copies leave the working tree, index, and stashes untouched. A successful changed file becomes a completed checkpoint; failed or unchanged edits do not replace usable undo history. Related tests request shell execution permission, and failures or denied execution are re-injected as `[AUTO-TEST]` observations.
@@ -580,7 +580,6 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 - `--rag-mode <type>` — RAG mode type
 - `--rag-path <path>` — RAG database path
 - `--rag-topk <n>` — RAG top-k chunks
-- `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
 - `--save` — persist `ROLE_<ROLE>_PROVIDER`/`ROLE_<ROLE>_MODEL`, `PROVIDER_<NAME>_ENDPOINT`/`_KIND`/`_API_KEY`, `ASSISTED_YES`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
@@ -879,6 +878,20 @@ Run with RAG enabled:
 ```bash
 ./vibe --rag -p "Find where permissions are enforced"
 ```
+
+Retrieval is hybrid when the `embedding` role is bound: chunks are ranked by
+lexical token overlap and by embedding cosine similarity, then fused with
+reciprocal rank fusion. Bind an encoder with `/setmodel embedding <number|name>`
+(any model advertising the `embedding` capability, e.g. `nomic-embed-text`) and
+point it at an endpoint with `/provider`. With no `embedding` role — or a
+provider that cannot embed, such as an OpenAI-compatible one — the engine falls
+back to lexical-only retrieval and never fails.
+
+Indexing is incremental: each file's content hash is stored, so a re-run only
+re-embeds the files that changed and prunes the ones that disappeared. Source
+files are split at declaration boundaries (`func`, `type`, `class`, …) instead of
+fixed windows, and chunks are embedded in batches through the provider's
+`/api/embed`.
 
 RAG is an optional build feature. To compile with RAG support:
 
