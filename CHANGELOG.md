@@ -9,6 +9,10 @@ Release archives and generated notes are available on the
 
 ## [Unreleased]
 
+### Breaking
+
+- **JEV Style replaced by a generic Decision Model (System One protocol).** The old `internal/jevstyle` (v1/v2 letter-answer mode via `/api/chat`) and `internal/jevstylev3` packages are gone; a single `internal/decision` client now speaks `POST <endpoint>/v1/systemone` with typed `noul`/`choice`/`score` questions against either native Ollama (>= 0.35, models advertising the `decision` capability — verified at startup via `/api/show`) or a custom System One server (`/healthz` + `/v1/systemone`, e.g. `jev-style serve`). Configuration was renamed and old keys are **removed, not aliased**: `JEVSTYLE_V3_ENDPOINT` → `DECISION_ENDPOINT`, `JEVSTYLE_MODEL` is gone — configure an Ollama `decision`-capable model via `DECISION_MODEL` instead (e.g. `nimble`, `tev1`, `clef-flash`). New env vars `VIBE_CODER_DECISION_MODEL` / `VIBE_CODER_DECISION_ENDPOINT` / `VIBE_CODER_DECISION_API_KEY` and flags `--decision-model` / `--decision-endpoint` (the `--jevstyle*` flags no longer exist). Any leftover `JEVSTYLE_*` key in `vibe-coder.env` or the environment prints a one-time startup warning and is ignored. The `/jevstyle` slash command is replaced by `/decision` (status, `<name|number>`, `endpoint <url|ollama>`, `test`, `assisted on|off`, `off`); the `JevDecide` tool is renamed `Decide`; `VIBE_THINKING_NO_JEV_TIMEOUT` is now `VIBE_THINKING_NO_DECISION_TIMEOUT`.
+
 ### Added
 
 - Harness metrics: every model request records a JSONL entry (provider-reported prompt/completion tokens, prompt-eval/eval/wall timings, tool-call count, tool mode, and estimated system/tool-schema/transcript sizes) to `<state-dir>/metrics/<session-id>.jsonl` (isolated sessions use `<cwd>/.vibe-isolated-metrics.jsonl`; temporal sessions and `METRICS_DISABLED` keep it memory-only). The new `/stats` slash command prints the session summary (requests, tokens, averages, compactions, errors) plus the file path. `/stats` is no longer an alias for `/status`.

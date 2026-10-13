@@ -11,15 +11,15 @@ import (
 
 var (
 	// Default intervals and counts for thinking supervision.
-	defaultThinkingCheckInterval  = 2 * time.Minute
-	defaultThinkingNoJevTimeout   = 15 * time.Minute
-	defaultThinkingParagraphCount = 5
-	defaultMaxThinkingLoopRetries = 3
+	defaultThinkingCheckInterval     = 2 * time.Minute
+	defaultThinkingNoDecisionTimeout = 15 * time.Minute
+	defaultThinkingParagraphCount    = 5
+	defaultMaxThinkingLoopRetries    = 3
 
-	thinkingCheckInterval  = defaultThinkingCheckInterval
-	thinkingNoJevTimeout   = defaultThinkingNoJevTimeout
-	thinkingParagraphCount = defaultThinkingParagraphCount
-	maxThinkingLoopRetries = defaultMaxThinkingLoopRetries
+	thinkingCheckInterval     = defaultThinkingCheckInterval
+	thinkingNoDecisionTimeout = defaultThinkingNoDecisionTimeout
+	thinkingParagraphCount    = defaultThinkingParagraphCount
+	maxThinkingLoopRetries    = defaultMaxThinkingLoopRetries
 )
 
 func init() {
@@ -28,9 +28,9 @@ func init() {
 			thinkingCheckInterval = d
 		}
 	}
-	if v := os.Getenv("VIBE_THINKING_NO_JEV_TIMEOUT"); v != "" {
+	if v := os.Getenv("VIBE_THINKING_NO_DECISION_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			thinkingNoJevTimeout = d
+			thinkingNoDecisionTimeout = d
 		}
 	}
 }
@@ -82,11 +82,11 @@ func extractLastParagraphs(text string, n int) string {
 }
 
 var (
-	// ErrThinkingLoopDetected is returned when JEV detects that the model is in a cyclical loop.
-	ErrThinkingLoopDetected = errors.New("thinking loop detected by JEV")
+	// ErrThinkingLoopDetected is returned when the decision model detects that the model is in a cyclical loop.
+	ErrThinkingLoopDetected = errors.New("thinking loop detected by the decision model")
 
-	// ErrThinkingTimeoutNoJev is returned when continuous thinking exceeds 15 minutes without JEV enabled.
-	ErrThinkingTimeoutNoJev = errors.New("thinking timeout: exceeded 15 minutes of thinking without JEV enabled")
+	// ErrThinkingTimeoutNoDecision is returned when continuous thinking exceeds 15 minutes without a decision model enabled.
+	ErrThinkingTimeoutNoDecision = errors.New("thinking timeout: exceeded 15 minutes of thinking without a decision model enabled")
 )
 
 // ThinkingLoopLimitError is returned when a cyclical thinking loop has failed 3 consecutive times in the same step.
@@ -104,7 +104,7 @@ func IsThinkingLoopLimitErr(err error) bool {
 	return errors.As(err, &target)
 }
 
-// IsThinkingTimeoutNoJevErr reports whether err is a 15-minute thinking timeout without JEV enabled.
-func IsThinkingTimeoutNoJevErr(err error) bool {
-	return errors.Is(err, ErrThinkingTimeoutNoJev)
+// IsThinkingTimeoutNoDecisionErr reports whether err is a 15-minute thinking timeout without a decision model enabled.
+func IsThinkingTimeoutNoDecisionErr(err error) bool {
+	return errors.Is(err, ErrThinkingTimeoutNoDecision)
 }

@@ -58,7 +58,7 @@ func PasteTaskFromSlash(c *Ctx, line string) (string, bool) {
 }
 
 // noteUserProvidedPaths tells the permission layer which files the user handed
-// over themselves. Assisted mode (JEV Style) forwards this to the decision
+// over themselves. Assisted mode (decision model) forwards this to the decision
 // model so an opaque clipboard filename is not mistaken for a path the agent
 // invented, which would otherwise drop the decision to "review" and prompt the
 // user for a file they just pasted.

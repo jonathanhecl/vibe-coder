@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
+	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
@@ -56,11 +56,11 @@ func runCommitFlow(c *Ctx) (string, string, error) {
 			msg = sanitizeCommitMessage(resp.Content)
 		}
 
-		if c.Cfg.JevstyleOllamaInUse() {
-			jevCtx, jevCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer jevCancel()
-			jev := jevstyle.New(c.Cfg, c.Client)
-			if cType, err := jev.ClassifyCommit(jevCtx, promptDiff); err == nil && cType != "" {
+		if c.Cfg.DecisionInUse() {
+			decisionCtx, decisionCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer decisionCancel()
+			dec := decision.FromConfig(c.Cfg)
+			if cType, err := dec.ClassifyCommit(decisionCtx, promptDiff); err == nil && cType != "" {
 				msg = ensureCommitTypePrefix(msg, cType)
 			}
 		}

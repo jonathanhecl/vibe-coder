@@ -114,7 +114,7 @@ func TestOfflineModeDelegatesToSafetyDecider(t *testing.T) {
 
 	// Custom tool flagged by decider
 	if m.Check("Bash", map[string]any{"command": "my-custom-fetch data"}, nil) {
-		t.Fatal("expected custom fetch command blocked by JEV decider")
+		t.Fatal("expected custom fetch command blocked by the decision model")
 	}
 	if !strings.Contains(m.LastDenialReason(), "external network access is disabled") {
 		t.Fatalf("unexpected denial reason: %s", m.LastDenialReason())

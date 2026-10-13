@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
-	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
+	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
@@ -27,17 +27,17 @@ func (d *contextSafetyDecider) IsCommandDangerous(context.Context, string) (bool
 	return false, nil
 }
 
-func (d *contextSafetyDecider) AskSafety(_ context.Context, _ string, detail string) (*jevstylev3.SafetyDecision, error) {
+func (d *contextSafetyDecider) AskSafety(_ context.Context, _ string, detail string) (*decision.SafetyDecision, error) {
 	d.called = true
 	d.detail = detail
-	return &jevstylev3.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
+	return &decision.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
 }
 
-func (d *contextSafetyDecider) AskSafetyWithContext(_ context.Context, _, detail, note string) (*jevstylev3.SafetyDecision, error) {
+func (d *contextSafetyDecider) AskSafetyWithContext(_ context.Context, _, detail, note string) (*decision.SafetyDecision, error) {
 	d.called = true
 	d.detail = detail
 	d.note = note
-	return &jevstylev3.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
+	return &decision.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
 }
 
 func TestNoteUserProvidedPath_MatchesAbsPathAndBasename(t *testing.T) {
@@ -73,7 +73,7 @@ func TestNoteUserProvidedPath_EmptyIsIgnored(t *testing.T) {
 
 func TestAssistedCommand_ForwardsUserProvidedContext(t *testing.T) {
 	decider := &contextSafetyDecider{enabled: true}
-	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m := NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	m.SetSafetyDecider(decider)
 
 	img := filepath.Join(t.TempDir(), "vibe_clipboard_999.png")
@@ -96,7 +96,7 @@ func TestAssistedCommand_ForwardsUserProvidedContext(t *testing.T) {
 
 func TestAssistedCommand_NoNoteForUnrelatedPath(t *testing.T) {
 	decider := &contextSafetyDecider{enabled: true}
-	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m := NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	m.SetSafetyDecider(decider)
 
 	m.NoteUserProvidedPath(filepath.Join(t.TempDir(), "vibe_clipboard_999.png"))
@@ -112,7 +112,7 @@ func TestAssistedCommand_NoNoteForUnrelatedPath(t *testing.T) {
 
 func TestAssistedAction_ForwardsUserProvidedContext(t *testing.T) {
 	decider := &contextSafetyDecider{enabled: true}
-	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m := NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	m.SetSafetyDecider(decider)
 
 	img := filepath.Join(t.TempDir(), "vibe_clipboard_777.png")
@@ -189,9 +189,9 @@ func (d *legacyDecisionMaker) IsCommandDangerous(context.Context, string) (bool,
 	return false, nil
 }
 
-func (d *legacyDecisionMaker) AskSafety(_ context.Context, _ string, detail string) (*jevstylev3.SafetyDecision, error) {
+func (d *legacyDecisionMaker) AskSafety(_ context.Context, _ string, detail string) (*decision.SafetyDecision, error) {
 	d.detail = detail
-	return &jevstylev3.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
+	return &decision.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
 }
 
 // contextOnlyDecider implements only safetyContextDecisionMaker.
@@ -205,9 +205,9 @@ func (d *contextOnlyDecider) IsCommandDangerous(context.Context, string) (bool, 
 	return false, nil
 }
 
-func (d *contextOnlyDecider) AskSafetyWithContext(_ context.Context, _, _, note string) (*jevstylev3.SafetyDecision, error) {
+func (d *contextOnlyDecider) AskSafetyWithContext(_ context.Context, _, _, note string) (*decision.SafetyDecision, error) {
 	d.note = note
-	return &jevstylev3.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
+	return &decision.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
 }
 
 func TestUserProvidedNote_IsNonEmptyAndMentionsClipboard(t *testing.T) {
@@ -228,7 +228,7 @@ func TestUserProvidedNote_IsNonEmptyAndMentionsClipboard(t *testing.T) {
 // context note to be a pure improvement.
 func TestAssistedCommand_ContextNoteStillApproves(t *testing.T) {
 	decider := &contextSafetyDecider{enabled: true}
-	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m := NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	m.SetSafetyDecider(decider)
 
 	img := filepath.Join(t.TempDir(), "vibe_clipboard_1.png")

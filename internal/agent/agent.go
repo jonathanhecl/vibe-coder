@@ -8,9 +8,8 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
+	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	gitx "github.com/jonathanhecl/vibe-coder/internal/git"
-	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
-	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
 	"github.com/jonathanhecl/vibe-coder/internal/metrics"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
@@ -46,7 +45,7 @@ type Agent struct {
 	rag         ragProvider
 	paths       *pathMemory
 	side        *sidecar.Pool
-	jev         jevstyle.Decider
+	decider     decision.Decider
 	currentGoal string // verbatim text of the user's request for this Run()
 	ctxStore    *contextfiles.Store
 	imgCache    *vision.Cache
@@ -139,19 +138,15 @@ func New(
 	// Lazily resolved on each record: the session id can change (resume,
 	// /new) and temporal/isolated state lives on cfg.
 	a.metrics = metrics.NewRecorder(func() string { return a.MetricsPath() })
-	if cfg != nil && cfg.JevstyleV3InUse() {
-		a.jev = jevstylev3.New(cfg.JevstyleV3Endpoint)
-	} else if cfg != nil && cfg.JevstyleInUse() {
-		a.jev = jevstyle.New(cfg, client)
-	}
+	a.decider = decision.FromConfig(cfg)
 	// Mission tools let the agent own the lifecycle of long-running work:
 	// it decides when to start, and only the agent completes or blocks it.
 	if reg != nil {
 		reg.Register(tools.NewMissionStartTool(a.mission))
 		reg.Register(tools.NewMissionCompleteTool(a.mission))
 		reg.Register(tools.NewMissionBlockedTool(a.mission))
-		if a.jev != nil {
-			reg.Register(tools.NewJevDecideTool(a.jev))
+		if a.decider != nil {
+			reg.Register(tools.NewDecideTool(a.decider))
 		}
 		// One shared output cap for every tool that honors it, derived from
 		// the harness tuning knob (or 15% of the context window on auto).
@@ -160,21 +155,21 @@ func New(
 	return a
 }
 
-// SetJevstyle overrides the JEV Style decision model decider.
-func (a *Agent) SetJevstyle(d jevstyle.Decider) {
+// SetDecider overrides the decision model decider.
+func (a *Agent) SetDecider(d decision.Decider) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.jev = d
+	a.decider = d
 	if a.reg != nil && d != nil {
-		a.reg.Register(tools.NewJevDecideTool(d))
+		a.reg.Register(tools.NewDecideTool(d))
 	}
 }
 
-// Jevstyle returns the current JEV Style decision decider.
-func (a *Agent) Jevstyle() jevstyle.Decider {
+// Decider returns the current decision model decider.
+func (a *Agent) Decider() decision.Decider {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.jev
+	return a.decider
 }
 
 // SetSidecar overrides the default sidecar pool. Tests use this to inject

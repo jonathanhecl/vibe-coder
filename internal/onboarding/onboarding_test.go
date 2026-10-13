@@ -65,7 +65,7 @@ func TestRunFirstRunDefaultPathUsesInstalledRecommendedWithoutPull(t *testing.T)
 		srv.URL, // host value
 		"",      // primary model: recommended
 		"",      // sidecar: disabled
-		"",      // JEV Style: disabled
+		"",      // Decision model: disabled
 	}, "\n") + "\n")
 	out := &bytes.Buffer{}
 
@@ -84,8 +84,8 @@ func TestRunFirstRunDefaultPathUsesInstalledRecommendedWithoutPull(t *testing.T)
 	if cfg.SidecarModel != "" {
 		t.Fatalf("expected empty sidecar model, got %q", cfg.SidecarModel)
 	}
-	if cfg.JevstyleModel != "" {
-		t.Fatalf("expected empty JEV Style model, got %q", cfg.JevstyleModel)
+	if cfg.DecisionModel != "" {
+		t.Fatalf("expected empty decision model, got %q", cfg.DecisionModel)
 	}
 
 	mu.Lock()
@@ -219,7 +219,7 @@ func TestRunFirstRunCustomModelAndCustomSidecarPullsBoth(t *testing.T) {
 		"main-custom:7b",    // custom primary model
 		"c",                 // custom sidecar
 		"sidecar-custom:3b", // custom sidecar model
-		"",                  // JEV Style: disabled
+		"",                  // Decision model: disabled
 	}, "\n") + "\n")
 	out := &bytes.Buffer{}
 
@@ -255,7 +255,7 @@ func TestRunFirstRunSelectsAllRolesFromSingleList(t *testing.T) {
 			_, _ = w.Write([]byte(`{"models":[` +
 				`{"name":"main:7b","capabilities":["tools"]},` +
 				`{"name":"side:3b","capabilities":["tools"]},` +
-				`{"name":"jev:2b"}]}`))
+				`{"name":"decision:2b"}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -274,7 +274,7 @@ func TestRunFirstRunSelectsAllRolesFromSingleList(t *testing.T) {
 		srv.URL, // host
 		"1",     // primary: main:7b
 		"2",     // sidecar: side:3b
-		"3",     // JEV Style: jev:2b
+		"3",     // Decision model: decision:2b
 	}, "\n") + "\n")
 	out := &bytes.Buffer{}
 
@@ -287,23 +287,23 @@ func TestRunFirstRunSelectsAllRolesFromSingleList(t *testing.T) {
 	if cfg.SidecarModel != "side:3b" || cfg.SidecarDisabled {
 		t.Fatalf("sidecar mismatch: got %q disabled=%v", cfg.SidecarModel, cfg.SidecarDisabled)
 	}
-	if cfg.JevstyleModel != "jev:2b" {
-		t.Fatalf("jevstyle mismatch: got %q", cfg.JevstyleModel)
+	if cfg.DecisionModel != "decision:2b" {
+		t.Fatalf("decision model mismatch: got %q", cfg.DecisionModel)
 	}
 
 	rendered := out.String()
 	if got := strings.Count(rendered, "Installed models ("); got != 1 {
 		t.Fatalf("expected the model list exactly once, got %d:\n%s", got, rendered)
 	}
-	if !strings.Contains(rendered, "JEV Style") {
-		t.Fatalf("expected JEV Style in the summary, got:\n%s", rendered)
+	if !strings.Contains(rendered, "Decision model") {
+		t.Fatalf("expected Decision model in the summary, got:\n%s", rendered)
 	}
 
 	data, err := os.ReadFile(cfg.ConfigFile)
 	if err != nil {
 		t.Fatalf("read saved config: %v", err)
 	}
-	for _, want := range []string{"MODEL=main:7b", "SIDECAR_MODEL=side:3b", "JEVSTYLE_MODEL=jev:2b"} {
+	for _, want := range []string{"MODEL=main:7b", "SIDECAR_MODEL=side:3b", "DECISION_MODEL=decision:2b"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("expected %q in saved config, got:\n%s", want, data)
 		}

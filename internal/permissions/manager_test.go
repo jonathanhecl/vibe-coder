@@ -205,7 +205,7 @@ func (n *notifyingUI) lastOutcome() (tui.AssistedOutcome, bool) {
 
 func TestAssistedExecutionMode(t *testing.T) {
 	decider := &mockSafetyDecider{enabled: true}
-	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m := NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	m.SetSafetyDecider(decider)
 
 	// 1. Safe command is auto-approved by assisted mode
@@ -248,16 +248,16 @@ func TestAssistedExecutionMode(t *testing.T) {
 		t.Fatal("expected bash command to require prompt when assisted mode is off")
 	}
 
-	// 7. No JEV model configured at startup prevents assisted mode
-	mNoJev := NewManager(&config.Config{YesMode: false, AssistedYes: true})
-	if mNoJev.AssistedMode() {
-		t.Fatal("expected assisted mode to be false when no JevstyleModel is configured")
+	// 7. No decision model configured at startup prevents assisted mode
+	mNoDecision := NewManager(&config.Config{YesMode: false, AssistedYes: true})
+	if mNoDecision.AssistedMode() {
+		t.Fatal("expected assisted mode to be false when no DecisionModel is configured")
 	}
 }
 
 func TestAssistedExecutionModeNetworkTools(t *testing.T) {
 	decider := &mockSafetyDecider{enabled: true, actionDangerous: false}
-	m := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m := NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	m.SetSafetyDecider(decider)
 
 	// 1. A safe network action is auto-approved and the user is notified.
@@ -269,7 +269,7 @@ func TestAssistedExecutionModeNetworkTools(t *testing.T) {
 		t.Fatalf("expected a WebSearch approval notice, got %+v", ui.notices)
 	}
 
-	// 2. A dangerous network action prompts, and the user is told JEV flagged it.
+	// 2. A dangerous network action prompts, and the user is told the decision model flagged it.
 	decider.actionDangerous = true
 	ui2 := &notifyingUI{}
 	if m.Check("WebFetch", map[string]any{"url": "http://example.com"}, ui2) {
@@ -279,7 +279,7 @@ func TestAssistedExecutionModeNetworkTools(t *testing.T) {
 		t.Fatalf("expected a dangerous notice, got %+v", ui2.notices)
 	}
 
-	// 3. Every prompting tool goes through JEV: a safe Write is auto-approved.
+	// 3. Every prompting tool goes through the decision model: a safe Write is auto-approved.
 	decider.actionDangerous = false
 	ui3 := &notifyingUI{}
 	if !m.Check("Write", map[string]any{"file_path": "notes.md", "contents": "hello"}, ui3) {
@@ -290,7 +290,7 @@ func TestAssistedExecutionModeNetworkTools(t *testing.T) {
 	}
 
 	// 4. A decider without action support keeps prompting and reports why.
-	m2 := NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	m2 := NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	m2.SetSafetyDecider(&commandOnlyDecider{enabled: true})
 	ui4 := &notifyingUI{}
 	if m2.Check("WebSearch", map[string]any{"query": "x"}, ui4) {

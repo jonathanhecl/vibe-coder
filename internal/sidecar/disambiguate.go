@@ -21,8 +21,8 @@ const disambiguateSystem = "You resolve ambiguous file references for a coding a
 // in which case the caller should fall back to its default behaviour
 // (refuse the rescue).
 func (p *Pool) DisambiguatePath(ctx context.Context, hint string, candidates []string) (string, bool, error) {
-	if p != nil && p.jev != nil && p.jev.Enabled() {
-		if chosen, ok, err := p.jev.DisambiguatePath(ctx, hint, candidates); err == nil && ok && chosen != "" {
+	if p != nil && p.decider != nil && p.decider.Enabled() {
+		if chosen, ok, err := p.decider.DisambiguatePath(ctx, hint, candidates); err == nil && ok && chosen != "" {
 			return chosen, true, nil
 		}
 	}

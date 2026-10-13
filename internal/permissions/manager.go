@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
-	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
+	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
@@ -33,10 +33,10 @@ type actionSafetyDecider interface {
 }
 
 // safetyDecisionMaker is an optional interface for deciders that support
-// multi-question safety evaluation with confidence scoring (e.g. JEV v3).
+// multi-question safety evaluation with confidence scoring (the decision model).
 // When implemented, the manager uses AskSafety for assisted mode decisions.
 type safetyDecisionMaker interface {
-	AskSafety(ctx context.Context, toolName, detail string) (*jevstylev3.SafetyDecision, error)
+	AskSafety(ctx context.Context, toolName, detail string) (*decision.SafetyDecision, error)
 }
 
 // safetyContextDecisionMaker is an optional extension for deciders that can
@@ -44,7 +44,7 @@ type safetyDecisionMaker interface {
 // about facts it cannot read from the arguments, such as "this path was
 // supplied by the user".
 type safetyContextDecisionMaker interface {
-	AskSafetyWithContext(ctx context.Context, toolName, detail, contextNote string) (*jevstylev3.SafetyDecision, error)
+	AskSafetyWithContext(ctx context.Context, toolName, detail, contextNote string) (*decision.SafetyDecision, error)
 }
 
 // networkSafetyDecider is an optional interface for safety deciders that can classify
@@ -102,7 +102,7 @@ func NewManager(cfg *config.Config) *Manager {
 	if cfg != nil {
 		yesMode = cfg.YesMode
 		offlineMode = cfg.Offline
-		if cfg.JevstyleInUse() {
+		if cfg.DecisionInUse() {
 			assistedMode = cfg.AssistedYes
 		}
 		permFile = cfg.PermFile
@@ -385,7 +385,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 			return true
 		}
 
-		// Assisted execution mode: a SafetyDecider (e.g. JEV Style) reviews every
+		// Assisted execution mode: a SafetyDecider (the decision model) reviews every
 		// action that would otherwise prompt (shell commands, network tools, file
 		// mutations, unknown/MCP tools) and auto-approves it when safe. Mandatory
 		// confirmations (always-confirm shell patterns) and safe-tier tools keep
@@ -500,7 +500,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 
 // assistedCommandApproved asks the safety decider whether a shell command is
 // safe and auto-approves it when so. When the decider supports AskSafety
-// (e.g. JEV v3), it uses the multi-question decision with confidence scoring.
+// (the decision model), it uses the multi-question decision with confidence scoring.
 // It always reports the outcome to the UI so the user knows whether assisted
 // mode approved, flagged, or could not review the command. A missing,
 // disabled, or failing decider deactivates assisted mode and falls back to
@@ -513,7 +513,7 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 	}
 	start := time.Now()
 
-	// Try AskSafety first (v3 multi-question with confidence)
+	// Try AskSafety first (multi-question with confidence)
 	if decision, handled, err := askSafety(context.Background(), dec, toolName, command, m.userProvidedNote(command)); handled {
 		elapsed := time.Since(start)
 		if err != nil {
@@ -524,7 +524,7 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 		return m.handleSafetyDecision(ui, toolName, decision, elapsed)
 	}
 
-	// Fallback to binary IsCommandDangerous (v1/v2)
+	// Fallback to binary IsCommandDangerous (binary decider)
 	dangerous, err := dec.IsCommandDangerous(context.Background(), command)
 	elapsed := time.Since(start)
 	if err != nil {
@@ -543,7 +543,7 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 // askSafety queries a decider that supports AskSafety, preferring the
 // context-aware variant when available. handled is false when the decider
 // supports neither, so callers fall through to the binary decider.
-func askSafety(ctx context.Context, dec SafetyDecider, toolName, detail, note string) (decision *jevstylev3.SafetyDecision, handled bool, err error) {
+func askSafety(ctx context.Context, dec SafetyDecider, toolName, detail, note string) (decision *decision.SafetyDecision, handled bool, err error) {
 	if scm, ok := dec.(safetyContextDecisionMaker); ok {
 		d, err := scm.AskSafetyWithContext(ctx, toolName, detail, note)
 		return d, true, err
@@ -558,8 +558,8 @@ func askSafety(ctx context.Context, dec SafetyDecider, toolName, detail, note st
 // handleSafetyDecision processes a SafetyDecision from AskSafety and notifies
 // the UI of the outcome. Auto-approves when action is "allow" and confidence
 // is high enough. When action is "block", prompts the user with a notice that
-// JEV is confident the action is dangerous (does not auto-reject).
-func (m *Manager) handleSafetyDecision(ui prompter, toolName string, decision *jevstylev3.SafetyDecision, elapsed time.Duration) bool {
+// the decision model is confident the action is dangerous (does not auto-reject).
+func (m *Manager) handleSafetyDecision(ui prompter, toolName string, decision *decision.SafetyDecision, elapsed time.Duration) bool {
 	if decision == nil {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
 		return false
@@ -582,7 +582,7 @@ func (m *Manager) handleSafetyDecision(ui prompter, toolName string, decision *j
 
 // assistedActionApproved asks the safety decider whether a non-shell action is
 // safe and auto-approves it when so. When the decider supports AskSafety
-// (e.g. JEV v3), it uses the multi-question decision with confidence scoring.
+// (the decision model), it uses the multi-question decision with confidence scoring.
 // Deciders without action support keep the manual prompt for that action while
 // assisted mode stays on for shell commands.
 func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolName string, params map[string]any) bool {
@@ -593,7 +593,7 @@ func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolNam
 	}
 	start := time.Now()
 
-	// Try AskSafety first (v3 multi-question with confidence)
+	// Try AskSafety first (multi-question with confidence)
 	summary := actionSummary(params)
 	if decision, handled, err := askSafety(context.Background(), dec, toolName, summary, m.userProvidedNote(summary)); handled {
 		elapsed := time.Since(start)
@@ -605,7 +605,7 @@ func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolNam
 		return m.handleSafetyDecision(ui, toolName, decision, elapsed)
 	}
 
-	// Fallback to binary IsActionDangerous (v1/v2)
+	// Fallback to binary IsActionDangerous (binary decider)
 	actionDec, ok := dec.(actionSafetyDecider)
 	if !ok {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnsupported})

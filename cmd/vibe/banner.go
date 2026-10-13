@@ -51,14 +51,14 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 		{Label: "Sidecar", Value: formatSidecarBanner(cfg)},
 		{Label: hostLabel, Value: host},
 	}
-	if cfg != nil && cfg.JevstyleInUse() {
-		val := jevstyleBannerValue(cfg)
+	if cfg != nil && cfg.DecisionInUse() {
+		val := decisionBannerValue(cfg)
 		if cfg.AssistedYes {
 			val = fmt.Sprintf("%s (assisted enabled)", val)
 		} else {
 			val = fmt.Sprintf("%s (run '/yes assisted' to enable)", val)
 		}
-		fields = append(fields, bannerField{Label: "Jevstyle", Value: val})
+		fields = append(fields, bannerField{Label: "Decision", Value: val})
 	}
 	if cfg != nil && cfg.Offline {
 		fields = append(fields, bannerField{Label: "Offline", Value: "enabled (network blocked)"})
@@ -66,16 +66,16 @@ func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerFi
 	return fields
 }
 
-// jevstyleBannerValue returns the configured JEV Style target: the v3 endpoint
-// URL when v3 is active, otherwise the v1/v2 decision model name.
-func jevstyleBannerValue(cfg *config.Config) string {
+// decisionBannerValue returns the configured decision model target: the
+// endpoint URL when one is set, otherwise the decision model name.
+func decisionBannerValue(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	if cfg.JevstyleV3InUse() {
-		return strings.TrimSpace(cfg.JevstyleV3Endpoint)
+	if ep := strings.TrimSpace(cfg.DecisionEndpoint); ep != "" {
+		return ep
 	}
-	return strings.TrimSpace(cfg.JevstyleModel)
+	return strings.TrimSpace(cfg.DecisionModel)
 }
 
 func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style) string {
@@ -92,14 +92,14 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 			"vibe %s\n%s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
 			version.Value, sessionLine, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
 		)
-		if cfg != nil && cfg.JevstyleInUse() {
-			jevVal := jevstyleBannerValue(cfg)
+		if cfg != nil && cfg.DecisionInUse() {
+			decisionVal := decisionBannerValue(cfg)
 			if cfg.AssistedYes {
-				jevVal = fmt.Sprintf("%s (assisted enabled)", jevVal)
+				decisionVal = fmt.Sprintf("%s (assisted enabled)", decisionVal)
 			} else {
-				jevVal = fmt.Sprintf("%s (run '/yes assisted' to enable)", jevVal)
+				decisionVal = fmt.Sprintf("%s (run '/yes assisted' to enable)", decisionVal)
 			}
-			out += fmt.Sprintf("JEV Style: %s\n", jevVal)
+			out += fmt.Sprintf("Decision: %s\n", decisionVal)
 		}
 		if cfg != nil && cfg.Offline {
 			out += "Offline: enabled (network blocked)\n"
@@ -138,13 +138,13 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 			} else {
 				b.WriteString(style.BrightWhite(f.Value))
 			}
-		} else if f.Label == "Jevstyle" {
+		} else if f.Label == "Decision" {
 			if cfg != nil && cfg.AssistedYes {
-				b.WriteString(style.BrightWhite(jevstyleBannerValue(cfg)))
+				b.WriteString(style.BrightWhite(decisionBannerValue(cfg)))
 				b.WriteString(" ")
 				b.WriteString(style.Green("(assisted enabled)"))
-			} else if cfg != nil && cfg.JevstyleInUse() {
-				b.WriteString(style.BrightWhite(jevstyleBannerValue(cfg)))
+			} else if cfg != nil && cfg.DecisionInUse() {
+				b.WriteString(style.BrightWhite(decisionBannerValue(cfg)))
 				b.WriteString(" ")
 				b.WriteString(style.BrightWhite("(run '/yes assisted' to enable)"))
 			} else {

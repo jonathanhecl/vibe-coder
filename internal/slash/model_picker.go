@@ -16,7 +16,7 @@ import (
 // current value is marked, and Enter leaves the selection unchanged.
 //
 // command is the slash name used in fallback hints ("model", "sidecar", ...);
-// role labels the prompt ("Model", "Sidecar", "JEV Style"). allowDisable adds a
+// role labels the prompt ("Model", "Sidecar", "Decision"). allowDisable adds a
 // [0] entry so the caller can turn the role off.
 //
 // It returns the chosen model name and whether the selection changed. A disable
@@ -97,7 +97,7 @@ func (c *Ctx) printModelRows(models []ollama.Model, suffixFor func(ollama.Model)
 // informational: it never changes the configuration.
 func runModelsCommand(c *Ctx, args []string) error {
 	if len(args) > 0 {
-		fmt.Fprintln(c.Out, "Usage: /models (lists installed models; switch with /model, /sidecar, or /jevstyle and a number)")
+		fmt.Fprintln(c.Out, "Usage: /models (lists installed models; switch with /model, /sidecar, or /decision and a number)")
 		return nil
 	}
 	models := c.installedModels(context.Background())
@@ -113,7 +113,7 @@ func runModelsCommand(c *Ctx, args []string) error {
 		return "(" + strings.Join(roles, " · ") + ")"
 	})
 	fmt.Fprintln(c.Out)
-	fmt.Fprintln(c.Out, "Switch with /model <n>, /sidecar <n>, or /jevstyle <n>; run /save to persist.")
+	fmt.Fprintln(c.Out, "Switch with /model <n>, /sidecar <n>, or /decision <n>; run /save to persist.")
 	return nil
 }
 
@@ -134,8 +134,8 @@ func (c *Ctx) modelRoles(name string) []string {
 	if matches(c.Cfg.SidecarModel) {
 		roles = append(roles, "sidecar")
 	}
-	if matches(c.Cfg.JevstyleModel) {
-		roles = append(roles, "jev-style")
+	if matches(c.Cfg.DecisionModel) {
+		roles = append(roles, "decision")
 	}
 	return roles
 }

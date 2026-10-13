@@ -7,7 +7,7 @@ import (
 )
 
 // runSaveCommand persists the model/thinking settings changed by /model,
-// /sidecar, /jevstyle, /think, and /hide-think so they apply on the next run.
+// /sidecar, /decision, /think, and /hide-think so they apply on the next run.
 // It also saves the current session when it is permanent; temporal sessions
 // stay ephemeral and must be kept explicitly with /promote.
 func runSaveCommand(c *Ctx) error {

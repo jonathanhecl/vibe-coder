@@ -120,11 +120,11 @@ func statusRows(c *Ctx) []statusRow {
 	})
 	rows = append(rows, statusRow{Label: "Tools", Plain: toolsStatus(c)})
 	rows = append(rows, statusRow{Label: "Sidecar", Plain: sidecarStatusValue(c)})
-	if c.Cfg.JevstyleInUse() {
+	if c.Cfg.DecisionInUse() {
 		rows = append(rows, statusRow{
-			Label: "JEV Style",
-			Short: "Jevstyle",
-			Plain: jevstyleStatusValue(c),
+			Label: "Decision model",
+			Short: "Decision",
+			Plain: decisionStatusValue(c),
 		})
 	}
 	rows = append(rows, statusRow{
@@ -218,24 +218,24 @@ func yesModeValue(c *Ctx) string {
 	return "off"
 }
 
-// assistedActive reports the effective JEV Style assisted state. It prefers the
+// assistedActive reports the effective decision-model assisted state. It prefers the
 // permissions manager, which can auto-disable assisted mode when a decision
 // model is missing or errors, over the configured ASSISTED_YES value.
 func assistedActive(c *Ctx) bool {
 	if c.Perm != nil {
 		return c.Perm.AssistedMode()
 	}
-	return c.Cfg.AssistedYes && c.Cfg.JevstyleInUse()
+	return c.Cfg.AssistedYes && c.Cfg.DecisionInUse()
 }
 
 func assistedStatusValue(c *Ctx) string {
 	switch {
 	case assistedActive(c):
-		return "on (JEV Style)"
-	case c.Cfg.JevstyleInUse():
+		return "on (decision model)"
+	case c.Cfg.DecisionInUse():
 		return "off (run '/yes assisted' to enable)"
 	default:
-		return "off (no JEV Style model)"
+		return "off (no decision model)"
 	}
 }
 
@@ -264,13 +264,13 @@ func offlineStatusValue(c *Ctx) string {
 	return "disabled"
 }
 
-// jevstyleStatusValue renders the configured JEV Style target for /info,
+// decisionStatusValue renders the configured decision target for /info,
 // showing the v3 endpoint when v3 is active and the model name otherwise.
-func jevstyleStatusValue(c *Ctx) string {
-	if c.Cfg.JevstyleV3InUse() {
-		return fmt.Sprintf("v3 (%s)", strings.TrimSpace(c.Cfg.JevstyleV3Endpoint))
+func decisionStatusValue(c *Ctx) string {
+	if ep := strings.TrimSpace(c.Cfg.DecisionEndpoint); ep != "" {
+		return fmt.Sprintf("endpoint %s", ep)
 	}
-	return strings.TrimSpace(c.Cfg.JevstyleModel)
+	return strings.TrimSpace(c.Cfg.DecisionModel)
 }
 
 // sidecarStatusValue condenses the sidecar state into one line, matching the

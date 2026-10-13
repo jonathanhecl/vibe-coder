@@ -5,28 +5,28 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
+	"github.com/jonathanhecl/vibe-coder/internal/decision"
 )
 
-// JevDecideTool exposes the JEV Style decision model as a tool for the agent and sidecar,
+// DecideTool exposes the decision model as a tool for the agent and sidecar,
 // allowing the model to request a fast, deterministic second opinion, classification,
-// or validation decision over discrete options (A-Z).
-type JevDecideTool struct {
-	decider jevstyle.Decider
+// or validation decision over a list of options.
+type DecideTool struct {
+	decider decision.Decider
 }
 
-// NewJevDecideTool constructs a new JevDecideTool.
-func NewJevDecideTool(decider jevstyle.Decider) *JevDecideTool {
-	return &JevDecideTool{decider: decider}
+// NewDecideTool constructs a new DecideTool.
+func NewDecideTool(decider decision.Decider) *DecideTool {
+	return &DecideTool{decider: decider}
 }
 
-func (t *JevDecideTool) Name() string { return "JevDecide" }
+func (t *DecideTool) Name() string { return "Decide" }
 
-func (t *JevDecideTool) Description() string {
-	return "Ask the JEV Style decision model to evaluate a factual context and select exactly one discrete choice from a list of options (A-Z). Use for a fast second opinion, safety validation, classification, or binary confirmation."
+func (t *DecideTool) Description() string {
+	return "Ask the decision model to evaluate a factual context and pick exactly one option from a list. Use it for a fast second opinion, safety validation, classification, or yes/no confirmation."
 }
 
-func (t *JevDecideTool) Schema() Schema {
+func (t *DecideTool) Schema() Schema {
 	return Schema{
 		Type: "function",
 		Function: FunctionSchema{
@@ -57,9 +57,9 @@ func (t *JevDecideTool) Schema() Schema {
 	}
 }
 
-func (t *JevDecideTool) Execute(ctx context.Context, params map[string]any) Result {
+func (t *DecideTool) Execute(ctx context.Context, params map[string]any) Result {
 	if t == nil || t.decider == nil || !t.decider.Enabled() {
-		return errResult("JEV Style decision model is not configured or enabled")
+		return errResult("decision model is not configured or enabled")
 	}
 
 	state, _ := params["state"].(string)
@@ -72,18 +72,18 @@ func (t *JevDecideTool) Execute(ctx context.Context, params map[string]any) Resu
 	}
 
 	rawOpts, ok := params["options"].([]any)
-	if !ok || len(rawOpts) < jevstyle.MinOptions {
-		if strOpts, okStr := params["options"].([]string); okStr && len(strOpts) >= jevstyle.MinOptions {
+	if !ok || len(rawOpts) < decision.MinOptions {
+		if strOpts, okStr := params["options"].([]string); okStr && len(strOpts) >= decision.MinOptions {
 			rawOpts = make([]any, len(strOpts))
 			for i, s := range strOpts {
 				rawOpts[i] = s
 			}
 		} else {
-			return errResult(fmt.Sprintf("options must be an array of at least %d items", jevstyle.MinOptions))
+			return errResult(fmt.Sprintf("options must be an array of at least %d items", decision.MinOptions))
 		}
 	}
-	if len(rawOpts) > jevstyle.MaxOptions {
-		return errResult(fmt.Sprintf("at most %d options supported", jevstyle.MaxOptions))
+	if len(rawOpts) > decision.MaxOptions {
+		return errResult(fmt.Sprintf("at most %d options supported", decision.MaxOptions))
 	}
 
 	opts := make([]string, len(rawOpts))
@@ -95,13 +95,13 @@ func (t *JevDecideTool) Execute(ctx context.Context, params map[string]any) Resu
 		opts[i] = strings.TrimSpace(s)
 	}
 
-	resp, err := t.decider.Decide(ctx, jevstyle.DecisionRequest{
+	resp, err := t.decider.Decide(ctx, decision.Request{
 		State:    state,
 		Question: question,
 		Options:  opts,
 	})
 	if err != nil {
-		return errResult(fmt.Sprintf("jevstyle decision failed: %v", err))
+		return errResult(fmt.Sprintf("decision model decision failed: %v", err))
 	}
 
 	return Result{

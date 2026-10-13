@@ -102,18 +102,18 @@ func TestSidecarCommandDisableOption(t *testing.T) {
 	}
 }
 
-func TestJevstyleCommandListsAndSelectsByNumber(t *testing.T) {
-	ctx, cfg, out := newPickerTestCtx(t, "1", "1")
+func TestDecisionCommandSelectsByNumber(t *testing.T) {
+	ctx, cfg, out := newPickerTestCtx(t)
 
-	handled, shouldExit, err := Dispatch(ctx, "/jevstyle")
+	handled, shouldExit, err := Dispatch(ctx, "/decision 1")
 	if err != nil || !handled || shouldExit {
-		t.Fatalf("unexpected /jevstyle result: handled=%t exit=%t err=%v", handled, shouldExit, err)
+		t.Fatalf("unexpected /decision result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
-	if cfg.JevstyleModel != "qwen3.5:4b" {
-		t.Fatalf("expected JEV Style switched by number, got %q", cfg.JevstyleModel)
+	if cfg.DecisionModel != "qwen3.5:4b" {
+		t.Fatalf("expected decision model switched by number, got %q", cfg.DecisionModel)
 	}
-	if !strings.Contains(out.String(), "Installed models (3)") {
-		t.Fatalf("expected numbered model list, got %q", out.String())
+	if !strings.Contains(out.String(), "Decision model set to: qwen3.5:4b") {
+		t.Fatalf("expected selection message, got %q", out.String())
 	}
 }
 
@@ -170,7 +170,7 @@ func TestNumericArgumentOutOfRangeIsRejected(t *testing.T) {
 func TestModelsCommandListsAllWithGuidance(t *testing.T) {
 	ctx, cfg, out := newPickerTestCtx(t)
 	cfg.SidecarModel = "llama3.2:3b"
-	cfg.JevstyleModel = "moondream"
+	cfg.DecisionModel = "moondream"
 
 	handled, shouldExit, err := Dispatch(ctx, "/models")
 	if err != nil || !handled || shouldExit {
@@ -184,14 +184,14 @@ func TestModelsCommandListsAllWithGuidance(t *testing.T) {
 		"[3] moondream",
 		"(model)",
 		"(sidecar)",
-		"(jev-style)",
-		"Switch with /model <n>, /sidecar <n>, or /jevstyle <n>; run /save to persist.",
+		"(decision)",
+		"Switch with /model <n>, /sidecar <n>, or /decision <n>; run /save to persist.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected %q in /models output, got:\n%s", want, rendered)
 		}
 	}
-	if cfg.Model != "qwen3.5:4b" || cfg.SidecarModel != "llama3.2:3b" || cfg.JevstyleModel != "moondream" {
+	if cfg.Model != "qwen3.5:4b" || cfg.SidecarModel != "llama3.2:3b" || cfg.DecisionModel != "moondream" {
 		t.Fatalf("expected /models to leave the config unchanged, got %+v", cfg)
 	}
 	// It must not prompt: /models is informational only.

@@ -37,12 +37,17 @@ type Config struct {
 	SidecarApiKey string
 	// SidecarProvider explicitly specifies "ollama" or "openai" for the sidecar model (auto-detected if unset).
 	SidecarProvider string
-	// JevstyleModel holds the optional JEV Style decision model name (v1/v2 via Ollama).
-	JevstyleModel string
-	// JevstyleV3Endpoint holds the optional JEV Style v3 endpoint URL.
-	// When set, it takes priority over JevstyleModel.
-	JevstyleV3Endpoint string
-	ConfigFileExists   bool
+	// DecisionModel holds the optional decision model name (Ollama model with the "decision" capability).
+	DecisionModel string
+	// DecisionEndpoint holds the optional decision model endpoint URL.
+	// When empty and DecisionModel is set, the main Ollama host is used.
+	DecisionEndpoint string
+	// DecisionAPIKey holds an optional bearer token for the decision endpoint.
+	DecisionAPIKey string
+	// LegacyJevstyle reports that removed JEVSTYLE_* config keys or env vars
+	// were found during load; the caller surfaces a one-time warning.
+	LegacyJevstyle   bool
+	ConfigFileExists bool
 	// SidecarDisabled, when true, turns off the sidecar until changed in config (SIDECAR_DISABLED / SIDECAR_ENABLED).
 	SidecarDisabled bool
 	// SidecarSkipSession skips the sidecar for this process only (--no-sidecar, /sidecar off); not persisted.
@@ -259,11 +264,10 @@ Flags:
   -m, --model string        Model name
   --sidecar string          Sidecar model name
   --no-sidecar              Disable sidecar for this session only
-  --jevstyle-model string   JEV Style decision model name (v1/v2 via Ollama)
-  --jevstyle string         Alias for --jevstyle-model
-  --jevstyle-v3-endpoint string   JEV Style v3 endpoint URL (e.g. http://192.168.0.33:8765)
+  --decision-model string   Decision model name (Ollama model with the "decision" capability)
+  --decision-endpoint string   Decision model endpoint URL (Ollama host or custom System One server)
   -y, --yes                 Enable yes mode
-  --assisted-yes            Enable assisted execution mode with JEV Style (auto-approve safe commands)
+  --assisted-yes            Enable assisted execution mode with the decision model (auto-approve safe commands)
   --offline                 Enable offline mode (blocks network tools and external commands)
   --debug                   Enable debug logs
   -n, --new                 Start a new session (do not auto-resume previous session)
@@ -291,7 +295,7 @@ Flags:
   --show-think              Show Ollama thinking blocks in CLI output (overrides config/env)
 
 Special directive:
-  --save                    Persist model, sidecar, jevstyle, host, hide-think, think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
+  --save                    Persist model, sidecar, decision, host, hide-think, think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
 }
 

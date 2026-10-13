@@ -70,11 +70,11 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if result.IsError {
 		logger.Errorf("Tool %s execution returned error output: %q", toolName, result.Output)
 		a.mu.RLock()
-		jev := a.jev
+		decider := a.decider
 		a.mu.RUnlock()
-		if jev != nil && jev.Enabled() && len(strings.TrimSpace(result.Output)) > 0 {
-			if diag, err := jev.ClassifyFailure(ctx, result.Output); err == nil && diag != "" {
-				logger.Infof("Tool %s failure classified by JEV Style: %s", toolName, diag)
+		if decider != nil && decider.Enabled() && len(strings.TrimSpace(result.Output)) > 0 {
+			if diag, err := decider.ClassifyFailure(ctx, result.Output); err == nil && diag != "" {
+				logger.Infof("Tool %s failure classified by the decision model: %s", toolName, diag)
 				if result.HintsForModel != "" {
 					result.HintsForModel += "\n"
 				}
@@ -189,7 +189,7 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 	// rescuer is blind on purpose.
 	a.mu.RLock()
 	side := a.side
-	jev := a.jev
+	decider := a.decider
 	goal := a.currentGoal
 	a.mu.RUnlock()
 
@@ -199,14 +199,14 @@ func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map
 	}
 	hint := fmt.Sprintf("model wrote %q while user goal was: %s", raw, goal)
 
-	if jev != nil && jev.Enabled() {
+	if decider != nil && decider.Enabled() {
 		a.ui.StartWaiting(fmt.Sprintf("disambiguating %q via %s…",
-			raw, shortModelName(a.cfg.JevstyleModel)))
-		chosen, ok, err := jev.DisambiguatePath(ctx, hint, cands)
+			raw, shortModelName(a.cfg.DecisionModel)))
+		chosen, ok, err := decider.DisambiguatePath(ctx, hint, cands)
 		a.ui.StopWaiting()
 		if err == nil && ok && chosen != "" {
 			params[key] = chosen
-			a.ui.ShowToolResult(toolName, fmt.Sprintf("jevstyle disambiguated %q → %s", raw, chosen), false, nil)
+			a.ui.ShowToolResult(toolName, fmt.Sprintf("decision model disambiguated %q → %s", raw, chosen), false, nil)
 			return
 		}
 	}

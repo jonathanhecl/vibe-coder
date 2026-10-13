@@ -68,10 +68,14 @@ func applyConfigFile(cfg *Config, path string) error {
 			cfg.UI = value
 		case "SIDECAR_MODEL":
 			cfg.SidecarModel = value
-		case "JEVSTYLE_MODEL", "JEV_STYLE_MODEL":
-			cfg.JevstyleModel = value
-		case "JEVSTYLE_V3_ENDPOINT", "JEV_STYLE_V3_ENDPOINT":
-			cfg.JevstyleV3Endpoint = value
+		case "JEVSTYLE_MODEL", "JEV_STYLE_MODEL", "JEVSTYLE_V3_ENDPOINT", "JEV_STYLE_V3_ENDPOINT":
+			cfg.LegacyJevstyle = true
+		case "DECISION_MODEL":
+			cfg.DecisionModel = value
+		case "DECISION_ENDPOINT":
+			cfg.DecisionEndpoint = value
+		case "DECISION_API_KEY":
+			cfg.DecisionAPIKey = value
 		case "ASSISTED_YES", "ASSISTED_MODE":
 			if b, ok := parseBoolish(value); ok {
 				cfg.AssistedYes = b
@@ -162,7 +166,7 @@ func applyConfigFile(cfg *Config, path string) error {
 }
 
 // SaveModelSettings persists runtime model settings to the vibe-coder config file.
-// It updates MODEL, SIDECAR_MODEL, JEVSTYLE_MODEL, OLLAMA_HOST, and SIDECAR_DISABLED while preserving other keys/comments.
+// It updates MODEL, SIDECAR_MODEL, DECISION_*, OLLAMA_HOST, and SIDECAR_DISABLED while preserving other keys/comments.
 func SaveModelSettings(cfg *Config) error {
 	path := strings.TrimSpace(cfg.ConfigFile)
 	if path == "" {
@@ -181,18 +185,18 @@ func SaveModelSettings(cfg *Config) error {
 	}
 
 	updates := map[string]string{
-		"MODEL":                strings.TrimSpace(cfg.Model),
-		"SIDECAR_MODEL":        strings.TrimSpace(cfg.SidecarModel),
-		"MODEL_ENDPOINT":       strings.TrimSpace(cfg.ModelEndpoint),
-		"MODEL_PROVIDER":       strings.TrimSpace(cfg.ModelProvider),
-		"SIDECAR_ENDPOINT":     strings.TrimSpace(cfg.SidecarEndpoint),
-		"SIDECAR_PROVIDER":     strings.TrimSpace(cfg.SidecarProvider),
-		"JEVSTYLE_MODEL":       strings.TrimSpace(cfg.JevstyleModel),
-		"JEVSTYLE_V3_ENDPOINT": strings.TrimSpace(cfg.JevstyleV3Endpoint),
-		"ASSISTED_YES":         strconv.FormatBool(cfg.AssistedYes),
-		"OLLAMA_HOST":          strings.TrimSpace(cfg.OllamaHost),
-		"HIDE_THINK":           strconv.FormatBool(cfg.OllamaHideThink),
-		"THINK":                strings.TrimSpace(cfg.OllamaThinkLevel),
+		"MODEL":             strings.TrimSpace(cfg.Model),
+		"SIDECAR_MODEL":     strings.TrimSpace(cfg.SidecarModel),
+		"MODEL_ENDPOINT":    strings.TrimSpace(cfg.ModelEndpoint),
+		"MODEL_PROVIDER":    strings.TrimSpace(cfg.ModelProvider),
+		"SIDECAR_ENDPOINT":  strings.TrimSpace(cfg.SidecarEndpoint),
+		"SIDECAR_PROVIDER":  strings.TrimSpace(cfg.SidecarProvider),
+		"DECISION_MODEL":    strings.TrimSpace(cfg.DecisionModel),
+		"DECISION_ENDPOINT": strings.TrimSpace(cfg.DecisionEndpoint),
+		"ASSISTED_YES":      strconv.FormatBool(cfg.AssistedYes),
+		"OLLAMA_HOST":       strings.TrimSpace(cfg.OllamaHost),
+		"HIDE_THINK":        strconv.FormatBool(cfg.OllamaHideThink),
+		"THINK":             strings.TrimSpace(cfg.OllamaThinkLevel),
 	}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(lines)+4)
@@ -222,7 +226,7 @@ func SaveModelSettings(cfg *Config) error {
 		}
 		out = append(out, key+"="+value)
 	}
-	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "MODEL_ENDPOINT", "MODEL_PROVIDER", "SIDECAR_ENDPOINT", "SIDECAR_PROVIDER", "JEVSTYLE_MODEL", "JEVSTYLE_V3_ENDPOINT", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
+	for _, key := range []string{"MODEL", "SIDECAR_MODEL", "MODEL_ENDPOINT", "MODEL_PROVIDER", "SIDECAR_ENDPOINT", "SIDECAR_PROVIDER", "DECISION_MODEL", "DECISION_ENDPOINT", "OLLAMA_HOST", "HIDE_THINK", "THINK"} {
 		if seen[key] {
 			continue
 		}

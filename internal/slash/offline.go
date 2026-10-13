@@ -61,8 +61,8 @@ func runOfflineCommand(c *Ctx, args []string) error {
 			c.Session.AddSystemNote("[System Note] Offline mode enabled: internet and network tools are blocked.")
 		}
 		fmt.Fprintln(c.Out, st.Yellow("Offline mode enabled: network tools (WebSearch, WebFetch, HTTPRequest) and external shell commands (curl, wget) are blocked."))
-		if c.Cfg != nil && c.Cfg.JevstyleInUse() {
-			fmt.Fprintln(c.Out, st.Dim("JEV Style will evaluate shell commands for external network access."))
+		if c.Cfg != nil && c.Cfg.DecisionInUse() {
+			fmt.Fprintln(c.Out, st.Dim("The decision model will evaluate shell commands for external network access."))
 		}
 	} else {
 		if c.Session != nil {

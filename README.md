@@ -126,7 +126,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **Environment scrubbing** — shell tools and auto-tests run with `safety.CleanEnv()` to strip secrets.
 - **Plan mode** — `/plan` permits read-only tools and session task management; `Write`/`Edit` are restricted to `<cwd>/.vibe-coder/plans/`, without symlink paths. Shell commands, auto-tests, `NotebookEdit`, `GitUndo`, and unknown/MCP tool effects are blocked until act mode resumes.
 - **Review mode** — `/review <prompt>` permits read-only tools and session task management, with no file mutations or shell commands. Unknown/MCP tool effects are blocked by default.
-- **Offline mode** — `--offline` flag or `/offline` command blocks all network-tier tools (`WebSearch`, `WebFetch`, `HTTPRequest`) and external network shell commands (such as `curl`, `wget`, `git clone`, `npm install`), while permitting loopback/local requests (`localhost`, `127.0.0.1`, `::1`). Shell commands are evaluated by JEV Style when active or via regex heuristics.
+- **Offline mode** — `--offline` flag or `/offline` command blocks all network-tier tools (`WebSearch`, `WebFetch`, `HTTPRequest`) and external network shell commands (such as `curl`, `wget`, `git clone`, `npm install`), while permitting loopback/local requests (`localhost`, `127.0.0.1`, `::1`). Shell commands are evaluated by the decision model when active or via regex heuristics.
 - **Workspace domain boundary protection** — the directory where `vibe` was started and its subdirectories define the active workspace domain. Safe tools (`Read`, `Glob`, `Grep`, `DescribeImage`) execute prompt-free inside the domain, but reading files, inspecting images, or querying directories outside the domain requires explicit user consent via the permission card. Users can approve once, allow for the session (`Allow this session`), block for the session, or persist (`Always allow` / `Always deny`). User-provided files (such as `/paste` clipboard images) remain authorized.
 - **Delegated permissions** — sub-agents inherit the parent's tool availability, permission checks, and active mode. `allow_writes=true` only requests access; it does not grant approval. Child tool execution is serialized, including permission prompts, checkpoints, and auto-tests.
 
@@ -323,15 +323,17 @@ Model keys and overrides:
 - Config file key: `MODEL=<model-name>`
 - Config file key: `UI=plain|rich`
 - Config file key: `SIDECAR_MODEL=<model-name>`
-- Config file key: `JEVSTYLE_MODEL=<model-name>`
-- Config file key: `JEVSTYLE_V3_ENDPOINT=<url>`
+- Config file key: `DECISION_MODEL=<model-name>`
+- Config file key: `DECISION_ENDPOINT=<url>`
+- Config file key: `DECISION_API_KEY=<token>`
 - Config file key: `ASSISTED_YES=true|false`
 - Config file key: `THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_MODEL=<model-name>`
 - Environment: `VIBE_CODER_UI=plain|rich`
 - Environment: `VIBE_CODER_SIDECAR_MODEL=<model-name>`
-- Environment: `VIBE_CODER_JEVSTYLE_MODEL=<model-name>`
-- Environment: `VIBE_CODER_JEVSTYLE_V3_ENDPOINT=<url>`
+- Environment: `VIBE_CODER_DECISION_MODEL=<model-name>`
+- Environment: `VIBE_CODER_DECISION_ENDPOINT=<url>`
+- Environment: `VIBE_CODER_DECISION_API_KEY=<token>`
 - Environment: `VIBE_CODER_ASSISTED_YES=true|false`
 - Environment: `VIBE_CODER_THINK=off|low|medium|high|max`
 - Environment: `VIBE_CODER_TEMPORAL=true|false` (aliases: `VIBEGO_TEMPORAL`, `TEMPORAL`)
@@ -340,9 +342,9 @@ Model keys and overrides:
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 - CLI: `--sidecar <model-name>`
-- CLI: `--jevstyle-model <model-name>` (or `--jevstyle <model-name>`) — v1/v2 mode
-- CLI: `--jevstyle-v3-endpoint <url>` — v3 mode (e.g. `http://192.168.0.33:8765`)
-- CLI: `--assisted-yes` (auto-approve safe commands via JEV Style)
+- CLI: `--decision-model <model-name>` — Ollama model with the `decision` capability
+- CLI: `--decision-endpoint <url>` — custom System One server (e.g. `http://192.168.0.33:8765`)
+- CLI: `--assisted-yes` (auto-approve safe commands via the decision model)
 - CLI: `--think <level>` (`off|low|medium|high|max`; explicit levels need a thinking-capable model)
 
 If no model is set, `vibe` auto-selects one based on detected RAM tier.
@@ -385,78 +387,73 @@ behaviours: compaction will truncate to a static "Earlier conversation
 truncated…" note, large tool outputs will be inserted verbatim into the
 context, and ambiguous paths will not be rescued.
 
-### What is the JEV Style decision model?
+### Decision model
 
-`JEVSTYLE_MODEL` defines a specialized, **text-only decision function** (not a conversational chat model, vision model, or tool-calling model). It operates exclusively on text inputs and outputs a single option letter:
+`DECISION_MODEL` / `DECISION_ENDPOINT` configure a specialized, **text-only decision function** (not a conversational chat model, vision model, or tool-calling model). The client speaks the **System One protocol** — `POST <endpoint>/v1/systemone` with typed questions (`noul` for yes/no, `choice` for categorical picks, `score` for ordinal scales) — and gets structured answers back with probabilities and confidence. It works against either backend:
 
-- `[State]` — the current factual context or premise (text only)
-- `[Question]` — the decision question (text only)
-- `[Options]` — labeled candidate choices (`A.`, `B.`, ..., up to 26 options)
-- `Answer:` — prompt terminator
+- **Native Ollama (>= 0.35)**: any Ollama model that advertises the `decision` capability in `/api/show`. When `DECISION_ENDPOINT` is empty, the configured `DECISION_MODEL` is queried on the main Ollama host.
+- **Custom System One server**: a dedicated endpoint such as `jev-style serve` that answers `/healthz` and `/v1/systemone` directly (set `DECISION_ENDPOINT`).
 
-At `temperature: 0`, the model emits a single option letter (`A`, `B`, ...) representing its choice. It does not accept images, audio, or tool calls.
-
-**Recommended models:**
-- [`chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-v2-GGUF`](https://huggingface.co/chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-v2-GGUF)
-- [`chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-GGUF`](https://huggingface.co/chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-GGUF)
-- (or any compatible Ollama model)
-
-You can test the configured decision model inside the interactive session with `/jevstyle test`.
-
-#### Decision Workflows Powered by JEV Style
-
-When configured, JEV Style acts as a fast, discrete decision engine for key agent operations:
-1. **Assisted Command Execution Mode (`--assisted-yes`, `/yes assisted`, `/jevstyle assisted on`)**:
-   Instead of either prompting on every action or blindly auto-approving everything, JEV Style reviews every action that would otherwise prompt — shell commands, network tool calls (`WebSearch`/`WebFetch`/`HTTPRequest`), file mutations (`Write`/`Edit`/`GitUndo`), and unknown/MCP tools. Safe actions are auto-approved; destructive or risky ones prompt the user. Mandatory shell confirmations (`sudo`, `rm -rf /`, …) and persistent denials still apply.
-   - **Review notices**: The terminal always reports what assisted mode did, so a permission prompt is never a mystery: `✓ <tool> approved by JEV Style assisted mode (<latency>)` when approved; `⚠ <tool> flagged as risky by JEV Style (<latency>) · asking for permission` when the model rejected it; `⚠ <tool> cannot be classified by JEV Style · asking for permission`; and `⚠ JEV Style unavailable · assisted mode disabled · asking for permission` when the model is missing or errors.
-   - **Startup banner status**: When assisted mode is active, the startup banner highlights `(assisted enabled)` in green alongside the configured JEV Style decision model; when inactive, it displays `(run '/yes assisted' to enable)` in standard white.
-   - **Configuration persistence**: Setting assisted mode can be saved across runs in `vibe-coder.env` (`ASSISTED_YES=true`, `/save`, `--save`).
-   - **Absence and error fallback**: If no JEV Style model is configured or if the JEV model experiences network or inference errors, assisted mode automatically deactivates and safely reverts to standard user confirmation prompts (`AskPermission`).
-   - **Setup suggestion**: Configuring a decision model via `/jevstyle <model>` automatically suggests enabling assisted mode.
-2. **Workspace Path Disambiguation**:
-   When the agent references an ambiguous file basename matched across multiple repository paths, JEV Style selects the best matching candidate according to user context and intent.
-3. **Autonomous Mission Completion Verification**:
-   Monitors active autonomous missions and checks whether the goal has been fully fulfilled when pending tasks complete or turn activity idles, preventing unnecessary spin or stall. When JEV Style reports the goal as **not yet complete**, the runtime feeds that verdict back to the model as an explicit reminder (do not call `MissionComplete` yet; address the remaining checklist) instead of silently continuing. This works with any configured JEV Style model (v1/v2 or v3) and does not require assisted permission mode (`--assisted-yes`).
-4. **Tool Failure Classification & Diagnosis**:
-   When tool executions fail (e.g. bash commands or test failures), JEV Style diagnoses the primary cause (compile/syntax error, missing dependency, failing test assertion, permission issue, or network timeout) and injects diagnostic hints for recovery.
-5. **Conventional Commit Classification**:
-   Analyzes git diff summaries during `/commit` to categorize changes into standard conventional commit types (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`).
-6. **Agent Tool (`JevDecide`)**:
-   Exposes JEV Style directly as an agent tool to the main coding model and sidecars. When the agent needs an extra review, second opinion, sanity check, or discrete classification between discrete choices, it calls `JevDecide` with context state, a decision question, and candidate options.
-
-### JEV Style v3 (own endpoint, JSON structured I/O)
-
-JEV Style v3 is a standalone server (`jev-style serve`) that exposes a native JSON API at `POST /v1/systemone`. Unlike v1/v2 (which operates as an Ollama model returning a letter A-Z), v3 accepts typed questions and returns structured answers with probabilities and confidence.
-
-**Key differences from v1/v2:**
-
-| Feature | v1/v2 (Ollama) | v3 (own endpoint) |
-|---------|-----------------|---------------------|
-| Protocol | Ollama `/api/chat` | Native `/v1/systemone` |
-| Input | Text prompt | JSON with typed questions |
-| Output | Letter (A-Z) | Structured JSON with choice/score/noul |
-| Question types | Single (choice) | `noul`, `choice`, `score` |
-| Confidence | No | Yes (0.0-1.0) |
-| Probabilities | No | Yes (per option) |
-| Endpoint | Ollama host | Configurable URL |
-
-**Configuration:**
+Example Ollama decision-capable models:
 
 ```bash
-# Via CLI
-./vibe --jevstyle-v3-endpoint http://192.168.0.33:8765
-
-# Via environment
-export VIBE_CODER_JEVSTYLE_V3_ENDPOINT=http://192.168.0.33:8765
-
-# Via config file (vibe-coder.env)
-JEVSTYLE_V3_ENDPOINT=http://192.168.0.33:8765
-
-# Interactive (inside vibe)
-/jevstyle v3
+ollama pull nimble
+ollama pull tev1
+ollama pull clef-flash   # also advertises the vision capability
 ```
 
-When `JEVSTYLE_V3_ENDPOINT` is set, it takes priority over `JEVSTYLE_MODEL`. Use `/jevstyle ollama` to switch back to v1/v2 mode.
+You can test the configured decision model inside the interactive session with `/decision test`.
+
+#### Decision workflows powered by the decision model
+
+When configured, the decision model acts as a fast, discrete decision engine for key agent operations:
+1. **Assisted command execution mode (`--assisted-yes`, `/yes assisted`, `/decision assisted on`)**:
+   Instead of either prompting on every action or blindly auto-approving everything, the decision model reviews every action that would otherwise prompt — shell commands, network tool calls (`WebSearch`/`WebFetch`/`HTTPRequest`), file mutations (`Write`/`Edit`/`GitUndo`), and unknown/MCP tools. Safe actions are auto-approved; destructive or risky ones prompt the user. Mandatory shell confirmations (`sudo`, `rm -rf /`, …) and persistent denials still apply.
+   - **Review notices**: The terminal always reports what assisted mode did, so a permission prompt is never a mystery: `✓ <tool> approved by the decision model (assisted mode) (<latency>)` when approved; `⚠ <tool> flagged as risky by the decision model (<latency>) · asking for permission` when the model rejected it; `⚠ <tool> cannot be classified by the decision model · asking for permission`; and `⚠ decision model unavailable · assisted mode disabled · asking for permission` when the model is missing or errors.
+   - **Startup banner status**: When assisted mode is active, the startup banner highlights `(assisted enabled)` in green alongside the configured decision model; when inactive, it displays `(run '/yes assisted' to enable)` in standard white.
+   - **Configuration persistence**: Setting assisted mode can be saved across runs in `vibe-coder.env` (`ASSISTED_YES=true`, `/save`, `--save`).
+   - **Absence and error fallback**: If no decision model is configured or if it experiences network or inference errors, assisted mode automatically deactivates and safely reverts to standard user confirmation prompts (`AskPermission`).
+   - **Setup suggestion**: Configuring a decision model via `/decision <model>` automatically suggests enabling assisted mode.
+2. **Workspace path disambiguation**:
+   When the agent references an ambiguous file basename matched across multiple repository paths, the decision model selects the best matching candidate according to user context and intent.
+3. **Autonomous mission completion verification**:
+   Monitors active autonomous missions and checks whether the goal has been fully fulfilled when pending tasks complete or turn activity idles, preventing unnecessary spin or stall. When the decision model reports the goal as **not yet complete**, the runtime feeds that verdict back to the model as an explicit reminder (do not call `MissionComplete` yet; address the remaining checklist) instead of silently continuing. This works with any configured decision model and does not require assisted permission mode (`--assisted-yes`).
+4. **Tool failure classification & diagnosis**:
+   When tool executions fail (e.g. bash commands or test failures), the decision model diagnoses the primary cause (compile/syntax error, missing dependency, failing test assertion, permission issue, or network timeout) and injects diagnostic hints for recovery.
+5. **Conventional commit classification**:
+   Analyzes git diff summaries during `/commit` to categorize changes into standard conventional commit types (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`).
+6. **Thinking loop detection**:
+   During long reasoning turns, the decision model checks whether the model is repeating itself and cancels cyclical thinking.
+7. **Agent tool (`Decide`)**:
+   Exposes the decision model directly as an agent tool to the main coding model and sidecars. When the agent needs an extra review, second opinion, sanity check, or discrete classification between options, it calls `Decide` with context state, a decision question, and candidate options.
+
+#### Configuration
+
+```bash
+# Native Ollama decision model (checks the "decision" capability at startup)
+./vibe --decision-model tev1:0.8b
+
+# Custom System One endpoint
+./vibe --decision-endpoint http://192.168.0.33:8765
+
+# Via environment
+export VIBE_CODER_DECISION_MODEL=tev1:0.8b
+export VIBE_CODER_DECISION_ENDPOINT=http://192.168.0.33:8765
+export VIBE_CODER_DECISION_API_KEY=<bearer token>   # optional
+
+# Via config file (vibe-coder.env)
+DECISION_MODEL=tev1:0.8b
+DECISION_ENDPOINT=http://192.168.0.33:8765
+DECISION_API_KEY=<bearer token>
+
+# Interactive (inside vibe)
+/decision tev1:0.8b
+/decision endpoint http://192.168.0.33:8765
+/decision endpoint ollama     # back to the Ollama host
+/decision test
+```
+
+At startup `vibe` runs a backend check: a `GET /healthz` that returns `{"status":"ok"}` means a System One server; a `404` means Ollama, where `/api/show` must report the `decision` capability for the configured model. When `DECISION_ENDPOINT` is set it is used directly; otherwise `DECISION_MODEL` is queried on the Ollama host.
 
 **Question types:**
 
@@ -466,21 +463,21 @@ When `JEVSTYLE_V3_ENDPOINT` is set, it takes priority over `JEVSTYLE_MODEL`. Use
 | `choice` | Multiple choice | `{"choice": "option", "probabilities": {...}}` |
 | `score` | Ordinal scale (2-10 levels) | `{"score": 0.0-(K-1), "legend": {...}}` |
 
-**Enhanced decisions with v3:**
+**Enhanced decisions:**
 
 - **Danger assessment**: Uses score scale `["safe", "low risk", "medium risk", "high risk", "critical"]` instead of binary yes/no
 - **Goal completion**: Uses score scale `["not started", "in progress", "mostly done", "completed"]` for nuanced progress tracking
+- **Safety decisions**: Assisted mode asks a paired `action` choice (`allow`/`review`/`block`) and `risk` score, auto-approving only high-confidence `allow` verdicts
 - **Classification confidence**: Low-confidence results are marked with `(uncertain)` suffix
 
-**Testing:**
+**Live integration tests** (require a running backend):
 
 ```bash
-# Test v3 connection and decisions
-/jevstyle test
-
-# Live integration test (requires running server)
-go test -tags live ./internal/jevstylev3/
+DECISION_LIVE_OLLAMA=http://localhost:11434 DECISION_LIVE_MODEL=tev1:0.8b go test -tags live -v -run Live ./internal/decision/
+DECISION_LIVE_ENDPOINT=http://localhost:8765 go test -tags live -v -run Live ./internal/decision/
 ```
+
+**Migration note**: the old `JEVSTYLE_*` settings were removed. `JEVSTYLE_V3_ENDPOINT` becomes `DECISION_ENDPOINT`; `JEVSTYLE_MODEL` is gone — configure an Ollama model that advertises the `decision` capability via `DECISION_MODEL` instead. Legacy `JEVSTYLE_*` keys still present in `vibe-coder.env` or the environment produce a startup warning and are otherwise ignored.
 
 ### Remote Ollama for vibe only
 
@@ -545,9 +542,10 @@ SIDECAR_ENDPOINT=http://localhost:11434
 - `--sidecar-endpoint <url>` — sidecar model endpoint URL
 - `--sidecar-provider <name>` — sidecar model provider (`ollama` or `openai`)
 - `--no-sidecar` — disable sidecar for this session only; with `--save`, persists `SIDECAR_DISABLED=true`
-- `--jevstyle-model <name>` — JEV Style decision model name (alias: `--jevstyle <name>`)
+- `--decision-model <name>` — decision model name (Ollama `decision`-capable model)
+- `--decision-endpoint <url>` — decision model endpoint URL (custom System One server)
 - `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)
-- `--assisted-yes` — enable assisted execution mode with JEV Style (auto-approve safe commands, prompt for dangerous commands)
+- `--assisted-yes` — enable assisted execution mode with the decision model (auto-approve safe commands, prompt for dangerous commands)
 - `--offline` — enable offline mode (blocks network tools and external commands while permitting localhost)
 - `--debug` — enable debug logs
 - `-n, --new` — start a new session (bypass automatic session resume for current directory)
@@ -571,7 +569,7 @@ SIDECAR_ENDPOINT=http://localhost:11434
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-model <name>` — RAG embedding model
 - `--rag-index <path>` — build/index RAG path and exit
-- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `JEVSTYLE_MODEL`, `ASSISTED_YES`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
+- `--save` — persist `MODEL`, `SIDECAR_MODEL`, `DECISION_MODEL`, `DECISION_ENDPOINT`, `ASSISTED_YES`, `OLLAMA_HOST`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
 Harness tunables (defaults < config file < env):
 
@@ -665,7 +663,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, model, sidecar, JEV Style, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, offline mode, mission, context usage)
+- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, model, sidecar, decision model, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, offline mode, mission, context usage)
 - `/stats` — show session harness metrics (requests, provider-reported and estimated tokens, timings) plus the metrics JSONL file path
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
@@ -680,25 +678,26 @@ Pinned context files are injected into the system prompt on every turn, so they 
 
 - `/model` — list installed models (numbered, with capability tags) and switch the active one
 - `/model <name|number>` — switch the active model for this run (vision, thinking and native-tools support are re-checked and reported)
-- `/models` — list all installed models, numbered and tagged; switch a role with `/model <n>`, `/sidecar <n>`, or `/jevstyle <n>` and persist with `/save`
+- `/models` — list all installed models, numbered and tagged; switch a role with `/model <n>`, `/sidecar <n>`, or `/decision <n>` and persist with `/save`
 - `/think` — show the thinking level and model capability
 - `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it)
 - `/sidecar` — list installed models and choose one; `[0]` disables it for the session
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/sidecar status` — show current sidecar state
-- `/jevstyle` — list installed models and choose one; `[0]` disables it for the session
-- `/jevstyle <name|number>` — switch JEV Style model for this session
-- `/jevstyle off` — disable JEV Style model for this session
-- `/jevstyle test` — run an interactive decision test turn
-- `/jevstyle assisted on|off` — toggle assisted command execution mode
+- `/decision` — show decision model status (backend, endpoint, model, assisted mode) and usage
+- `/decision <name|number>` — switch decision model for this session (resolved on the Ollama host)
+- `/decision endpoint <url|ollama>` — set a custom System One endpoint, or clear it to use Ollama
+- `/decision off` — disable the decision model for this session
+- `/decision test` — run a connectivity and decision test
+- `/decision assisted on|off` — toggle assisted command execution mode
 - `/hide-think` — hide model thinking blocks in CLI output
 - `/show-think` — show model thinking blocks in CLI output (default)
 
 ### Mode
 
 - `/yes` — auto-approve subsequent permission prompts
-- `/yes assisted` — enable assisted execution mode (auto-approve safe commands via JEV Style)
+- `/yes assisted` — enable assisted execution mode (auto-approve safe commands via the decision model)
 - `/no` — require manual approval (default)
 - `/plan` — enter plan mode (writes restricted to `.vibe-coder/plans/`)
 - `/plan <goal>` — enter plan mode and immediately start planning that goal
@@ -709,7 +708,7 @@ Pinned context files are injected into the system prompt on every turn, so they 
 - `/mission start <goal>` — alias for `/goal <objective>`
 - `/mission done [summary]` — mark the active mission complete from your side (e.g. you did the work yourself)
 - `/mission cancel [reason]` — stop the mission without completing it (pauses the autonomous run)
-- `/offline [on|off|status]` — toggle or set offline mode; blocks network tools (`WebSearch`, `WebFetch`, `HTTPRequest`) and external shell commands (curl, wget, etc., verified via JEV Style or regex heuristics) while keeping `localhost` accessible
+- `/offline [on|off|status]` — toggle or set offline mode; blocks network tools (`WebSearch`, `WebFetch`, `HTTPRequest`) and external shell commands (curl, wget, etc., verified via the decision model or regex heuristics) while keeping `localhost` accessible
 
 ### Git
 

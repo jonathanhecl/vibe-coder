@@ -9,7 +9,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/clipboard"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
-	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
+	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/vision"
@@ -161,9 +161,9 @@ func (s *spyDecisionMaker) IsCommandDangerous(context.Context, string) (bool, er
 	return false, nil
 }
 
-func (s *spyDecisionMaker) AskSafetyWithContext(_ context.Context, _, _, note string) (*jevstylev3.SafetyDecision, error) {
+func (s *spyDecisionMaker) AskSafetyWithContext(_ context.Context, _, _, note string) (*decision.SafetyDecision, error) {
 	s.note = note
-	return &jevstylev3.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
+	return &decision.SafetyDecision{Action: "allow", Confidence: 0.95}, nil
 }
 
 // TestNoteUserProvidedPaths_ReachesDecisionModel proves the wiring end to end:
@@ -171,7 +171,7 @@ func (s *spyDecisionMaker) AskSafetyWithContext(_ context.Context, _, _, note st
 // mode forwards it as context when the agent inspects that file.
 func TestNoteUserProvidedPaths_ReachesDecisionModel(t *testing.T) {
 	spy := &spyDecisionMaker{}
-	perm := permissions.NewManager(&config.Config{YesMode: false, JevstyleModel: "jev-model", AssistedYes: true})
+	perm := permissions.NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
 	perm.SetSafetyDecider(spy)
 
 	img := filepath.Join(t.TempDir(), "vibe_clipboard_555.png")

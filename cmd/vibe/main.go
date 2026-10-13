@@ -12,8 +12,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
-	"github.com/jonathanhecl/vibe-coder/internal/jevstyle"
-	"github.com/jonathanhecl/vibe-coder/internal/jevstylev3"
+	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -74,10 +73,12 @@ func main() {
 	if cfg.SidecarInUse() {
 		logger.Infof("SidecarEndpoint: %s (openai=%t), SidecarModel: %s", cfg.EffectiveSidecarEndpoint(), cfg.IsSidecarOpenAI(), cfg.SidecarModel)
 	}
-	if strings.TrimSpace(cfg.JevstyleModel) != "" {
-		logger.Infof("JevstyleModel: %s", cfg.JevstyleModel)
+	if strings.TrimSpace(cfg.DecisionModel) != "" {
+		logger.Infof("DecisionModel: %s", cfg.DecisionModel)
 	}
-
+	if strings.TrimSpace(cfg.DecisionEndpoint) != "" {
+		logger.Infof("DecisionEndpoint: %s", cfg.DecisionEndpoint)
+	}
 	if persistModelSettings {
 		cfg.PersistSidecarOffFromSave(true)
 		if err := config.SaveModelSettings(cfg); err != nil {
@@ -95,6 +96,12 @@ func main() {
 	if cfg.ShowVer {
 		fmt.Fprintf(os.Stdout, "vibe %s\n", version.Value)
 		return
+	}
+
+	if cfg.LegacyJevstyle {
+		const msg = "JEVSTYLE_* settings are no longer supported; use DECISION_MODEL / DECISION_ENDPOINT (see README)"
+		logger.Infof("warning: %s", msg)
+		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
 	}
 
 	if shouldRunFirstRunOnboarding(cfg, persistModelSettings) {
@@ -133,23 +140,28 @@ func main() {
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
-	var jevClient jevstyle.Decider
-	if cfg.JevstyleV3InUse() {
-		jevClient = jevstylev3.New(cfg.JevstyleV3Endpoint)
-		logger.Infof("JevstyleV3Endpoint: %s", cfg.JevstyleV3Endpoint)
-	} else if cfg.JevstyleOllamaInUse() {
-		jevClient = jevstyle.New(cfg, client)
-		logger.Infof("JevstyleModel: %s", cfg.JevstyleModel)
+	var decider decision.Decider
+	if decisionClient := decision.FromConfig(cfg); decisionClient != nil {
+		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		info, checkErr := decisionClient.Check(checkCtx)
+		checkCancel()
+		if checkErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: decision model check failed: %v\n", checkErr)
+			logger.Infof("decision model check failed: %v", checkErr)
+		} else {
+			logger.Infof("decision backend: %s (model: %s)", info.Backend, info.Model)
+		}
+		decider = decisionClient
 	}
-	if jevClient != nil && jevClient.Enabled() {
-		perm.SetSafetyDecider(jevClient)
-		reg.Register(tools.NewJevDecideTool(jevClient))
+	if decider != nil && decider.Enabled() {
+		perm.SetSafetyDecider(decider)
+		reg.Register(tools.NewDecideTool(decider))
 	}
 	// One shared sidecar pool for the agent and the DescribeImage tool so
 	// vision second-opinions respect the same load controls as summaries.
 	sidePool := sidecar.New(cfg, sideClient)
-	if cfg.JevstyleInUse() {
-		sidePool.SetJevstyle(jevClient)
+	if cfg.DecisionInUse() {
+		sidePool.SetDecider(decider)
 	}
 	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool))
 
@@ -172,8 +184,8 @@ func main() {
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	ag.SetContextStore(ctxStore)
 	ag.SetSidecar(sidePool)
-	if cfg.JevstyleInUse() {
-		ag.SetJevstyle(jevClient)
+	if cfg.DecisionInUse() {
+		ag.SetDecider(decider)
 	}
 	fileWatcher := watcher.New(cfg.Cwd)
 	ag.SetWatcher(fileWatcher)

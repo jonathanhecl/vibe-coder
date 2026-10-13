@@ -22,7 +22,7 @@ type Ctx struct {
 	Out      io.Writer
 	Contexts *contextfiles.Store
 	// Models lists the models installed on the host so /model, /sidecar, and
-	// /jevstyle can offer a numbered picker. Optional: when nil the pickers
+	// /decision can offer a numbered picker. Optional: when nil the pickers
 	// fall back to the capability maps cached at startup.
 	Models ModelLister
 	// Prompter asks interactive questions (e.g. Append vs Replace for
@@ -154,8 +154,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/sidecar":
 		return true, false, runSidecarCommand(c, fields[1:])
-	case "/jevstyle":
-		return true, false, runJevstyleCommand(c, fields[1:])
+	case "/decision":
+		return true, false, runDecisionCommand(c, fields[1:])
 	case "/save":
 		return true, false, runSaveCommand(c)
 	case "/promote", "/keep":
@@ -185,8 +185,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 			}
 		}
 		if assisted {
-			if !c.Cfg.JevstyleInUse() {
-				fmt.Fprintln(c.Out, "JEV Style is not configured. Configure a model first with /jevstyle <model>.")
+			if !c.Cfg.DecisionInUse() {
+				fmt.Fprintln(c.Out, "A decision model is not configured. Configure one first with /decision <model>.")
 				return true, false, nil
 			}
 			c.Cfg.AssistedYes = true
@@ -195,7 +195,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 				c.Perm.SetAssistedMode(true)
 				c.Perm.SetYesMode(false)
 			}
-			fmt.Fprintln(c.Out, "Assisted yes mode enabled (JEV Style will auto-approve safe commands).")
+			fmt.Fprintln(c.Out, "Assisted yes mode enabled (the decision model will auto-approve safe commands).")
 			return true, false, nil
 		}
 		c.Cfg.AssistedYes = false

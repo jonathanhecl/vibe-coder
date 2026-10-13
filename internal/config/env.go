@@ -51,11 +51,22 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_SIDECAR_MODEL", "VIBEGO_SIDECAR_MODEL")); v != "" {
 		cfg.SidecarModel = v
 	}
-	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_JEVSTYLE_MODEL", "VIBEGO_JEVSTYLE_MODEL", "VIBE_JEVSTYLE_MODEL", "JEVSTYLE_MODEL")); v != "" {
-		cfg.JevstyleModel = v
+	for _, key := range []string{
+		"VIBE_CODER_JEVSTYLE_MODEL", "VIBEGO_JEVSTYLE_MODEL", "VIBE_JEVSTYLE_MODEL", "JEVSTYLE_MODEL",
+		"VIBE_CODER_JEVSTYLE_V3_ENDPOINT", "VIBEGO_JEVSTYLE_V3_ENDPOINT", "JEVSTYLE_V3_ENDPOINT",
+	} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			cfg.LegacyJevstyle = true
+		}
 	}
-	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_JEVSTYLE_V3_ENDPOINT", "VIBEGO_JEVSTYLE_V3_ENDPOINT", "JEVSTYLE_V3_ENDPOINT")); v != "" {
-		cfg.JevstyleV3Endpoint = v
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DECISION_MODEL", "DECISION_MODEL")); v != "" {
+		cfg.DecisionModel = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DECISION_ENDPOINT", "DECISION_ENDPOINT")); v != "" {
+		cfg.DecisionEndpoint = v
+	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_DECISION_API_KEY", "DECISION_API_KEY")); v != "" {
+		cfg.DecisionAPIKey = v
 	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_ASSISTED_YES", "VIBEGO_ASSISTED_YES", "ASSISTED_YES")); v != "" {
 		if b, ok := parseBoolish(v); ok {

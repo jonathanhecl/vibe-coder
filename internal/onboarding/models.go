@@ -14,11 +14,11 @@ type modelSelection struct {
 	Main            string
 	Sidecar         string
 	SidecarDisabled bool
-	Jevstyle        string
+	Decision        string
 }
 
 // chooseModels lists the installed models once and then asks for the primary,
-// optional sidecar, and optional JEV Style models, reusing the same list
+// optional sidecar, and optional decision models, reusing the same list
 // numbers instead of printing the list again for each role.
 func (w *wizard) chooseModels(ctx context.Context, client ollama.Client, models []ollama.Model) (modelSelection, error) {
 	var sel modelSelection
@@ -43,19 +43,19 @@ func (w *wizard) chooseModels(ctx context.Context, client ollama.Client, models 
 	sel.Sidecar = sidecar
 	sel.SidecarDisabled = sidecarDisabled
 
-	jevstyle, _, err := w.chooseOptionalModel(ctx, client, models,
-		"JEV Style model choice [Enter to disable]: ", "JEV Style selected: ", "JEV Style disabled")
+	decisionModel, _, err := w.chooseOptionalModel(ctx, client, models,
+		"Decision model choice [Enter to disable]: ", "Decision model selected: ", "Decision model disabled")
 	if err != nil {
 		return sel, err
 	}
-	sel.Jevstyle = jevstyle
+	sel.Decision = decisionModel
 
 	return sel, nil
 }
 
 // printModelList renders the single numbered list shared by every role. The
 // capability tags let the user pick a tool-capable primary and an optional
-// sidecar/JEV Style model without a second listing.
+// sidecar/decision model without a second listing.
 func (w *wizard) printModelList(models []ollama.Model) {
 	if len(models) == 0 {
 		w.warn("No installed models were reported by /api/tags.")
@@ -133,7 +133,7 @@ func (w *wizard) choosePrimaryModel(ctx context.Context, client ollama.Client, m
 	}
 }
 
-// chooseOptionalModel resolves an optional model (sidecar or JEV Style). Enter
+// chooseOptionalModel resolves an optional model (sidecar or decision). Enter
 // leaves it disabled, c pulls a custom model, and a list number selects any
 // installed model. It returns the chosen name and whether the role is disabled.
 func (w *wizard) chooseOptionalModel(ctx context.Context, client ollama.Client, models []ollama.Model, promptLabel, selectedLabel, disabledLabel string) (string, bool, error) {

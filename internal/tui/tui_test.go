@@ -511,22 +511,22 @@ func TestNotifyAssistedOutcomes(t *testing.T) {
 		{
 			name:   "approved",
 			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedApproved, Elapsed: 70 * time.Millisecond},
-			want:   []string{"WebFetch", "approved by JEV Style assisted mode (70ms)"},
+			want:   []string{"WebFetch", "approved by the decision model (assisted mode) (70ms)"},
 		},
 		{
 			name:   "dangerous",
 			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedDangerous, Elapsed: 70 * time.Millisecond},
-			want:   []string{"WebFetch", "flagged as risky by JEV Style (70ms)", "asking for permission"},
+			want:   []string{"WebFetch", "flagged as risky by the decision model (70ms)", "asking for permission"},
 		},
 		{
 			name:   "unsupported",
 			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedUnsupported},
-			want:   []string{"WebFetch", "cannot be classified by JEV Style", "asking for permission"},
+			want:   []string{"WebFetch", "cannot be classified by the decision model", "asking for permission"},
 		},
 		{
 			name:   "unavailable",
 			notice: AssistedNotice{Tool: "WebFetch", Outcome: AssistedUnavailable},
-			want:   []string{"JEV Style unavailable", "assisted mode disabled", "asking for permission"},
+			want:   []string{"decision model unavailable", "assisted mode disabled", "asking for permission"},
 		},
 	}
 	for _, tc := range cases {

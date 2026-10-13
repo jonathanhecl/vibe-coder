@@ -484,12 +484,12 @@ func TestSaveModelSettingsHideThink(t *testing.T) {
 	}
 }
 
-func TestJevstyleConfig(t *testing.T) {
+func TestDecisionConfig(t *testing.T) {
 	tmp := t.TempDir()
 	configFile := filepath.Join(tmp, "vibe-coder.env")
 
 	// 1. File loading
-	if err := os.WriteFile(configFile, []byte("JEVSTYLE_MODEL=file-jev\n"), 0o600); err != nil {
+	if err := os.WriteFile(configFile, []byte("DECISION_MODEL=file-decision\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -500,40 +500,102 @@ func TestJevstyleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.JevstyleModel != "file-jev" {
-		t.Fatalf("expected file-jev, got %q", cfg.JevstyleModel)
+	if cfg.DecisionModel != "file-decision" {
+		t.Fatalf("expected file-decision, got %q", cfg.DecisionModel)
 	}
 
 	// 2. Env override
-	t.Setenv("VIBE_CODER_JEVSTYLE_MODEL", "env-jev")
+	t.Setenv("VIBE_CODER_DECISION_MODEL", "env-decision")
 	cfg, err = Load([]string{})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.JevstyleModel != "env-jev" {
-		t.Fatalf("expected env-jev, got %q", cfg.JevstyleModel)
+	if cfg.DecisionModel != "env-decision" {
+		t.Fatalf("expected env-decision, got %q", cfg.DecisionModel)
 	}
 
-	// 3. CLI override (--jevstyle-model)
-	cfg, err = Load([]string{"--jevstyle-model", "cli-jev"})
+	// 3. CLI override (--decision-model)
+	cfg, err = Load([]string{"--decision-model", "cli-decision"})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.JevstyleModel != "cli-jev" {
-		t.Fatalf("expected cli-jev, got %q", cfg.JevstyleModel)
-	}
-
-	// 4. CLI alias override (--jevstyle)
-	cfg, err = Load([]string{"--jevstyle", "cli-jev-alias"})
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	if cfg.JevstyleModel != "cli-jev-alias" {
-		t.Fatalf("expected cli-jev-alias, got %q", cfg.JevstyleModel)
+	if cfg.DecisionModel != "cli-decision" {
+		t.Fatalf("expected cli-decision, got %q", cfg.DecisionModel)
 	}
 }
 
-func TestSaveModelSettingsJevstyle(t *testing.T) {
+func TestDecisionEndpointConfig(t *testing.T) {
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "vibe-coder.env")
+	if err := os.WriteFile(configFile, []byte("DECISION_ENDPOINT=http://file:8765\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VIBE_CODER_CONFIG", configFile)
+	t.Setenv("VIBE_CODER_DECISION_ENDPOINT", "http://env:8765")
+
+	cfg, err := Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.DecisionEndpoint != "http://env:8765" {
+		t.Fatalf("expected env endpoint, got %q", cfg.DecisionEndpoint)
+	}
+	if cfg.DecisionEffectiveEndpoint() != "http://env:8765" {
+		t.Fatalf("expected effective endpoint env, got %q", cfg.DecisionEffectiveEndpoint())
+	}
+
+	cfg, err = Load([]string{"--decision-endpoint", "http://cli:8765"})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.DecisionEndpoint != "http://cli:8765" {
+		t.Fatalf("expected cli endpoint, got %q", cfg.DecisionEndpoint)
+	}
+	if !cfg.DecisionInUse() {
+		t.Fatal("expected DecisionInUse true")
+	}
+}
+
+func TestDecisionEffectiveEndpointFallsBackToOllama(t *testing.T) {
+	cfg := &Config{OllamaHost: "localhost:11434", DecisionModel: "tev1:0.8b"}
+	if got := cfg.DecisionEffectiveEndpoint(); got != "http://localhost:11434" {
+		t.Fatalf("expected Ollama fallback endpoint, got %q", got)
+	}
+}
+
+func TestLegacyJevstyleWarning(t *testing.T) {
+	tmp := t.TempDir()
+	configFile := filepath.Join(tmp, "vibe-coder.env")
+	if err := os.WriteFile(configFile, []byte("JEVSTYLE_V3_ENDPOINT=http://legacy:8765\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VIBE_CODER_CONFIG", configFile)
+
+	cfg, err := Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.LegacyJevstyle {
+		t.Fatal("expected LegacyJevstyle flag for legacy file key")
+	}
+	if cfg.DecisionEndpoint != "" {
+		t.Fatalf("legacy key must not be mapped, got %q", cfg.DecisionEndpoint)
+	}
+
+	t.Setenv("JEVSTYLE_MODEL", "legacy-env")
+	cfg, err = Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.LegacyJevstyle {
+		t.Fatal("expected LegacyJevstyle flag for legacy env var")
+	}
+	if cfg.DecisionModel != "" {
+		t.Fatalf("legacy env must not be mapped, got %q", cfg.DecisionModel)
+	}
+}
+
+func TestSaveModelSettingsDecision(t *testing.T) {
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "vibe-coder.env")
 	if err := os.WriteFile(cfgPath, []byte("MODEL=main-model\n"), 0o600); err != nil {
@@ -541,11 +603,11 @@ func TestSaveModelSettingsJevstyle(t *testing.T) {
 	}
 
 	cfg := &Config{
-		ConfigDir:     tmp,
-		ConfigFile:    cfgPath,
-		Model:         "main-model",
-		JevstyleModel: "jev-model-v1",
-		OllamaHost:    "http://localhost:11434",
+		ConfigDir:   tmp,
+		ConfigFile:  cfgPath,
+		Model:       "main-model",
+		DecisionModel: "decision-model-v1",
+		OllamaHost:  "http://localhost:11434",
 	}
 	if err := SaveModelSettings(cfg); err != nil {
 		t.Fatal(err)
@@ -555,12 +617,12 @@ func TestSaveModelSettingsJevstyle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "JEVSTYLE_MODEL=jev-model-v1") {
-		t.Fatalf("expected JEVSTYLE_MODEL=jev-model-v1, got:\n%s", string(data))
+	if !strings.Contains(string(data), "DECISION_MODEL=decision-model-v1") {
+		t.Fatalf("expected DECISION_MODEL=decision-model-v1, got:\n%s", string(data))
 	}
 
-	// When cleared, JEVSTYLE_MODEL should be removed
-	cfg.JevstyleModel = ""
+	// When cleared, DECISION_MODEL should be removed
+	cfg.DecisionModel = ""
 	if err := SaveModelSettings(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -568,8 +630,8 @@ func TestSaveModelSettingsJevstyle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "JEVSTYLE_MODEL") {
-		t.Fatalf("expected JEVSTYLE_MODEL removed, got:\n%s", string(data))
+	if strings.Contains(string(data), "DECISION_MODEL") {
+		t.Fatalf("expected DECISION_MODEL removed, got:\n%s", string(data))
 	}
 }
 

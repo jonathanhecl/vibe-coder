@@ -74,13 +74,13 @@ func TestBannerFieldsIsolated(t *testing.T) {
 	}
 }
 
-func TestBannerFieldsWithJevstyle(t *testing.T) {
+func TestBannerFieldsWithDecision(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
 		Model:         "llama3.2:3b",
 		SidecarModel:  "qwen3.5:4b",
-		JevstyleModel: "decision-v1",
+		DecisionModel: "decision-v1",
 		OllamaHost:    "http://localhost:11434",
 	}
 	fields := bannerFields(cfg, "session-123", false)
@@ -89,7 +89,7 @@ func TestBannerFieldsWithJevstyle(t *testing.T) {
 		{Label: "Model", Value: "llama3.2:3b"},
 		{Label: "Sidecar", Value: "qwen3.5:4b"},
 		{Label: "Ollama", Value: "http://localhost:11434"},
-		{Label: "Jevstyle", Value: "decision-v1 (run '/yes assisted' to enable)"},
+		{Label: "Decision", Value: "decision-v1 (run '/yes assisted' to enable)"},
 	}
 	if len(fields) != len(want) {
 		t.Fatalf("expected %d fields, got %d: %#v", len(want), len(fields), fields)
@@ -101,13 +101,13 @@ func TestBannerFieldsWithJevstyle(t *testing.T) {
 	}
 }
 
-func TestBannerFieldsWithJevstyleAssisted(t *testing.T) {
+func TestBannerFieldsWithDecisionAssisted(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
 		Model:         "llama3.2:3b",
 		SidecarModel:  "qwen3.5:4b",
-		JevstyleModel: "decision-v1",
+		DecisionModel: "decision-v1",
 		AssistedYes:   true,
 		OllamaHost:    "http://localhost:11434",
 	}
@@ -117,7 +117,7 @@ func TestBannerFieldsWithJevstyleAssisted(t *testing.T) {
 		{Label: "Model", Value: "llama3.2:3b"},
 		{Label: "Sidecar", Value: "qwen3.5:4b"},
 		{Label: "Ollama", Value: "http://localhost:11434"},
-		{Label: "Jevstyle", Value: "decision-v1 (assisted enabled)"},
+		{Label: "Decision", Value: "decision-v1 (assisted enabled)"},
 	}
 	if len(fields) != len(want) {
 		t.Fatalf("expected %d fields, got %d: %#v", len(want), len(fields), fields)
@@ -129,12 +129,12 @@ func TestBannerFieldsWithJevstyleAssisted(t *testing.T) {
 	}
 }
 
-func TestStartupBannerJevstyleAssisted(t *testing.T) {
+func TestStartupBannerDecisionAssisted(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
 		Model:         "llama3.2:3b",
-		JevstyleModel: "huggingface.co/chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-v2-GGUF-custom:latest",
+		DecisionModel: "decision-2b:latest",
 		AssistedYes:   true,
 		OllamaHost:    "http://localhost:11434",
 	}
@@ -144,8 +144,8 @@ func TestStartupBannerJevstyleAssisted(t *testing.T) {
 	if !strings.Contains(styled, "\x1b[32m(assisted enabled)\x1b[0m") {
 		t.Fatalf("expected green '(assisted enabled)' in styled banner, got:\n%s", styled)
 	}
-	if !strings.Contains(styled, "huggingface.co/chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-v2-GGUF-custom:latest") {
-		t.Fatalf("expected Jevstyle model in styled banner, got:\n%s", styled)
+	if !strings.Contains(styled, "decision-2b:latest") {
+		t.Fatalf("expected decision model in styled banner, got:\n%s", styled)
 	}
 
 	// Plain/unstyled banner
@@ -155,12 +155,12 @@ func TestStartupBannerJevstyleAssisted(t *testing.T) {
 	}
 }
 
-func TestStartupBannerJevstyleWithoutAssisted(t *testing.T) {
+func TestStartupBannerDecisionWithoutAssisted(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
 		Model:         "llama3.2:3b",
-		JevstyleModel: "huggingface.co/chaoliangUNSW/Jev-Style-Qwen3.5-2B-Decision-v2-GGUF-custom:latest",
+		DecisionModel: "decision-2b:latest",
 		AssistedYes:   false,
 		OllamaHost:    "http://localhost:11434",
 	}
@@ -182,18 +182,18 @@ func TestStartupBannerJevstyleWithoutAssisted(t *testing.T) {
 	}
 }
 
-func TestBannerFieldsWithJevstyleV3(t *testing.T) {
+func TestBannerFieldsWithDecisionEndpoint(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
 		Model:              "llama3.2:3b",
-		JevstyleV3Endpoint: "http://mac-mini.local:8765",
+		DecisionEndpoint: "http://mac-mini.local:8765",
 		OllamaHost:         "http://localhost:11434",
 	}
 	fields := bannerFields(cfg, "session-123", false)
 	found := false
 	for _, f := range fields {
-		if f.Label == "Jevstyle" {
+		if f.Label == "Decision" {
 			found = true
 			if !strings.Contains(f.Value, "http://mac-mini.local:8765") {
 				t.Fatalf("expected v3 endpoint in banner, got %q", f.Value)
@@ -201,7 +201,7 @@ func TestBannerFieldsWithJevstyleV3(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected Jevstyle field for v3 endpoint, got %#v", fields)
+		t.Fatalf("expected Decision field for endpoint, got %#v", fields)
 	}
 
 	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))

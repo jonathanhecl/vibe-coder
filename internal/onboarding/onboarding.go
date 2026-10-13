@@ -62,7 +62,7 @@ func RunFirstRun(ctx context.Context, cfg *config.Config, buildVersion string, i
 	cfg.SidecarModel = selection.Sidecar
 	cfg.SidecarDisabled = selection.SidecarDisabled
 	cfg.SidecarSkipSession = false
-	cfg.JevstyleModel = selection.Jevstyle
+	cfg.DecisionModel = selection.Decision
 
 	if err := config.SaveModelSettings(cfg); err != nil {
 		return fmt.Errorf("save first-run settings: %w", err)

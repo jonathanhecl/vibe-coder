@@ -230,9 +230,9 @@ func (w *wizard) printFinal(cfg *config.Config) {
 	if cfg != nil && !cfg.SidecarDisabled && strings.TrimSpace(cfg.SidecarModel) != "" {
 		sidecar = strings.TrimSpace(cfg.SidecarModel)
 	}
-	jevstyle := "(disabled)"
-	if cfg != nil && strings.TrimSpace(cfg.JevstyleModel) != "" {
-		jevstyle = strings.TrimSpace(cfg.JevstyleModel)
+	decisionModel := "(disabled)"
+	if cfg != nil && strings.TrimSpace(cfg.DecisionModel) != "" {
+		decisionModel = strings.TrimSpace(cfg.DecisionModel)
 	}
 	host := ""
 	model := ""
@@ -245,7 +245,7 @@ func (w *wizard) printFinal(cfg *config.Config) {
 		{Key: "Host", Value: host},
 		{Key: "Model", Value: model},
 		{Key: "Sidecar", Value: sidecar},
-		{Key: "JEV Style", Value: jevstyle},
+		{Key: "Decision model", Value: decisionModel},
 	})
 
 	if cfg != nil && cfg.ConfigFile != "" {

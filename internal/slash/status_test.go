@@ -61,7 +61,7 @@ func TestStatusAssistedReflectsEffectiveMode(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
 		Model:         "llama3.2:3b",
-		JevstyleModel: "jev-decision:v1",
+		DecisionModel: "decision:v1",
 		AssistedYes:   true,
 		ContextWindow: 32768,
 		Cwd:           tmp,
@@ -75,7 +75,7 @@ func TestStatusAssistedReflectsEffectiveMode(t *testing.T) {
 	if !perm.AssistedMode() {
 		t.Fatal("expected the manager to start in assisted mode")
 	}
-	// ...but a JEV failure can disable it at runtime while cfg keeps ASSISTED_YES.
+	// ...but a decision-model failure can disable it at runtime while cfg keeps ASSISTED_YES.
 	perm.SetAssistedMode(false)
 	out := &bytes.Buffer{}
 	ctx := &Ctx{Cfg: cfg, Session: s, Perm: perm, Agent: &fakePlanAgent{}, Out: out}
@@ -90,7 +90,7 @@ func TestStatusAssistedReflectsEffectiveMode(t *testing.T) {
 	perm.SetAssistedMode(true)
 	out.Reset()
 	writeStatus(ctx, tui.NewStyleForTest(false))
-	if !strings.Contains(out.String(), "Assisted: on (JEV Style)") {
+	if !strings.Contains(out.String(), "Assisted: on (decision model)") {
 		t.Fatalf("expected effective assisted on, got %q", out.String())
 	}
 }
@@ -99,7 +99,7 @@ func TestStatusAssistedFallsBackToConfigWithoutManager(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
 		Model:         "llama3.2:3b",
-		JevstyleModel: "jev-decision:v1",
+		DecisionModel: "decision:v1",
 		AssistedYes:   true,
 		ContextWindow: 32768,
 		Cwd:           tmp,
@@ -110,16 +110,16 @@ func TestStatusAssistedFallsBackToConfigWithoutManager(t *testing.T) {
 	ctx := &Ctx{Cfg: cfg, Session: s, Agent: &fakePlanAgent{}, Out: out}
 
 	writeStatus(ctx, tui.NewStyleForTest(false))
-	if !strings.Contains(out.String(), "Assisted: on (JEV Style)") {
+	if !strings.Contains(out.String(), "Assisted: on (decision model)") {
 		t.Fatalf("expected assisted on from config, got %q", out.String())
 	}
 }
 
-func TestStatusShowsJevstyleV3(t *testing.T) {
+func TestStatusShowsDecisionEndpoint(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
 		Model:              "llama3.2:3b",
-		JevstyleV3Endpoint: "http://mac-mini.local:8765",
+		DecisionEndpoint: "http://mac-mini.local:8765",
 		AssistedYes:        true,
 		ContextWindow:      32768,
 		Cwd:                tmp,
@@ -131,11 +131,11 @@ func TestStatusShowsJevstyleV3(t *testing.T) {
 
 	writeStatus(ctx, tui.NewStyleForTest(false))
 	rendered := out.String()
-	if !strings.Contains(rendered, "JEV Style: v3 (http://mac-mini.local:8765)") {
-		t.Fatalf("expected v3 endpoint in status, got %q", rendered)
+	if !strings.Contains(rendered, "Decision model: endpoint http://mac-mini.local:8765") {
+		t.Fatalf("expected endpoint in status, got %q", rendered)
 	}
 	if !strings.Contains(rendered, "Assisted: on") {
-		t.Fatalf("expected assisted on with v3 configured, got %q", rendered)
+		t.Fatalf("expected assisted on with endpoint configured, got %q", rendered)
 	}
 }
 

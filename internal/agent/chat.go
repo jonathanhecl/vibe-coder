@@ -268,7 +268,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 					}
 					return "", nil, &ThinkingLoopLimitError{Retries: thinkingLoopRetries}
 				}
-				if errors.Is(err, ErrThinkingTimeoutNoJev) {
+				if errors.Is(err, ErrThinkingTimeoutNoDecision) {
 					cancel()
 					return "", nil, err
 				}
@@ -410,10 +410,10 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		if thinkingTimer != nil {
 			return
 		}
-		if a.jev != nil && a.jev.Enabled() {
+		if a.decider != nil && a.decider.Enabled() {
 			thinkingTimer = time.NewTimer(thinkingCheckInterval)
 		} else {
-			thinkingTimer = time.NewTimer(thinkingNoJevTimeout)
+			thinkingTimer = time.NewTimer(thinkingNoDecisionTimeout)
 		}
 	}
 
@@ -480,21 +480,21 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		select {
 		case <-timerChan:
 			if thinkingActive {
-				if a.jev != nil && a.jev.Enabled() {
+				if a.decider != nil && a.decider.Enabled() {
 					lastParas := extractLastParagraphs(thinkingBuf.String(), thinkingParagraphCount)
 					checkCtx, checkCancel := context.WithTimeout(rootCtx, 30*time.Second)
-					isLoop, err := a.jev.CheckThinkingLoop(checkCtx, lastParas)
+					isLoop, err := a.decider.CheckThinkingLoop(checkCtx, lastParas)
 					checkCancel()
 					if err == nil && isLoop {
 						finishAssistant()
 						return "", nil, ErrThinkingLoopDetected
 					}
-					// Not a loop or JEV check failure: continue thinking and check again after interval
+					// Not a loop or decision check failure: continue thinking and check again after interval
 					thinkingTimer.Reset(thinkingCheckInterval)
 				} else {
-					// 15 minutes of continuous thinking exceeded without JEV: cancel operation without retries
+					// 15 minutes of continuous thinking exceeded without the decision model: cancel operation without retries
 					finishAssistant()
-					return "", nil, ErrThinkingTimeoutNoJev
+					return "", nil, ErrThinkingTimeoutNoDecision
 				}
 			}
 		case <-idle.C:

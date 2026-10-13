@@ -10,45 +10,45 @@ import (
 )
 
 type cliOptions struct {
-	prompt             optionalString
-	interactive        optionalBool
-	model              optionalString
-	ui                 optionalString
-	sidecar            optionalString
-	noSidecar          bool
-	jevstyleModel      optionalString
-	jevstyleV3Endpoint optionalString
-	yesMode            optionalBool
-	assistedYes        optionalBool
-	offline            optionalBool
-	debug              optionalBool
-	resume             optionalBool
-	newSession         optionalBool
-	temporal           optionalBool
-	isolated           optionalBool
-	sessionID          optionalString
-	listSessions       optionalBool
-	ollamaHost         optionalString
-	endpoint           optionalString
-	modelProvider      optionalString
-	sidecarEndpoint    optionalString
-	sidecarProvider    optionalString
-	maxTokens          optionalInt
-	temperature        optionalFloat
-	contextWindow      optionalInt
-	rag                optionalBool
-	ragMode            optionalString
-	ragPath            optionalString
-	ragTopK            optionalInt
-	ragModel           optionalString
-	ragIndex           optionalString
-	contextFiles       stringSlice
-	help               optionalBool
-	version            optionalBool
-	thinkLevel         optionalString
-	noThink            bool
-	hideThink          bool
-	showThink          bool
+	prompt           optionalString
+	interactive      optionalBool
+	model            optionalString
+	ui               optionalString
+	sidecar          optionalString
+	noSidecar        bool
+	decisionModel    optionalString
+	decisionEndpoint optionalString
+	yesMode          optionalBool
+	assistedYes      optionalBool
+	offline          optionalBool
+	debug            optionalBool
+	resume           optionalBool
+	newSession       optionalBool
+	temporal         optionalBool
+	isolated         optionalBool
+	sessionID        optionalString
+	listSessions     optionalBool
+	ollamaHost       optionalString
+	endpoint         optionalString
+	modelProvider    optionalString
+	sidecarEndpoint  optionalString
+	sidecarProvider  optionalString
+	maxTokens        optionalInt
+	temperature      optionalFloat
+	contextWindow    optionalInt
+	rag              optionalBool
+	ragMode          optionalString
+	ragPath          optionalString
+	ragTopK          optionalInt
+	ragModel         optionalString
+	ragIndex         optionalString
+	contextFiles     stringSlice
+	help             optionalBool
+	version          optionalBool
+	thinkLevel       optionalString
+	noThink          bool
+	hideThink        bool
+	showThink        bool
 }
 
 func parseCLI(args []string) (cliOptions, error) {
@@ -66,13 +66,12 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ui, "ui", "ui mode (plain|rich)")
 	fs.Var(&opts.sidecar, "sidecar", "sidecar model")
 	fs.BoolVar(&opts.noSidecar, "no-sidecar", false, "disable sidecar for this session only")
-	fs.Var(&opts.jevstyleModel, "jevstyle-model", "jevstyle decision model (v1/v2 via Ollama)")
-	fs.Var(&opts.jevstyleModel, "jevstyle", "jevstyle decision model (alias)")
-	fs.Var(&opts.jevstyleV3Endpoint, "jevstyle-v3-endpoint", "JEV Style v3 endpoint URL (e.g. http://192.168.0.33:8765)")
+	fs.Var(&opts.decisionModel, "decision-model", "decision model name (Ollama model with the \"decision\" capability)")
+	fs.Var(&opts.decisionEndpoint, "decision-endpoint", "decision model endpoint URL (Ollama host or custom System One server)")
 	fs.Var(&opts.yesMode, "y", "yes mode")
 	fs.Var(&opts.yesMode, "yes", "yes mode")
-	fs.Var(&opts.assistedYes, "assisted-yes", "enable assisted execution mode with JEV Style")
-	fs.Var(&opts.assistedYes, "assisted", "enable assisted execution mode with JEV Style (alias)")
+	fs.Var(&opts.assistedYes, "assisted-yes", "enable assisted execution mode with the decision model")
+	fs.Var(&opts.assistedYes, "assisted", "enable assisted execution mode with the decision model (alias)")
 	fs.Var(&opts.offline, "offline", "enable offline mode (blocks network tools and external commands)")
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.newSession, "n", "start a new session (do not auto-resume)")
@@ -141,11 +140,11 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	if cli.noSidecar {
 		cfg.SidecarSkipSession = true
 	}
-	if cli.jevstyleModel.set {
-		cfg.JevstyleModel = cli.jevstyleModel.value
+	if cli.decisionModel.set {
+		cfg.DecisionModel = cli.decisionModel.value
 	}
-	if cli.jevstyleV3Endpoint.set {
-		cfg.JevstyleV3Endpoint = cli.jevstyleV3Endpoint.value
+	if cli.decisionEndpoint.set {
+		cfg.DecisionEndpoint = cli.decisionEndpoint.value
 	}
 	if cli.yesMode.set {
 		cfg.YesMode = cli.yesMode.value

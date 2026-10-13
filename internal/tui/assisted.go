@@ -17,7 +17,7 @@ const (
 	// the normal permission prompt is shown.
 	AssistedDangerous
 	// AssistedUncertain: the decision model's confidence was below threshold,
-	// so the normal permission prompt is shown (e.g. JEV v3 with low confidence).
+	// so the normal permission prompt is shown (e.g. the decision model with low confidence).
 	AssistedUncertain
 	// AssistedUnsupported: the decision model cannot classify this kind of
 	// action, so the normal permission prompt is shown.
@@ -50,19 +50,19 @@ func (u *PlainUI) NotifyAssisted(notice AssistedNotice) {
 	switch notice.Outcome {
 	case AssistedApproved:
 		line = fmt.Sprintf("%s %s %s", u.style.BrightGreen("✓"), u.style.BrightWhite(tool),
-			u.style.Dim("approved by JEV Style assisted mode"+timing))
+			u.style.Dim("approved by the decision model (assisted mode)"+timing))
 	case AssistedDangerous:
 		line = fmt.Sprintf("%s %s %s", u.style.Yellow("⚠"), u.style.BrightWhite(tool),
-			u.style.Dim("flagged as risky by JEV Style"+timing+" · asking for permission"))
+			u.style.Dim("flagged as risky by the decision model"+timing+" · asking for permission"))
 	case AssistedUncertain:
 		line = fmt.Sprintf("%s %s %s", u.style.Yellow("⚠"), u.style.BrightWhite(tool),
-			u.style.Dim("low confidence from JEV Style"+timing+" · asking for permission"))
+			u.style.Dim("low confidence from the decision model"+timing+" · asking for permission"))
 	case AssistedUnsupported:
 		line = fmt.Sprintf("%s %s %s", u.style.Yellow("⚠"), u.style.BrightWhite(tool),
-			u.style.Dim("cannot be classified by JEV Style · asking for permission"))
+			u.style.Dim("cannot be classified by the decision model · asking for permission"))
 	default: // AssistedUnavailable
 		line = fmt.Sprintf("%s %s", u.style.Yellow("⚠"),
-			u.style.Dim("JEV Style unavailable · assisted mode disabled · asking for permission"))
+			u.style.Dim("decision model unavailable · assisted mode disabled · asking for permission"))
 	}
 	u.stopSpinner()
 	u.mu.Lock()
