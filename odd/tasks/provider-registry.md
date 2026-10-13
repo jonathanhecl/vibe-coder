@@ -1,0 +1,44 @@
+# Provider registry & role configuration
+
+Objective: replace the per-role bespoke model/endpoint commands (`/model`, `/sidecar`, `/decision`) with a reusable named provider registry (`/providers`, `/provider`, `/models`, `/setmodel`) that binds five roles (main, sidecar, decision, embedding, vision) to a (provider, model) pair.
+Branch: `main` (user explicitly declined a worktree)
+Delivery strategy: `ask-on-risk`; staged work-unit commits directly on `main`
+Test runner: `go test ./...`
+
+## Specs
+
+- **S1** `/providers` lists the configured providers and, for each role, which model is active. Default registry contains only `ollama`. (user: "/providers (default nos lista los proveedores configurados, y cuales modelos estan activos en cada tarea)")
+- **S2** `/provider <name> endpoint <url>` sets a provider endpoint. When the provider requires an API key it is requested. (user: "/provider ollama endpoint ***")
+- **S3** `/provider add <NAME>` adds a new reusable provider; `/provider remove|rm <name>` and `/provider test <name>` are available. (user: "/provider add NOMBRECUSTOM ... entonces podría tener varios proveedores \"reutilizables\"")
+- **S4** `/models [PROVIDER]` lists that provider's models as a numbered list with capability tags shown in distinct, stable colors. No argument means `ollama`. (user: "/models *PROVIDER* listar modelos del proveedor (añadir el tag de la capacidad de colores diferentes y establecidos)")
+- **S5** `/setmodel [PROVIDER] <role> <number|name>` binds a role to a model by list number or by name. No provider argument means `ollama`, preserving `/setmodel main 5`. (user: "/setmodel *PROVIDER* decision *** (nombre o numero de modelo)")
+- **S6** Roles are `main`, `sidecar`, `decision`, `embedding`, `vision`. Capability requirement per role: `main`/`sidecar` require completion, `decision` requires decision, `embedding` requires embedding, `vision` requires vision. (user: "main/sidecar requieren completation, decision (requiere decision), embedding (requiere embedding), vision (requiere vision)")
+- **S7** Model/role validation: for Ollama models the capability is authoritative from the model's capability tag; for non-Ollama providers the user is trusted and the tag is shown as unverified. (user: "en los modelos de ollama podemos saberlo por el tag de capacidad, en otros proveedores, vamos a tener tener que confiar en el usuario")
+- **S8** Vision may be left unconfigured; it is then derived automatically from the main model (if vision-capable) and otherwise from the sidecar (if vision-capable), with an honest note when neither can see. Derivation uses verified capabilities only.
+- **S9** The only mandatory role to operate is `main` with completion.
+- **S10** The `embedding` role is stored and validated but left pending of use (no consumer).
+- **S11** The old commands are removed to avoid multiple routes: `/model`, the old role-less `/models`, `/sidecar` (model/endpoint parts) and `/decision` (model/endpoint parts). Features that would otherwise be lost are relocated: the per-session sidecar skip toggle and `/decision assisted on|off`. (user: "eliminar los vieojus comandos. usaremos los nuevos /models ** /setmodel ***, /providers ... /provider ***")
+- **S12** On first run the default setting is the Ollama endpoint plus one `main` model; every other role is configured later with the new commands. (user: "cuando \"ejecutamos\" vibe por primera vez, el setting default, es configurar ollama y un modelo main, para el resto va a necesitar usar los comandos nuevos")
+- **S13** Settings persist as `PROVIDER_<NAME>_KIND|ENDPOINT|API_KEY` and `ROLE_<ROLE>_PROVIDER|MODEL`; existing legacy keys are migrated on load.
+- **S14** The `main` and `sidecar` roles sharing one provider reuse a single client instead of one client per role.
+- **S15** At the end, explain to the user how to configure the remaining roles with the new commands. (user: "explicar al terminar de instalar los comandos para configurar el resto de tareas")
+
+## Tasks
+
+- [x] T1 config: provider registry + role bindings + legacy migration + persisted keys + tests — S6, S13 — route: inline — commit: 69a7065
+- [ ] T2 ollama: completion/embedding/decision capability helpers + role validation + tests — S6, S7 — route: inline — commit: pending
+- [ ] T3 slash: `/providers`, `/provider`, `/models`, `/setmodel` + help + tests — S1, S2, S3, S4, S5, S7 — route: inline — commit: pending
+- [ ] T4 slash: remove old commands, relocate sidecar session-skip and `/decision assisted` + tests — S11 — route: inline — commit: pending
+- [ ] T5 onboarding: first run = host + main only + tests — S12 — route: inline — commit: pending
+- [ ] T6 vision: derive from main then sidecar + docs (README/CHANGELOG) — S8, S9, S10, S14, S15 — route: inline — commit: pending
+
+## Log
+
+- L1 (user, verbatim): "necesito organizar la configuración, hacerla más \"eficiente\". en primer lugar necesitamos enconces tener un /ollama que nos permita configurar endpoint de ollama, si lo habilitamos para main, si lo habilitamos para sidecar, si lo habilitamos para decision. todo en un solo endpoint /ollama endpoint ** (pide api key si es requerido) , /ollama models (lista de modelos numerado), /ollama main 5 (elije el modelo 5 como main), /ollama sidecar 6, /ollama decision 7 /ollama embedding 8, /ollama vision 9.... podemos usar numero o el nombre escrito. debe validar si el modelo es apto para la tarea. si tiene la capacidad para el rol. main/sidecar requieren completation, decision (requiere decision), embedding (requiere embedding), vision (requiere vision). es posible no configurar vision, y que tome de forma automatica vision del main (si la tiene) y del sidecar (si la tiene). lo unico obligatorio para operar es un modelo main con completation. los otros comandos que tenemos habria que deprecarlos para no generar rutas multiples. ahora si quiero usar un modelo de otro proveedor en cualquier ade estos servicios, debo poder hacerlo, con /custom main endpoint ***, /custom sidecar endpoint ***, /custom decision endpoint ****, /custom embedding endpoint ***, esta config puede activarse con /custom main on/off. el fallback es hacia ollama. es un cambio que va a requerir una buena planificación. de momento el modelo embedding (dejalo pendiente de uso)"
+- L2 (user, verbatim): "otra propuesta de podría ser algo mas escalable. /providers (listar proveedores, solo esta ollama por default) /provider ollama endpoint *** y el usuario puede venir y hacer /provider add NOMBRECUSTOM, y entonces puede usarlo con /provider NOMBRECUSTOM endpoint ** entonces podría tener varios proveedores \"reutilizables\". /setmodel *PROVIDER* decision *** (nombre o numero de modelo) /models *PROVIDER* listar modelos del proveedor (añadir el tag de la capacidad de colores diferentes y establecidos). que opinas?"
+- L3 (user, verbatim): "en los modelos de ollama podemos saberlo por el tag de capacidad, en otros proveedores, vamos a tener tener que confiar en el usuario. eliminar los vieojus comandos. usaremos los nuevos /models ** /setmodel ***, /providers (default nos lista los proveedores configurados, y cuales modelos estan activos en cada tarea), /provider *** cuando \"ejecutamos\" vibe por primera vez, el setting default, es configurar ollama y un modelo main, para el resto va a necesitar usar los comandos nuevos. ok?"
+- L4 (user, verbatim): "hazlo todo en el mismo branch de main, ve haciendo commits por etapas, pero no crees otros worktree. explicar al terminar de instalar los comandos para configurar el resto de tareas, pero esta OK! el plan."
+- L5 (assumption accepted): vision auto-derivation only from verified capabilities; unverified custom providers are not assumed to see images.
+- L6 (assumption accepted): unify onboarding's `defaultModel` with the RAM-based `autoDetectModel()`.
+- L7 (decision): persist the new `PROVIDER_*`/`ROLE_*` keys only; legacy keys are migrated on load and not rewritten. Downgrade to an older binary loses the new keys.
+- L8 (progress, T1): `internal/config/provider.go` adds the registry (`Provider`, `RoleModel`, `ProviderKind`, `Role`, `CapabilityRequirement`, add/remove/set/bind/clear). `Load` runs `reconcileRegistry()` (legacy fields + `ROLE_*`/`PROVIDER_*` keys → registry, then projects back onto the flat fields via `syncLegacyFields`), and `SaveModelSettings` runs `adoptLegacyFields()` first so a cleared flat field clears its role. Env/CLI mark the role they override so they keep winning over the file. Evidence: `go build ./...` clean; `go test ./...` fully green (config 0.294s, cmd/vibe 23.9s, all packages ok).
