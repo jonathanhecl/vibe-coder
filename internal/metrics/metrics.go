@@ -79,36 +79,6 @@ func (s *Summary) Add(e Entry) {
 	}
 }
 
-// Format renders a human-readable, English summary for /stats.
-func (s Summary) Format() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Requests: %d", s.Requests)
-	if s.Errors > 0 {
-		fmt.Fprintf(&b, " (%d errors)", s.Errors)
-	}
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "Prompt tokens: %d", s.PromptTokens)
-	if s.Requests > 0 {
-		fmt.Fprintf(&b, " (avg %d/request)", s.PromptTokens/s.Requests)
-	}
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "Completion tokens: %d\n", s.CompletionTokens)
-	if s.ToolResultsMasked > 0 {
-		fmt.Fprintf(&b, "Tool results masked: %d\n", s.ToolResultsMasked)
-	}
-	if s.Compactions > 0 {
-		fmt.Fprintf(&b, "Compactions: %d\n", s.Compactions)
-	}
-	fmt.Fprintf(&b, "Prompt eval time: %d ms\n", s.PromptEvalMS)
-	fmt.Fprintf(&b, "Eval time: %d ms\n", s.EvalMS)
-	fmt.Fprintf(&b, "Wall time: %d ms", s.WallMS)
-	if s.Requests > 0 {
-		fmt.Fprintf(&b, " (avg %d ms/request)", s.WallMS/int64(s.Requests))
-	}
-	b.WriteString("\n")
-	return b.String()
-}
-
 // Summarize folds a slice of entries (e.g. read back from a JSONL file)
 // into a Summary, including wall-time percentiles.
 func Summarize(entries []Entry) Summary {

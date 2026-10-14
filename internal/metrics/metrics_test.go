@@ -10,24 +10,21 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 )
 
-func TestSummaryAddAndFormat(t *testing.T) {
+func TestSummaryAdd(t *testing.T) {
 	t.Parallel()
 
 	var s Summary
 	s.Add(Entry{PromptTokens: 100, CompletionTokens: 10, WallMS: 200})
 	s.Add(Entry{PromptTokens: 300, CompletionTokens: 30, WallMS: 400, Error: "boom", ToolResultsMasked: 2})
 
-	out := s.Format()
-	for _, want := range []string{
-		"Requests: 2 (1 errors)",
-		"Prompt tokens: 400 (avg 200/request)",
-		"Completion tokens: 40",
-		"Tool results masked: 2",
-		"Wall time: 600 ms (avg 300 ms/request)",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("Format() missing %q:\n%s", want, out)
-		}
+	if s.Requests != 2 || s.Errors != 1 {
+		t.Fatalf("requests=%d errors=%d, want 2 and 1", s.Requests, s.Errors)
+	}
+	if s.PromptTokens != 400 || s.CompletionTokens != 40 {
+		t.Fatalf("prompt=%d completion=%d, want 400 and 40", s.PromptTokens, s.CompletionTokens)
+	}
+	if s.WallMS != 600 || s.ToolResultsMasked != 2 {
+		t.Fatalf("wall=%d masked=%d, want 600 and 2", s.WallMS, s.ToolResultsMasked)
 	}
 }
 

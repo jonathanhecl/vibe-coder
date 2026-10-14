@@ -104,6 +104,28 @@ func writeStyledRows(w io.Writer, st Style, rows []Row) {
 	}
 }
 
+// WriteBlockHeader writes the heading that introduces a block of rows, so every
+// command that prints a table looks like the same product. Nothing is written
+// when styling is off, where the bare rows read fine in logs and pipes.
+func WriteBlockHeader(w io.Writer, st Style, title string) {
+	if !st.Enabled() {
+		return
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s %s\n", st.BoldBrightGreen("vibe"), st.Gray(title))
+	fmt.Fprintf(w, "  %s\n", st.Gray(strings.Repeat("─", 46)))
+}
+
+// WriteBlock renders a titled table: the heading when styling is on, then the
+// rows. Nothing is written for an empty block.
+func WriteBlock(w io.Writer, st Style, title string, rows []Row) {
+	if len(rows) == 0 {
+		return
+	}
+	WriteBlockHeader(w, st, title)
+	WriteRows(w, st, rows)
+}
+
 // pad right-pads a label so the values of a group line up.
 func pad(label string, width int) string {
 	return fmt.Sprintf("%-*s", width, label)

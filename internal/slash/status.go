@@ -24,16 +24,7 @@ func printStatus(c *Ctx) {
 // way. Colors and the aligned table appear only when styling is enabled; plain
 // output keeps the line-based "Label: value" form for logs and pipes.
 func writeStatus(c *Ctx, st tui.Style) {
-	rows := statusRows(c)
-	if len(rows) == 0 {
-		return
-	}
-	if st.Enabled() {
-		fmt.Fprintln(c.Out)
-		fmt.Fprintf(c.Out, "  %s %s\n", st.BoldBrightGreen("vibe"), st.Gray("status"))
-		fmt.Fprintf(c.Out, "  %s\n", st.Gray(strings.Repeat("─", 46)))
-	}
-	tui.WriteRows(c.Out, st, rows)
+	tui.WriteBlock(c.Out, st, "status", statusRows(c))
 }
 
 func statusRows(c *Ctx) []tui.Row {
