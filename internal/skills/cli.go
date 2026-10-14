@@ -12,7 +12,7 @@ import (
 )
 
 // RunCLI handles execution of the "skill" and "skills" subcommands.
-func RunCLI(configDir, cwd string, args []string) error {
+func RunCLI(cfg *config.Config, args []string) error {
 	if len(args) == 0 {
 		printUsage()
 		return nil
@@ -26,9 +26,9 @@ func RunCLI(configDir, cwd string, args []string) error {
 		printUsage()
 		return nil
 	case "list":
-		return handleList(configDir, cwd)
+		return handleList(cfg)
 	case "add":
-		return handleAdd(configDir, cwd, subArgs)
+		return handleAdd(cfg.ConfigDir, cfg.Cwd, subArgs)
 	default:
 		return fmt.Errorf("unknown skill subcommand: %q. Run 'vibe skill' for help", subcommand)
 	}
@@ -37,7 +37,7 @@ func RunCLI(configDir, cwd string, args []string) error {
 func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  vibe skill list")
-	fmt.Println("        List all currently loaded skills, their paths, and previews.")
+	fmt.Println("        List all discoverable skills, their source, path, and description.")
 	fmt.Println()
 	fmt.Println("  vibe skill add [flags] <name> <source_file_path>")
 	fmt.Println("        Copy an existing Markdown skill file into vibe's skill directories.")
@@ -47,36 +47,20 @@ func printUsage() {
 	fmt.Println("        Target the global skills directory instead of project-local.")
 }
 
-func handleList(configDir, cwd string) error {
-	// Reuse loader's Load implementation by building a dummy config.
-	cfg := &config.Config{
-		ConfigDir: configDir,
-		Cwd:       cwd,
-	}
-
+func handleList(cfg *config.Config) error {
 	items := Load(cfg)
 	if len(items) == 0 {
-		fmt.Println("No skills loaded.")
+		fmt.Println("No skills found. Add skills under .vibe-coder/skills/ or <configDir>/skills/, or point SKILLS_DIRS at existing skill folders (e.g. ~/.config/opencode/skills).")
 		return nil
 	}
 
 	fmt.Printf("Loaded skills (%d total):\n", len(items))
 	for _, item := range items {
-		fmt.Printf("  Skill: %s\n", item.Name)
+		fmt.Printf("  %s [%s]\n", item.Name, item.Source)
 		fmt.Printf("    Path: %s\n", item.Path)
-
-		// Create a short preview of the content
-		preview := strings.TrimSpace(item.Content)
-		if lines := strings.SplitN(preview, "\n", 2); len(lines) > 0 {
-			preview = lines[0]
-			if len(preview) > 80 {
-				preview = preview[:77] + "..."
-			}
+		if item.Description != "" {
+			fmt.Printf("    %s\n", item.Description)
 		}
-		if preview == "" {
-			preview = "(empty content)"
-		}
-		fmt.Printf("    Preview: %s\n", preview)
 	}
 	return nil
 }

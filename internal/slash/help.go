@@ -35,6 +35,8 @@ func printHelp(c *Ctx) {
 			{"/stats", "show session metrics (requests, tokens, timings)"},
 			{"/context <file>", "pin a .md/.txt guide as persistent session instruction"},
 			{"/context list", "show pinned context files"},
+			{"/skills", "list discovered skills (name, source, description)"},
+			{"/skills set", "choose extra skill folders (SKILLS_DIRS) interactively"},
 		}},
 		{"Model", [][2]string{
 			{"/models [PROVIDER]", "list a provider's models, numbered and tagged"},

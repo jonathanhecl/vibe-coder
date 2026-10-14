@@ -765,8 +765,8 @@ func (a *Agent) rebuildStableSystemPromptBody() string {
 			systemPrompt = systemPrompt + "\n\n" + protocol
 		}
 	}
-	if skillsBlock := skills.RenderBlock(skills.Load(a.cfg)); skillsBlock != "" {
-		systemPrompt = systemPrompt + "\n\n# Loaded Skills\n" + skillsBlock
+	if catalog := skills.RenderCatalog(skills.Load(a.cfg)); catalog != "" {
+		systemPrompt = systemPrompt + "\n\n" + catalog
 	}
 	return systemPrompt
 }

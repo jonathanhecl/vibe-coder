@@ -44,6 +44,7 @@ type cliOptions struct {
 	ragTopK          optionalInt
 	ragIndex         optionalString
 	contextFiles     stringSlice
+	skillsDirs       optionalString
 	help             optionalBool
 	version          optionalBool
 	thinkLevel       optionalString
@@ -103,6 +104,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ragTopK, "rag-topk", "rag top-k")
 	fs.Var(&opts.ragIndex, "rag-index", "rag index path")
 	fs.Var(&opts.contextFiles, "context", "pin a .md/.txt guide file as persistent session instruction (repeatable)")
+	fs.Var(&opts.skillsDirs, "skills-dirs", "extra directories scanned for skills (path-list separated)")
 	fs.Var(&opts.help, "help", "show help")
 	fs.Var(&opts.version, "version", "show version")
 	fs.Var(&opts.thinkLevel, "think", "thinking effort: off|low|medium|high|max")
@@ -236,6 +238,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if len(cli.contextFiles.values) > 0 {
 		cfg.ContextFiles = append(cfg.ContextFiles, cli.contextFiles.values...)
+	}
+	if cli.skillsDirs.set {
+		cfg.SkillsDirs = splitPathList(cli.skillsDirs.value)
 	}
 	if cli.help.set {
 		cfg.ShowHelp = cli.help.value

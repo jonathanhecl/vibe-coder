@@ -156,6 +156,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 	case "/stats":
 		printStats(c)
 		return true, false, nil
+	case "/skills":
+		return true, false, runSkillsCommand(c, fields[1:])
 	case "/sidecar":
 		return true, false, runSidecarCommand(c, fields[1:])
 	case "/decision":

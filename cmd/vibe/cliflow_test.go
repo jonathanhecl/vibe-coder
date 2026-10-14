@@ -144,7 +144,7 @@ func TestCLIFlowsMCPAndSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(proj, ".vibe-coder", "skills", "my-skill.md")); err != nil {
 		t.Fatalf("skill file not created: %v", err)
 	}
-	if out, err = runVibe(t, proj, env, "skill", "list"); err != nil || !strings.Contains(out, "Skill: my-skill") {
+	if out, err = runVibe(t, proj, env, "skill", "list"); err != nil || !strings.Contains(out, "my-skill [project]") {
 		t.Fatalf("skill list missing my-skill: %v\n%s", err, out)
 	}
 }

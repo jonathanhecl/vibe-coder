@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
 func TestRunCLI_AddAndList(t *testing.T) {
@@ -28,7 +30,7 @@ func TestRunCLI_AddAndList(t *testing.T) {
 
 	// 1. Add local skill
 	addLocalArgs := []string{"add", "custom-skill", sourceFile}
-	if err := RunCLI(configDir, cwd, addLocalArgs); err != nil {
+	if err := RunCLI(&config.Config{ConfigDir: configDir, Cwd: cwd}, addLocalArgs); err != nil {
 		t.Fatalf("RunCLI add local failed: %v", err)
 	}
 
@@ -44,7 +46,7 @@ func TestRunCLI_AddAndList(t *testing.T) {
 
 	// 2. Add global skill
 	addGlobalArgs := []string{"add", "--global", "global-skill", sourceFile}
-	if err := RunCLI(configDir, cwd, addGlobalArgs); err != nil {
+	if err := RunCLI(&config.Config{ConfigDir: configDir, Cwd: cwd}, addGlobalArgs); err != nil {
 		t.Fatalf("RunCLI add global failed: %v", err)
 	}
 
@@ -60,7 +62,7 @@ func TestRunCLI_AddAndList(t *testing.T) {
 
 	// 3. List skills
 	listArgs := []string{"list"}
-	if err := RunCLI(configDir, cwd, listArgs); err != nil {
+	if err := RunCLI(&config.Config{ConfigDir: configDir, Cwd: cwd}, listArgs); err != nil {
 		t.Fatalf("RunCLI list failed: %v", err)
 	}
 }
@@ -71,7 +73,7 @@ func TestRunCLI_Errors(t *testing.T) {
 	cwd := filepath.Join(tmpDir, "project")
 
 	// Missing args
-	err := RunCLI(configDir, cwd, []string{"add"})
+	err := RunCLI(&config.Config{ConfigDir: configDir, Cwd: cwd}, []string{"add"})
 	if err == nil {
 		t.Fatal("expected error with missing args, got nil")
 	}
@@ -80,13 +82,13 @@ func TestRunCLI_Errors(t *testing.T) {
 	}
 
 	// Source file does not exist
-	err = RunCLI(configDir, cwd, []string{"add", "test-skill", "nonexistent.md"})
+	err = RunCLI(&config.Config{ConfigDir: configDir, Cwd: cwd}, []string{"add", "test-skill", "nonexistent.md"})
 	if err == nil {
 		t.Fatal("expected error with nonexistent source file, got nil")
 	}
 
 	// Invalid skill name
-	err = RunCLI(configDir, cwd, []string{"add", "test/skill", "nonexistent.md"})
+	err = RunCLI(&config.Config{ConfigDir: configDir, Cwd: cwd}, []string{"add", "test/skill", "nonexistent.md"})
 	if err == nil {
 		t.Fatal("expected error with invalid skill name, got nil")
 	}
@@ -95,7 +97,7 @@ func TestRunCLI_Errors(t *testing.T) {
 	}
 
 	// Unknown subcommand
-	err = RunCLI(configDir, cwd, []string{"nonexistent"})
+	err = RunCLI(&config.Config{ConfigDir: configDir, Cwd: cwd}, []string{"nonexistent"})
 	if err == nil {
 		t.Fatal("expected error with unknown subcommand, got nil")
 	}

@@ -9,36 +9,39 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
-// DiskKey fingerprints skill markdown files under the same directories as
-// Load, using name, size, and mtime only (no file reads).
+// DiskKey fingerprints the skill files under every Root — flat .md files
+// and <subdir>/SKILL.md manifests — using path, size, and mtime only (no
+// file reads), so a change invalidates the cached system prompt.
 func DiskKey(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	dirs := []string{
-		filepath.Join(cfg.ConfigDir, "skills"),
-		filepath.Join(cfg.Cwd, ".vibe-coder", "skills"),
-		filepath.Join(cfg.Cwd, "skills"),
-	}
 	var b strings.Builder
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
+	for _, root := range Roots(cfg) {
+		entries, err := os.ReadDir(root.Dir)
 		if err != nil {
 			continue
 		}
 		for _, entry := range entries {
-			if entry.IsDir() {
+			name := entry.Name()
+			if strings.HasPrefix(name, ".") {
 				continue
 			}
-			name := entry.Name()
-			if strings.HasPrefix(name, ".") || !strings.HasSuffix(strings.ToLower(name), ".md") {
+			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				manifest := filepath.Join(root.Dir, name, "SKILL.md")
+				if fi, err := os.Stat(manifest); err == nil && fi.Mode().IsRegular() {
+					fmt.Fprintf(&b, "%s|%d|%d\n", manifest, fi.ModTime().UnixNano(), fi.Size())
+				}
+				continue
+			}
+			if !strings.HasSuffix(strings.ToLower(name), ".md") {
 				continue
 			}
 			fi, err := entry.Info()
 			if err != nil {
 				continue
 			}
-			path := filepath.Join(dir, name)
+			path := filepath.Join(root.Dir, name)
 			fmt.Fprintf(&b, "%s|%d|%d\n", path, fi.ModTime().UnixNano(), fi.Size())
 		}
 	}

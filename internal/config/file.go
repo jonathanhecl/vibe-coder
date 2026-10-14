@@ -152,6 +152,8 @@ func applyConfigFile(cfg *Config, path string) error {
 			}
 		case "CONTEXT":
 			cfg.ContextFiles = append(cfg.ContextFiles, splitPathList(value)...)
+		case "SKILLS_DIRS":
+			cfg.SkillsDirs = splitPathList(value)
 		case "KEEP_TOOL_RESULTS":
 			if parsed, err := strconv.Atoi(value); err == nil {
 				cfg.Harness.KeepToolResults = parsed
@@ -286,8 +288,9 @@ func (c *Config) persistEntries() (map[string]string, []string) {
 		"THINK":             strings.TrimSpace(c.OllamaThinkLevel),
 		"KEEP_ALIVE_MAIN":   strconv.Itoa(c.KeepAliveMain),
 		"KEEP_ALIVE_WORKER": strconv.Itoa(c.KeepAliveWorker),
+		"SKILLS_DIRS":       strings.Join(c.SkillsDirs, string(os.PathListSeparator)),
 	}
-	ordered := []string{"HIDE_THINK", "THINK", "KEEP_ALIVE_MAIN", "KEEP_ALIVE_WORKER"}
+	ordered := []string{"HIDE_THINK", "THINK", "KEEP_ALIVE_MAIN", "KEEP_ALIVE_WORKER", "SKILLS_DIRS"}
 
 	for _, name := range c.ProviderNames() {
 		p := c.Providers[name]

@@ -47,7 +47,7 @@ func main() {
 		if err != nil {
 			exitWithError(err)
 		}
-		if err := skills.RunCLI(cfg.ConfigDir, cfg.Cwd, os.Args[2:]); err != nil {
+		if err := skills.RunCLI(cfg, os.Args[2:]); err != nil {
 			exitWithError(err)
 		}
 		return
@@ -144,6 +144,9 @@ func main() {
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
+	// Discovered skill roots are read-only for the agent: Read/Glob/Grep
+	// under them run prompt-free; writes still prompt.
+	perm.SetReadOnlyRoots(skills.ReadOnlyDirs(cfg))
 	var decider decision.Decider
 	if decisionClient := decision.FromConfig(cfg); decisionClient != nil {
 		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -169,6 +172,7 @@ func main() {
 	}
 	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool).SetVisionRole(visionRole))
 	reg.Register(tools.NewScreenshotTool(cfg, client, sidePool).SetVisionRole(visionRole))
+	reg.Register(tools.NewSkillTool(cfg))
 
 	mcpCtx, mcpCancel := mcp.DefaultInitContext()
 	defer mcpCancel()

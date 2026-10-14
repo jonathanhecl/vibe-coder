@@ -143,7 +143,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 
 - **RAG** (optional, `-tags rag`) — SQLite-backed indexing with incremental (content-hash) re-indexing and hybrid retrieval: lexical token overlap fused with embedding cosine similarity (reciprocal rank fusion) when the `embedding` role is bound, lexical-only otherwise. Build with `--rag-index`, query with `--rag`.
 - **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`.
-- **Skills auto-load** — searches three directories for skill markdown files (50 KiB cap, sanitized).
+- **Agent Skills on demand** — discovers `SKILL.md` skill folders and flat `.md` files under project, user, and `SKILLS_DIRS` roots; the prompt carries a name+description catalog and the `Skill` tool loads the full content, with read-only access to bundled files.
 - **File checkpoint + auto-test** — pre-Edit/Write copies leave the working tree, index, and stashes untouched. A successful changed file becomes a completed checkpoint; failed or unchanged edits do not replace usable undo history. Related tests request shell execution permission, and failures or denied execution are re-injected as `[AUTO-TEST]` observations.
 - **File watcher** — external file changes appear as `[System Note] N file change(s) detected` on the next iteration.
 
@@ -653,12 +653,50 @@ Manage stdio-based JSON-RPC MCP servers in global or project-local configuration
 
 ### Skills
 
-Manage instruction-based custom agent skills.
+Skills are task-specific playbooks the agent loads on demand. Two formats are
+supported: the standard Agent Skills layout (`<root>/<skill-name>/SKILL.md`
+with YAML frontmatter `name`/`description`, plus optional bundled files like
+`references/` or `scripts/`) and legacy flat `<root>/<name>.md` files.
 
-* **List loaded skills**:
+Discovery roots, in precedence order (the first root wins a name collision):
+
+1. `<cwd>/.vibe-coder/skills` (project)
+2. `<cwd>/skills` (project)
+3. `<configDir>/skills` (user)
+4. Every directory listed in `SKILLS_DIRS` — set it to point at skill folders
+   you already have installed, e.g. in `vibe-coder.env`:
+   ```
+   SKILLS_DIRS=~/.config/opencode/skills:~/.config/devin/skills
+   ```
+   (also via env `VIBE_CODER_SKILLS_DIRS` or flag `--skills-dirs`; entries are
+   separated by `:` on Unix, `;` on Windows, and `~` is expanded).
+
+The system prompt carries only a catalog (name + description). When a task
+matches a skill, the agent calls the `Skill` tool to load its full
+instructions and the list of bundled files, which it can then open with
+`Read` — files inside discovered skill roots are read-only accessible without
+a permission prompt.
+
+* **List discovered skills** (name, source, path, description):
   ```bash
   vibe skill list
   ```
+  Inside a session, `/skills` shows the same list.
+* **Configure `SKILLS_DIRS` interactively** — `/skills set` detects skill
+  folders installed by other tools, in this order: `~/.agents/skills`
+  (Agents shared), `~/.claude/skills` (Claude Code),
+  `~/.config/opencode/skills` (OpenCode), `~/.config/devin/skills` (Devin)
+  and `~/.codex/skills` (Codex). It prints them as numbered choices and
+  replaces the current `SKILLS_DIRS` with your selection:
+  ```text
+  /skills set            # interactive picker (or prints usage without a TTY)
+  /skills set 1,2        # pick options 1 and 2
+  /skills set all        # pick every detected folder
+  /skills set none       # clear SKILLS_DIRS
+  /skills set ~/my-skills # use a custom folder (mixable with numbers)
+  ```
+  Choices take effect immediately; run `/save` to persist them to the
+  config file.
 * **Add a new skill**:
   ```bash
   # Adds a local skill under .vibe-coder/skills/my-skill.md (default)
@@ -998,7 +1036,7 @@ internal/
   safety/                # Dangerous-command blocklist + env scrub
   session/               # Session persistence, compaction, project index
   sidecar/               # Sidecar model worker pool
-  skills/                # Skill markdown auto-load
+  skills/                # Skill discovery (SKILL.md + flat .md) + catalog
   slash/                 # Slash command dispatcher
   terminal/              # Interactive Bash session manager
   tools/                 # Built-in tool registry + implementations

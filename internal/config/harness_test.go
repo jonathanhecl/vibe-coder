@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -102,5 +103,83 @@ func TestHarnessClamping(t *testing.T) {
 	}
 	if h.KeepToolResults != 2 {
 		t.Fatalf("valid KeepToolResults must be kept, got %d", h.KeepToolResults)
+	}
+}
+
+func TestSkillsDirsFromFileEnvAndFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vibe-coder.env")
+	list := string(os.PathListSeparator)
+	if err := os.WriteFile(path, []byte("SKILLS_DIRS=from-file"+list+"other-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VIBE_CODER_CONFIG", path)
+
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.SkillsDirs) != 2 || cfg.SkillsDirs[0] != filepath.Join(cfg.Cwd, "from-file") {
+		t.Fatalf("expected file dirs resolved against cwd, got %v", cfg.SkillsDirs)
+	}
+
+	// Env replaces the file value entirely.
+	t.Setenv("VIBE_CODER_SKILLS_DIRS", "~/skills-env"+list+"rel-env")
+	cfg, err = Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	if len(cfg.SkillsDirs) != 2 ||
+		cfg.SkillsDirs[0] != filepath.Join(home, "skills-env") ||
+		cfg.SkillsDirs[1] != filepath.Join(cfg.Cwd, "rel-env") {
+		t.Fatalf("expected env dirs with ~ expansion and cwd resolution, got %v", cfg.SkillsDirs)
+	}
+
+	// The flag replaces both.
+	cfg, err = Load([]string{"--skills-dirs", "flag-dir"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.SkillsDirs) != 1 || cfg.SkillsDirs[0] != filepath.Join(cfg.Cwd, "flag-dir") {
+		t.Fatalf("expected flag to replace env, got %v", cfg.SkillsDirs)
+	}
+}
+
+func TestSkillsDirsDedupeAndBlanks(t *testing.T) {
+	dirs := normalizeSkillsDirs("/base", []string{"", "a", "a/", " b ", "b"})
+	want := []string{"/base/a", "/base/b"}
+	if len(dirs) != len(want) {
+		t.Fatalf("got %v, want %v", dirs, want)
+	}
+	for i := range want {
+		if dirs[i] != want[i] {
+			t.Fatalf("got %v, want %v", dirs, want)
+		}
+	}
+}
+
+// SaveModelSettings preserves unknown keys, so a file-level SKILLS_DIRS
+// must survive a save.
+func TestSkillsDirsSurvivesSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vibe-coder.env")
+	if err := os.WriteFile(path, []byte("SKILLS_DIRS=/opt/skills\nMODEL=old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig(dir, dir, dir)
+	cfg.ConfigFile = path
+	if err := applyConfigFile(cfg, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "SKILLS_DIRS=/opt/skills") {
+		t.Fatalf("expected SKILLS_DIRS to survive save, got:\n%s", data)
 	}
 }

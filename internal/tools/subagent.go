@@ -113,6 +113,7 @@ func (t *SubAgentTool) runLoop(ctx context.Context, userPrompt string, turns int
 		"ReadMany": NewReadManyTool(),
 		"Glob":     NewGlobTool(),
 		"Grep":     NewGrepTool(),
+		"Skill":    NewSkillTool(t.cfg),
 	}
 	if allowWrites {
 		allowed["Write"] = NewWriteTool()
@@ -251,9 +252,8 @@ func subAgentAllowWrites(params map[string]any) bool {
 
 func buildSubAgentPrompt(cfg *config.Config, allowWrites bool, allowed map[string]Tool) string {
 	base := prompt.Build(cfg)
-	block := skills.RenderBlock(skills.Load(cfg))
-	if strings.TrimSpace(block) != "" {
-		base = base + "\n\n# Loaded Skills\n" + block
+	if catalog := skills.RenderCatalog(skills.Load(cfg)); catalog != "" {
+		base = base + "\n\n" + catalog
 	}
 	names := make([]string, 0, len(allowed))
 	for name := range allowed {

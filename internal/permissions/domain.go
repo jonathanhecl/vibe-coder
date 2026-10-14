@@ -577,9 +577,13 @@ func (m *Manager) UnapprovedOutDomainPaths(toolName string, params map[string]an
 	if len(allPaths) == 0 {
 		return nil
 	}
+	readOnly := isReadOnlyTool(normalizeTool(toolName))
 	var unapproved []string
 	for _, p := range allPaths {
 		if m.IsInsideDomain(p) {
+			continue
+		}
+		if readOnly && m.isUnderReadOnlyRoot(p) {
 			continue
 		}
 		if m.IsUserProvidedPath(p) {
@@ -614,6 +618,64 @@ func (m *Manager) IsUserProvidedPath(path string) bool {
 	base := filepath.Base(p)
 	if full, ok := m.userProvided[base]; ok && full == p {
 		return true
+	}
+	return false
+}
+
+// isReadOnlyTool reports whether a tool only reads (never mutates) the
+// filesystem paths it is given.
+func isReadOnlyTool(tool string) bool {
+	switch tool {
+	case "read", "readmany", "glob", "grep", "describeimage":
+		return true
+	}
+	return false
+}
+
+// AddReadOnlyRoot registers a directory whose contents read-only tools may
+// access without an out-of-domain prompt (e.g. discovered skill roots). The
+// path is canonicalized to an absolute clean path.
+func (m *Manager) AddReadOnlyRoot(dir string) {
+	clean := m.canonicalAbsPath(dir)
+	if clean == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.readOnlyRoots == nil {
+		m.readOnlyRoots = map[string]struct{}{}
+	}
+	m.readOnlyRoots[clean] = struct{}{}
+}
+
+// SetReadOnlyRoots replaces the whole read-only root set, so directories
+// that are no longer roots (e.g. deselected skill folders) lose their
+// prompt-free reads immediately.
+func (m *Manager) SetReadOnlyRoots(dirs []string) {
+	fresh := map[string]struct{}{}
+	for _, dir := range dirs {
+		if clean := m.canonicalAbsPath(dir); clean != "" {
+			fresh[clean] = struct{}{}
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readOnlyRoots = fresh
+}
+
+// isUnderReadOnlyRoot reports whether path lies under a registered
+// read-only root.
+func (m *Manager) isUnderReadOnlyRoot(path string) bool {
+	clean := m.canonicalAbsPath(path)
+	if clean == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for root := range m.readOnlyRoots {
+		if isPathUnder(root, clean) {
+			return true
+		}
 	}
 	return false
 }

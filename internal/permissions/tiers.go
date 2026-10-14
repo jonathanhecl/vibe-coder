@@ -21,7 +21,7 @@ var (
 		"read": {}, "readmany": {}, "glob": {}, "grep": {}, "subagent": {}, "askuserquestion": {},
 		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {}, "todowrite": {},
 		"missionstart": {}, "missioncomplete": {}, "missionblocked": {},
-		"describeimage": {}, "screenshot": {}, "gitstatus": {}, "gitdiff": {}, "decide": {},
+		"describeimage": {}, "screenshot": {}, "skill": {}, "gitstatus": {}, "gitdiff": {}, "decide": {},
 	}
 	askTools = map[string]struct{}{
 		"bash": {}, "write": {}, "edit": {}, "gitundo": {},

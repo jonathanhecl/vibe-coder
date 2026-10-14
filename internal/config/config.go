@@ -147,6 +147,13 @@ type Config struct {
 	// Harness holds the agent-harness tunables (context budget, tool-result
 	// retention, metrics). Precedence: defaults < config file < env.
 	Harness HarnessConfig
+	// SkillsDirs lists extra directories scanned for Agent Skills
+	// (<dir>/<skill-name>/SKILL.md). Sources: SKILLS_DIRS (file),
+	// VIBE_CODER_SKILLS_DIRS (env), --skills-dirs (flag); a higher source
+	// replaces a lower one. Entries are normalized in Load: leading ~
+	// expanded, blanks trimmed, duplicates dropped, and relative entries
+	// resolved against Cwd.
+	SkillsDirs []string
 	// Providers is the named provider registry. The default provider
 	// "ollama" always exists; see provider.go.
 	Providers map[string]Provider
@@ -257,6 +264,7 @@ func Load(args []string) (*Config, error) {
 	cfg.Harness.normalize()
 
 	applyCLI(cfg, cli)
+	cfg.SkillsDirs = normalizeSkillsDirs(cfg.Cwd, cfg.SkillsDirs)
 
 	cfg.reconcileRegistry()
 	if strings.TrimSpace(cfg.RoleModels[RoleMain].Model) == "" {
@@ -333,6 +341,7 @@ Flags:
   --keep-alive-main int     Ollama keep_alive (idle seconds) for the main model: -1 pins forever, 0 provider default, N unload after N seconds (default -1)
   --keep-alive-worker int   Ollama keep_alive (idle seconds) for worker roles (sidecar, decision, embedding, vision) (default 300)
   --context string          Pin a .md/.txt guide file as persistent session instruction (repeatable)
+  --skills-dirs string      Extra directories scanned for skills (path-list separated)
   --rag                     Enable RAG mode
   --rag-mode string         RAG mode type (code|context|chat|hybrid; context is experimental session-history RAG)
   --rag-path string         RAG path
@@ -346,6 +355,42 @@ Flags:
 Special directive:
   --save                    Persist model, sidecar, decision, host, hide-think, think to vibe-coder.env; with --no-sidecar also SIDECAR_DISABLED=true
 `, binName)
+}
+
+// NormalizeSkillsDirs expands leading ~, resolves relative entries against
+// cwd, trims blanks and drops duplicates while keeping the first
+// occurrence. Exported so /skills set can reuse the same normalization.
+func NormalizeSkillsDirs(cwd string, dirs []string) []string {
+	return normalizeSkillsDirs(cwd, dirs)
+}
+
+// normalizeSkillsDirs expands leading ~, resolves relative entries against
+// cwd, trims blanks and drops duplicates while keeping the first occurrence.
+func normalizeSkillsDirs(cwd string, dirs []string) []string {
+	home, _ := os.UserHomeDir()
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if d == "~" || strings.HasPrefix(d, "~/") || strings.HasPrefix(d, `~\`) {
+			if home != "" {
+				d = filepath.Join(home, d[1:])
+			}
+		}
+		if !filepath.IsAbs(d) && cwd != "" {
+			d = filepath.Join(cwd, d)
+		}
+		d = filepath.Clean(d)
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		out = append(out, d)
+	}
+	return out
 }
 
 func defaultConfig(cwd, configDir, stateDir string) *Config {

@@ -136,6 +136,9 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_CONTEXT")); v != "" {
 		cfg.ContextFiles = append(cfg.ContextFiles, splitPathList(v)...)
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_SKILLS_DIRS")); v != "" {
+		cfg.SkillsDirs = splitPathList(v)
+	}
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_KEEP_TOOL_RESULTS")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
 			cfg.Harness.KeepToolResults = parsed

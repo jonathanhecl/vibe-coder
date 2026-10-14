@@ -78,6 +78,10 @@ type Manager struct {
 	workspaceDir     string
 	allowedOutDomain map[string]struct{}
 	deniedOutDomain  map[string]struct{}
+	// readOnlyRoots are directories (e.g. discovered skill roots) that
+	// read-only tools may access without an out-of-domain prompt. Writes,
+	// edits and shell commands under them still prompt as usual.
+	readOnlyRoots map[string]struct{}
 
 	persistent map[string]string
 
@@ -128,6 +132,7 @@ func NewManager(cfg *config.Config) *Manager {
 		deny:             map[string]struct{}{},
 		allowedOutDomain: map[string]struct{}{},
 		deniedOutDomain:  map[string]struct{}{},
+		readOnlyRoots:    map[string]struct{}{},
 		file:             permFile,
 		persistent:       map[string]string{},
 		userProvided:     map[string]string{},
