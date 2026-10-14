@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
+	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
@@ -13,6 +14,12 @@ import (
 // back to the model. It lets goal resolution keep pointing at the user's
 // original request instead of the continuation boilerplate.
 const missionPromptPrefix = "[mission]"
+
+// progressSummaryTokenBudget caps how much recent session output the decision
+// model is asked to read when judging mission completion. The summary keeps the
+// newest system/tool messages that fit, so a long autonomous run cannot grow the
+// judge prompt without bound.
+const progressSummaryTokenBudget = 1500
 
 // PendingTodoCount returns the number of meaningful TODO items that are not
 // yet completed or cancelled.
@@ -248,12 +255,50 @@ func (a *Agent) recentProgressSummary() string {
 		}
 	}
 	if a.sess != nil {
-		for _, msg := range a.sess.MessagesReadOnly() {
-			if msg.Role == "system" || msg.Role == "tool" {
-				b.WriteString(msg.Content)
-				b.WriteByte('\n')
+		msgs := a.sess.MessagesReadOnly()
+		// Walk newest to oldest and keep only the most recent system/tool
+		// messages that fit the budget, so the summary stays bounded no matter
+		// how long the session runs.
+		recent := make([]string, 0, 16)
+		used := 0
+		for i := len(msgs) - 1; i >= 0; i-- {
+			msg := msgs[i]
+			if msg.Role != "system" && msg.Role != "tool" {
+				continue
 			}
+			cost := session.EstimateTokens(msg.Content) + 1 // +1 for the joining newline
+			if used+cost > progressSummaryTokenBudget {
+				if used == 0 {
+					// The newest message alone exceeds the budget: keep a
+					// clipped head so the judge still sees the most recent
+					// signal instead of an empty summary.
+					recent = append(recent, clipProgressText(msg.Content, progressSummaryTokenBudget))
+				}
+				break
+			}
+			used += cost
+			recent = append(recent, msg.Content)
+		}
+		// Reverse into chronological order so the model reads them as they ran.
+		for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
+			recent[i], recent[j] = recent[j], recent[i]
+		}
+		for _, text := range recent {
+			b.WriteString(text)
+			b.WriteByte('\n')
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// clipProgressText trims text to roughly maxTokens, cutting on a rune boundary
+// and marking the cut, so a single oversized observation still contributes its
+// leading content to the progress summary instead of being dropped whole.
+func clipProgressText(text string, maxTokens int) string {
+	maxRunes := maxTokens * 4
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
+	}
+	return string(runes[:maxRunes]) + "…[clipped]"
 }

@@ -68,9 +68,12 @@ type Manager struct {
 	offlineMode      bool
 	lastDenialReason string
 	safetyDecider    SafetyDecider
-	allow            map[string]struct{}
-	deny             map[string]struct{}
-	file             string
+	// verdicts memoizes assisted-mode decision-model verdicts so an identical
+	// tool action is judged once. It only ever stores successful verdicts.
+	verdicts *verdictCache
+	allow    map[string]struct{}
+	deny     map[string]struct{}
+	file     string
 
 	workspaceDir     string
 	allowedOutDomain map[string]struct{}
@@ -128,6 +131,7 @@ func NewManager(cfg *config.Config) *Manager {
 		file:             permFile,
 		persistent:       map[string]string{},
 		userProvided:     map[string]string{},
+		verdicts:         newVerdictCache(verdictCacheSize),
 	}
 	m.loadPersistent()
 	return m
@@ -219,6 +223,8 @@ func (m *Manager) SetSafetyDecider(d SafetyDecider) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.safetyDecider = d
+	// A new decider invalidates every memoized verdict.
+	m.verdicts.reset()
 }
 
 // SafetyDecider returns the currently attached safety decider.
@@ -513,13 +519,22 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 	}
 	start := time.Now()
 
+	note := m.userProvidedNote(command)
+	key := verdictKey(toolName, command, note)
+	if v, ok := m.verdicts.get(key); ok {
+		return m.replayVerdict(ui, toolName, v, time.Since(start))
+	}
+
 	// Try AskSafety first (multi-question with confidence)
-	if decision, handled, err := askSafety(context.Background(), dec, toolName, command, m.userProvidedNote(command)); handled {
+	if decision, handled, err := askSafety(context.Background(), dec, toolName, command, note); handled {
 		elapsed := time.Since(start)
 		if err != nil {
 			m.SetAssistedMode(false)
 			notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
 			return false
+		}
+		if decision != nil {
+			m.verdicts.put(key, cachedVerdict{decision: decision})
 		}
 		return m.handleSafetyDecision(ui, toolName, decision, elapsed)
 	}
@@ -532,6 +547,7 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
 		return false
 	}
+	m.verdicts.put(key, cachedVerdict{binary: true, dangerous: dangerous})
 	if dangerous {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
 		return false
@@ -593,14 +609,23 @@ func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolNam
 	}
 	start := time.Now()
 
-	// Try AskSafety first (multi-question with confidence)
 	summary := actionSummary(params)
-	if decision, handled, err := askSafety(context.Background(), dec, toolName, summary, m.userProvidedNote(summary)); handled {
+	note := m.userProvidedNote(summary)
+	key := verdictKey(toolName, summary, note)
+	if v, ok := m.verdicts.get(key); ok {
+		return m.replayVerdict(ui, toolName, v, time.Since(start))
+	}
+
+	// Try AskSafety first (multi-question with confidence)
+	if decision, handled, err := askSafety(context.Background(), dec, toolName, summary, note); handled {
 		elapsed := time.Since(start)
 		if err != nil {
 			m.SetAssistedMode(false)
 			notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
 			return false
+		}
+		if decision != nil {
+			m.verdicts.put(key, cachedVerdict{decision: decision})
 		}
 		return m.handleSafetyDecision(ui, toolName, decision, elapsed)
 	}
@@ -611,13 +636,14 @@ func (m *Manager) assistedActionApproved(ui prompter, dec SafetyDecider, toolNam
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnsupported})
 		return false
 	}
-	dangerous, err := actionDec.IsActionDangerous(context.Background(), toolName, actionSummary(params))
+	dangerous, err := actionDec.IsActionDangerous(context.Background(), toolName, summary)
 	elapsed := time.Since(start)
 	if err != nil {
 		m.SetAssistedMode(false)
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable, Elapsed: elapsed})
 		return false
 	}
+	m.verdicts.put(key, cachedVerdict{binary: true, dangerous: dangerous})
 	if dangerous {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
 		return false
@@ -675,4 +701,95 @@ func (m *Manager) isCommandOfflineBlocked(command string, safetyDecider SafetyDe
 	}
 
 	return heuristicIsNetworkCommand(cmd)
+}
+
+// verdictCacheSize bounds the assisted-mode verdict memo. The agent repeats the
+// same handful of commands far more often than it explores new ones, so a small
+// fixed table captures most of the reuse without unbounded growth.
+const verdictCacheSize = 128
+
+// cachedVerdict is the memoized outcome of one assisted-mode decision-model
+// review. binary marks the fallback IsCommandDangerous/IsActionDangerous path;
+// otherwise decision carries the full AskSafety verdict so a hit replays the
+// exact allow/review/block outcome and risk score.
+type cachedVerdict struct {
+	decision  *decision.SafetyDecision
+	binary    bool
+	dangerous bool
+}
+
+// verdictCache is a bounded FIFO memo of successful decision-model verdicts,
+// keyed by tool plus normalized arguments. Only successful verdicts are stored:
+// a failure or an unavailable decider is never cached, so assisted mode keeps
+// falling back to manual prompts.
+type verdictCache struct {
+	mu      sync.Mutex
+	max     int
+	order   []string
+	entries map[string]cachedVerdict
+}
+
+func newVerdictCache(max int) *verdictCache {
+	if max < 1 {
+		max = 1
+	}
+	return &verdictCache{max: max, entries: map[string]cachedVerdict{}}
+}
+
+func (c *verdictCache) get(key string) (cachedVerdict, bool) {
+	if c == nil {
+		return cachedVerdict{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, ok := c.entries[key]
+	return v, ok
+}
+
+func (c *verdictCache) put(key string, v cachedVerdict) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.entries[key]; !exists {
+		c.order = append(c.order, key)
+	}
+	c.entries[key] = v
+	for len(c.order) > c.max {
+		oldest := c.order[0]
+		c.order = c.order[1:]
+		delete(c.entries, oldest)
+	}
+}
+
+func (c *verdictCache) reset() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.order = nil
+	c.entries = map[string]cachedVerdict{}
+}
+
+// verdictKey identifies a decision-model review by the tool and the exact text
+// the model is shown, including the runtime context note (a user-provided path
+// can change the verdict for the same arguments).
+func verdictKey(toolName, detail, note string) string {
+	return toolName + "\x00" + detail + "\x00" + note
+}
+
+// replayVerdict notifies the UI and returns the outcome for a memoized verdict,
+// reproducing exactly what the original model review decided.
+func (m *Manager) replayVerdict(ui prompter, toolName string, v cachedVerdict, elapsed time.Duration) bool {
+	if v.binary {
+		if v.dangerous {
+			notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
+			return false
+		}
+		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedApproved, Elapsed: elapsed})
+		return true
+	}
+	return m.handleSafetyDecision(ui, toolName, v.decision, elapsed)
 }
