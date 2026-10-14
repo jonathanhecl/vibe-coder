@@ -39,10 +39,14 @@ const (
 	RoleDecision  Role = "decision"
 	RoleEmbedding Role = "embedding"
 	RoleVision    Role = "vision"
+	// RoleRabbit is the fast, cheap model used for retrieval/fan-out and
+	// other latency-sensitive work. Optional; consumers fall back to sidecar
+	// then main when it is unset.
+	RoleRabbit Role = "rabbit"
 )
 
 // AllRoles is the ordered list of supported roles.
-var AllRoles = []Role{RoleMain, RoleSidecar, RoleDecision, RoleEmbedding, RoleVision}
+var AllRoles = []Role{RoleMain, RoleSidecar, RoleDecision, RoleEmbedding, RoleVision, RoleRabbit}
 
 // Provider is a named, reusable model endpoint.
 type Provider struct {
@@ -78,11 +82,15 @@ func KindForEndpoint(endpoint string) ProviderKind {
 	return ProviderOllama
 }
 
-// ParseRole normalizes a role name.
+// ParseRole normalizes a role name. "fast" is accepted as an alias for the
+// fast rabbit role so users can name either way.
 func ParseRole(raw string) (Role, bool) {
-	value := Role(strings.ToLower(strings.TrimSpace(raw)))
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "fast" {
+		value = string(RoleRabbit)
+	}
 	for _, role := range AllRoles {
-		if role == value {
+		if string(role) == value {
 			return role, true
 		}
 	}
@@ -123,6 +131,8 @@ func CapabilityRequirement(role Role) string {
 		return CapabilityEmbedding
 	case RoleVision:
 		return CapabilityVision
+	case RoleRabbit:
+		return CapabilityCompletion
 	default:
 		return ""
 	}
@@ -141,6 +151,8 @@ func RoleDescription(role Role) string {
 		return "embedding model"
 	case RoleVision:
 		return "vision model"
+	case RoleRabbit:
+		return "fast retrieval model"
 	default:
 		return string(role)
 	}
