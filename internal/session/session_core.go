@@ -52,6 +52,9 @@ type Session struct {
 	// mem stores history demoted by compaction so it can be recalled by goal
 	// instead of being dropped. Nil until a client with embeddings is set.
 	mem *sessionMemory
+	// calibrator corrects the coarse token estimate with the ratio learned
+	// from the provider's real prompt token counts.
+	calibrator *TokenCalibrator
 }
 
 func New(cfg *config.Config) *Session {
@@ -64,6 +67,7 @@ func New(cfg *config.Config) *Session {
 		id:          newSessionID(),
 		projectPath: projectPath,
 		messages:    make([]Message, 0, 32),
+		calibrator:  &TokenCalibrator{},
 	}
 }
 
@@ -286,7 +290,18 @@ func MessageTokenCost(content string) int {
 func (s *Session) TokenEstimate() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.tokenEstimate
+	return s.calibrator.Adjust(s.tokenEstimate)
+}
+
+// ObservePromptUsage folds one real prompt-token measurement into the session
+// calibration so later estimates track the provider's own count. estimated is
+// the harness estimate for the same request; pairs where either side is not
+// positive are ignored.
+func (s *Session) ObservePromptUsage(estimated, actual int) {
+	if s == nil {
+		return
+	}
+	s.calibrator.Observe(estimated, actual)
 }
 
 // SetPinnedContexts replaces the pinned context path list. Paths are

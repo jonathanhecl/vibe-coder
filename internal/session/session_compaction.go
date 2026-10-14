@@ -29,7 +29,7 @@ func (s *Session) Compact(ctx context.Context, force bool) error {
 		s.mu.RUnlock()
 		return nil
 	}
-	if !force && len(s.messages) <= 300 && s.tokenEstimate <= int(0.7*float64(cfg.ContextWindow)) {
+	if !force && len(s.messages) <= 300 && s.calibrator.Adjust(s.tokenEstimate) <= int(0.7*float64(cfg.ContextWindow)) {
 		s.mu.RUnlock()
 		return nil
 	}
