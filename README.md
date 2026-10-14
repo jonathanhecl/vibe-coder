@@ -844,7 +844,9 @@ Checkpoint creation rejects paths outside the repository, Git metadata, symlink 
 capability (`/api/tags`) and tells the agent about it in the system prompt,
 so it knows whether attached images actually reach it. `/status` and the
 startup banner mark the model with the `vision` tag, and `/setmodel` re-checks
-on every switch.
+on every switch. The intro only lists a `Vision` bullet when it adds something:
+binding the vision role always shows it, while an unset one disappears once the
+`main` or `sidecar` model can already see images.
 
 With a vision-capable model (e.g. `llava`, `qwen2-vl`, `moondream`), ask
 about pictures directly — `Read` on an image file attaches it:

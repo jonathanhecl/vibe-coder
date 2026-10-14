@@ -18,16 +18,37 @@ const bannerWordmark = `  ██╗   ██╗██╗██████╗ �
    ╚████╔╝ ██║██████╔╝███████╗
     ╚═══╝  ╚═╝╚═════╝ ╚══════╝`
 
-// bannerRows returns the runtime facts surfaced at startup: the session id, one
-// line per model role, and the mode flags. Roles keep the "Rol [provider] model"
-// shape and show their fallback while they stay unset. Endpoints live in
-// /providers, so they are not repeated here.
-func bannerRows(cfg *config.Config, sessionID string, resumed bool) []tui.RoleRow {
-	rows := make([]tui.RoleRow, 0, len(config.AllRoles)+2)
+// bannerModelsSection groups the model roles under one header, so the intro
+// reads as "what runs where" instead of a flat list of labels.
+const bannerModelsSection = "Models"
+
+// bannerRow is one line of the startup banner. A row carrying a Section is
+// printed as a bullet under that header; the header itself is emitted once,
+// when the section changes.
+type bannerRow struct {
+	Label   string
+	Plain   string
+	Render  func(tui.Style) string
+	Section string
+}
+
+// bannerRows returns the runtime facts surfaced at startup: the session id, the
+// model bound to each role, and the mode flags. Roles keep the
+// "Rol [provider] model" shape and show their fallback while they stay unset.
+// Endpoints live in /providers, so they are not repeated here.
+func bannerRows(cfg *config.Config, sessionID string, resumed bool) []bannerRow {
+	rows := make([]bannerRow, 0, len(config.AllRoles)+2)
 	rows = append(rows, sessionBannerRow(cfg, sessionID, resumed))
-	rows = append(rows, withDecisionAssistedHint(tui.RoleRows(cfg), cfg)...)
+	for _, role := range withDecisionAssistedHint(tui.RoleRows(cfg), cfg) {
+		rows = append(rows, bannerRow{
+			Label:   role.Label,
+			Plain:   role.Plain,
+			Render:  role.Render,
+			Section: bannerModelsSection,
+		})
+	}
 	if cfg != nil && cfg.Offline {
-		rows = append(rows, tui.RoleRow{
+		rows = append(rows, bannerRow{
 			Label:  "Offline",
 			Plain:  "enabled (network blocked)",
 			Render: func(st tui.Style) string { return st.Yellow("enabled (network blocked)") },
@@ -64,23 +85,23 @@ func withDecisionAssistedHint(rows []tui.RoleRow, cfg *config.Config) []tui.Role
 }
 
 // sessionBannerRow shows the session id plus its temporal/isolated/resumed tag.
-func sessionBannerRow(cfg *config.Config, sessionID string, resumed bool) tui.RoleRow {
+func sessionBannerRow(cfg *config.Config, sessionID string, resumed bool) bannerRow {
 	white := func(st tui.Style) string { return st.BrightWhite(sessionID) }
 	switch {
 	case cfg != nil && cfg.Temporal:
-		return tui.RoleRow{Label: "Session", Plain: sessionID + " (temporal)", Render: func(st tui.Style) string {
+		return bannerRow{Label: "Session", Plain: sessionID + " (temporal)", Render: func(st tui.Style) string {
 			return st.BrightWhite(sessionID) + "    " + st.Red("(temporal)")
 		}}
 	case cfg != nil && cfg.Isolated:
-		return tui.RoleRow{Label: "Session", Plain: sessionID + " (isolated)", Render: func(st tui.Style) string {
+		return bannerRow{Label: "Session", Plain: sessionID + " (isolated)", Render: func(st tui.Style) string {
 			return st.BrightWhite(sessionID) + "    " + st.Yellow("(isolated)")
 		}}
 	case resumed:
-		return tui.RoleRow{Label: "Session", Plain: sessionID + " (resumed)", Render: func(st tui.Style) string {
+		return bannerRow{Label: "Session", Plain: sessionID + " (resumed)", Render: func(st tui.Style) string {
 			return st.BrightWhite(sessionID) + "    " + st.Cyan("(resumed)")
 		}}
 	default:
-		return tui.RoleRow{Label: "Session", Plain: sessionID, Render: white}
+		return bannerRow{Label: "Session", Plain: sessionID, Render: white}
 	}
 }
 
@@ -92,21 +113,31 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 	if !style.Enabled() {
 		var b strings.Builder
 		fmt.Fprintf(&b, "vibe %s\n", version.Value)
+		section := ""
 		for _, r := range rows {
-			if r.Label == "Session" {
-				fmt.Fprintf(&b, "Session started: %s\n", r.Plain)
-				continue
+			if r.Section != "" && r.Section != section {
+				section = r.Section
+				fmt.Fprintf(&b, "%s\n", section)
 			}
-			fmt.Fprintf(&b, "%s: %s\n", r.Label, r.Plain)
+			switch {
+			case r.Label == "Session":
+				fmt.Fprintf(&b, "Session started: %s\n", r.Plain)
+			case r.Section != "":
+				fmt.Fprintf(&b, "  - %s: %s\n", r.Label, r.Plain)
+			default:
+				fmt.Fprintf(&b, "%s: %s\n", r.Label, r.Plain)
+			}
 		}
 		return b.String()
 	}
 
-	labelWidth := 0
+	flatWidth, bulletWidth := 0, 0
 	for _, r := range rows {
-		if len(r.Label) > labelWidth {
-			labelWidth = len(r.Label)
+		if r.Section != "" {
+			bulletWidth = max(bulletWidth, len(r.Label))
+			continue
 		}
+		flatWidth = max(flatWidth, len(r.Label))
 	}
 
 	var b strings.Builder
@@ -120,14 +151,31 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 	b.WriteString("\n  ")
 	b.WriteString(style.Gray(strings.Repeat("─", 46)))
 	b.WriteString("\n")
+	section := ""
 	for _, r := range rows {
 		value := style.BrightWhite(r.Plain)
 		if r.Render != nil {
 			value = r.Render(style)
 		}
+		if r.Section != "" {
+			if r.Section != section {
+				section = r.Section
+				b.WriteString("  ")
+				b.WriteString(style.BoldCyan(r.Section))
+				b.WriteString("\n")
+			}
+			b.WriteString("    ")
+			b.WriteString(style.Gray("- "))
+			b.WriteString(style.Cyan(fmt.Sprintf("%-*s", bulletWidth, r.Label)))
+			b.WriteString("  ")
+			b.WriteString(value)
+			b.WriteString("\n")
+			continue
+		}
+		section = ""
 		b.WriteString("  ")
-		b.WriteString(style.BoldCyan(fmt.Sprintf("%-*s", labelWidth, r.Label)))
-		b.WriteString(" ")
+		b.WriteString(style.BoldCyan(fmt.Sprintf("%-*s", flatWidth, r.Label)))
+		b.WriteString("  ")
 		b.WriteString(value)
 		b.WriteString("\n")
 	}

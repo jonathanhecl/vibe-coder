@@ -425,11 +425,13 @@ func RoleHint(role Role) string {
 	return fmt.Sprintf("(set it with /setmodel %s MODEL)", role)
 }
 
-// RoleTitle returns the label a role uses in the startup banner.
+// RoleTitle returns the label a role uses wherever the configuration is
+// displayed, so the startup banner, /status and /providers all name a role the
+// same way it is bound with /setmodel.
 func RoleTitle(role Role) string {
 	switch role {
 	case RoleMain:
-		return "Model"
+		return "Main"
 	case RoleSidecar:
 		return "Sidecar"
 	case RoleDecision:
@@ -439,11 +441,16 @@ func RoleTitle(role Role) string {
 	case RoleVision:
 		return "Vision"
 	case RoleRabbit:
-		return "Rabbit"
+		return "Rabbit/Fast"
 	default:
 		return string(role)
 	}
 }
+
+// RoleDisplayOrder is the order roles are listed when the configuration is
+// shown: the models that carry a turn first, then the optional helpers. The
+// canonical AllRoles order stays the one used for iteration and validation.
+var RoleDisplayOrder = []Role{RoleMain, RoleSidecar, RoleDecision, RoleRabbit, RoleVision, RoleEmbedding}
 
 // SetRoleModel binds a role to a provider and model. An empty model clears the role.
 func (c *Config) SetRoleModel(role Role, provider, model string) error {

@@ -62,7 +62,7 @@ func TestDispatchMinimumCommands(t *testing.T) {
 	if err != nil || !handled || shouldExit {
 		t.Fatalf("unexpected /status result: handled=%t exit=%t err=%v", handled, shouldExit, err)
 	}
-	if !strings.Contains(out.String(), "Model:") {
+	if !strings.Contains(out.String(), "Main:") {
 		t.Fatalf("expected status output, got %q", out.String())
 	}
 

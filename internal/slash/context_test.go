@@ -192,8 +192,11 @@ func TestStatusShowsPinnedContexts(t *testing.T) {
 	if !strings.Contains(out.String(), "Pinned contexts") || !strings.Contains(out.String(), "guide.md") {
 		t.Fatalf("expected status to list pinned file, got %q", out.String())
 	}
-	if !strings.Contains(out.String(), "Model: [ollama] test-model  vision") {
+	if !strings.Contains(out.String(), "Main: [ollama] test-model  vision") {
 		t.Fatalf("expected status to report vision, got %q", out.String())
+	}
+	if strings.Contains(out.String(), "Vision:") {
+		t.Fatalf("did not expect a vision row while the main model sees, got %q", out.String())
 	}
 	if !strings.Contains(out.String(), "Tools: ") {
 		t.Fatalf("expected status to report tools, got %q", out.String())

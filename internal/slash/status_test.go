@@ -24,7 +24,7 @@ func TestStatusAliases(t *testing.T) {
 		if err != nil || !handled || shouldExit {
 			t.Fatalf("%s: handled=%t exit=%t err=%v", cmd, handled, shouldExit, err)
 		}
-		if !strings.Contains(out.String(), "Model: [ollama] llama3.2:3b") {
+		if !strings.Contains(out.String(), "Main: [ollama] llama3.2:3b") {
 			t.Fatalf("%s: expected model line, got %q", cmd, out.String())
 		}
 	}

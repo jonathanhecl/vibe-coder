@@ -9,7 +9,7 @@ import (
 )
 
 // bannerRowPlain returns the plain value of the row with the given label.
-func bannerRowPlain(t *testing.T, rows []tui.RoleRow, label string) string {
+func bannerRowPlain(t *testing.T, rows []bannerRow, label string) string {
 	t.Helper()
 	for _, row := range rows {
 		if row.Label == label {
@@ -18,6 +18,16 @@ func bannerRowPlain(t *testing.T, rows []tui.RoleRow, label string) string {
 	}
 	t.Fatalf("missing %s row: %#v", label, rows)
 	return ""
+}
+
+// bannerHasRow reports whether the banner lists a role.
+func bannerHasRow(rows []bannerRow, label string) bool {
+	for _, row := range rows {
+		if row.Label == label {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBannerRowsRoleWiring(t *testing.T) {
@@ -35,12 +45,11 @@ func TestBannerRowsRoleWiring(t *testing.T) {
 		plain string
 	}{
 		{"Session", "session-123"},
-		{"Model", "[ollama] llama3.2:3b"},
+		{"Main", "[ollama] llama3.2:3b"},
 		{"Sidecar", "[ollama] qwen3.5:4b"},
-		{"Decision", "Fallback to [ollama] qwen3.5:4b  (set it with /setmodel decision MODEL)"},
-		{"Embedding", "text-only retrieval (no encoder)  (set it with /setmodel embedding MODEL)"},
+		{"Rabbit/Fast", "Fallback to [ollama] llama3.2:3b  (set it with /setmodel rabbit MODEL)"},
 		{"Vision", "images go to main, then sidecar  (set it with /setmodel vision MODEL)"},
-		{"Rabbit", "Fallback to [ollama] llama3.2:3b  (set it with /setmodel rabbit MODEL)"},
+		{"Embedding", "text-only retrieval (no encoder)  (set it with /setmodel embedding MODEL)"},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("expected %d rows, got %d: %#v", len(want), len(rows), rows)
@@ -52,6 +61,15 @@ func TestBannerRowsRoleWiring(t *testing.T) {
 		if rows[i].Plain != expected.plain {
 			t.Errorf("%s = %q, want %q", expected.label, rows[i].Plain, expected.plain)
 		}
+	}
+	// The session row stands alone; every model role is listed under "Models".
+	for _, row := range rows[1:] {
+		if row.Section != bannerModelsSection {
+			t.Fatalf("%s row is not grouped under %q: %#v", row.Label, bannerModelsSection, row)
+		}
+	}
+	if rows[0].Section != "" {
+		t.Fatalf("session row must not be grouped, got %#v", rows[0])
 	}
 }
 
@@ -154,14 +172,16 @@ func TestBannerRowsNilConfig(t *testing.T) {
 	t.Parallel()
 
 	rows := bannerRows(nil, "session-nil", false)
-	if len(rows) != len(config.AllRoles)+1 {
-		t.Fatalf("expected %d rows, got %d", len(config.AllRoles)+1, len(rows))
+	// A nil config binds no role: the decision row is left out because there is
+	// nothing to assist with, and the vision row stays because nothing sees.
+	if len(rows) != len(config.RoleDisplayOrder) {
+		t.Fatalf("expected %d rows, got %d", len(config.RoleDisplayOrder), len(rows))
 	}
 	if got := bannerRowPlain(t, rows, "Session"); got != "session-nil" {
 		t.Fatalf("session row = %q", got)
 	}
-	if got := bannerRowPlain(t, rows, "Model"); got != "(set it with /setmodel main MODEL)" {
-		t.Fatalf("model row for nil config = %q", got)
+	if got := bannerRowPlain(t, rows, "Main"); got != "(set it with /setmodel main MODEL)" {
+		t.Fatalf("main row for nil config = %q", got)
 	}
 }
 
@@ -201,18 +221,54 @@ func TestBannerRowsVisionTag(t *testing.T) {
 	if got := bannerRowPlain(t, rows, "Sidecar"); got != "[ollama] moondream  vision" {
 		t.Fatalf("sidecar row = %q", got)
 	}
-	if got := bannerRowPlain(t, rows, "Model"); got != "[ollama] llama3.2:3b" {
-		t.Fatalf("model row must not carry the tag, got %q", got)
+	if got := bannerRowPlain(t, rows, "Main"); got != "[ollama] llama3.2:3b" {
+		t.Fatalf("main row must not carry the tag, got %q", got)
 	}
 	// Fallback targets describe where a role goes, not what it runs, so they
 	// stay untagged even when the fallback model can see.
-	if got := bannerRowPlain(t, rows, "Rabbit"); strings.Contains(got, "vision") {
+	if got := bannerRowPlain(t, rows, "Rabbit/Fast"); strings.Contains(got, "vision") {
 		t.Fatalf("fallback row must not carry the vision tag, got %q", got)
+	}
+	// The sidecar already takes images, so an unset vision role adds nothing.
+	if bannerHasRow(rows, "Vision") {
+		t.Fatal("did not expect a vision row while the sidecar already sees")
 	}
 
 	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
 	if !strings.Contains(styled, "\x1b[38;5;45mvision\x1b[0m") {
 		t.Fatalf("expected the cyan vision tag in the styled banner, got:\n%s", styled)
+	}
+}
+
+func TestBannerRowsVisionRoleListing(t *testing.T) {
+	t.Parallel()
+
+	// The main model sees: an unset vision role would only repeat the routing.
+	cfg := &config.Config{
+		Model:           "moondream",
+		OllamaHost:      "http://localhost:11434",
+		VisionKnown:     true,
+		VisionAvailable: true,
+	}
+	if bannerHasRow(bannerRows(cfg, "session-123", false), "Vision") {
+		t.Fatal("did not expect a vision row while the main model sees")
+	}
+	if got := bannerRowPlain(t, bannerRows(cfg, "session-123", false), "Main"); got != "[ollama] moondream  vision" {
+		t.Fatalf("main row = %q", got)
+	}
+
+	// Binding the vision role is an explicit choice, so it stays listed.
+	cfg.RoleModels = map[config.Role]config.RoleModel{
+		config.RoleVision: {Provider: config.DefaultProviderName, Model: "moondream"},
+	}
+	if !bannerHasRow(bannerRows(cfg, "session-123", false), "Vision") {
+		t.Fatal("expected the bound vision role to stay listed")
+	}
+
+	// Nothing sees: the vision role still has something to say.
+	blind := &config.Config{Model: "llama3.2:3b", OllamaHost: "http://localhost:11434"}
+	if !bannerHasRow(bannerRows(blind, "session-123", false), "Vision") {
+		t.Fatal("expected the vision row when no other model sees")
 	}
 }
 
@@ -296,8 +352,8 @@ func TestStartupBannerStylesRoleValues(t *testing.T) {
 	if !strings.Contains(styled, "\x1b[90m[ollama]\x1b[0m \x1b[97mllama3.2:3b\x1b[0m") {
 		t.Fatalf("expected a gray provider and white model in the styled banner, got:\n%s", styled)
 	}
-	// The unset-role hint is highlighted in yellow.
-	if !strings.Contains(styled, "\x1b[33m(set it with /setmodel rabbit MODEL)\x1b[0m") {
-		t.Fatalf("expected a yellow hint for the rabbit role, got:\n%s", styled)
+	// The unset-role hint is highlighted in green.
+	if !strings.Contains(styled, "\x1b[32m(set it with /setmodel rabbit MODEL)\x1b[0m") {
+		t.Fatalf("expected a green hint for the rabbit role, got:\n%s", styled)
 	}
 }

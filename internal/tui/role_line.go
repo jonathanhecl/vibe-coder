@@ -16,11 +16,11 @@ func (s Style) RoleValue(status config.RoleStatus) string {
 		return s.ProviderModel(status.Provider, status.Model)
 	case status.Fallback:
 		return s.Dim("Fallback to") + " " + s.ProviderModel(status.Provider, status.Model) +
-			"  " + s.Yellow(config.RoleHint(status.Role))
+			"  " + s.Green(config.RoleHint(status.Role))
 	case status.Note != "":
-		return s.Dim(status.Note) + "  " + s.Yellow(config.RoleHint(status.Role))
+		return s.Dim(status.Note) + "  " + s.Green(config.RoleHint(status.Role))
 	default:
-		return s.Yellow(config.RoleHint(status.Role))
+		return s.Green(config.RoleHint(status.Role))
 	}
 }
 
@@ -44,16 +44,51 @@ type RoleRow struct {
 	Render func(Style) string
 }
 
-// RoleRows renders one row per model role, in canonical order. A bound role
+// RoleRows renders one row per model role, in display order. A bound role
 // shows "[provider] model" and, when its model is known to see images, the
 // vision tag; an unbound role shows the fallback it uses or the behavior it
-// degrades to, followed by the command that sets it.
+// degrades to, followed by the command that sets it. Roles that cannot add
+// anything to what the other roles already do are left out, so the list stays
+// about what actually runs.
 func RoleRows(cfg *config.Config) []RoleRow {
-	rows := make([]RoleRow, 0, len(config.AllRoles))
-	for _, role := range config.AllRoles {
+	rows := make([]RoleRow, 0, len(config.RoleDisplayOrder))
+	for _, role := range config.RoleDisplayOrder {
+		if !roleWorthListing(cfg, role) {
+			continue
+		}
 		rows = append(rows, roleRow(cfg, role))
 	}
 	return rows
+}
+
+// roleWorthListing reports whether a role has something to say. The vision role
+// is redundant while an unset one would only restate the routing that the main
+// or sidecar model already covers by seeing images; the decision role only
+// matters once a model or endpoint is configured for it.
+func roleWorthListing(cfg *config.Config, role config.Role) bool {
+	switch role {
+	case config.RoleVision:
+		return !visionCovered(cfg)
+	case config.RoleDecision:
+		return cfg != nil && cfg.DecisionInUse()
+	default:
+		return true
+	}
+}
+
+// visionCovered reports whether a bound main or sidecar model already takes
+// images, in which case an unset vision role changes nothing. A bound vision
+// role is an explicit choice and is always listed.
+func visionCovered(cfg *config.Config) bool {
+	if cfg == nil || cfg.RoleStatus(config.RoleVision).Bound {
+		return false
+	}
+	for _, role := range []config.Role{config.RoleMain, config.RoleSidecar} {
+		if status := cfg.RoleStatus(role); status.Bound && cfg.ModelHasVision(status.Model) {
+			return true
+		}
+	}
+	return false
 }
 
 // roleRow renders one role, letting the role's own binding win and falling back
