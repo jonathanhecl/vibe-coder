@@ -174,7 +174,7 @@ func TestStartupBanner(t *testing.T) {
 	if !strings.Contains(out, "- Main: [ollama] llama3.2:3b") {
 		t.Fatalf("missing main model line: %q", out)
 	}
-	if !strings.Contains(out, "- Sidecar: Fallback to [ollama] llama3.2:3b") {
+	if !strings.Contains(out, "- Sidecar: Fallback to Main") {
 		t.Fatalf("missing sidecar fallback line: %q", out)
 	}
 	if strings.Contains(out, "Ollama:") {

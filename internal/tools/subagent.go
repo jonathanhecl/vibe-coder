@@ -30,17 +30,22 @@ const (
 var subAgentInvokeRe = regexp.MustCompile(`(?is)<invoke[^>]*name=["']([A-Za-z0-9_:-]+)["'][^>]*>`)
 
 type SubAgentTool struct {
-	cfg          *config.Config
-	client       ollama.Client
-	rabbitClient ollama.Client
+	cfg        *config.Config
+	client     ollama.Client
+	fastClient ollama.Client
+	fastModel  string
 }
 
-// SetRabbitClient configures the fast model used for read-only retrieval. Nil
-// (or unset) keeps the main client as the fallback.
-func (t *SubAgentTool) SetRabbitClient(c ollama.Client) {
-	if t != nil {
-		t.rabbitClient = c
+// SetFastClient configures the connection and model used for read-only
+// retrieval (read-only sub-agents). A nil client or an empty model keeps the
+// sub-agent's own client and model, which is what an unbound fast role resolves
+// to; callers pass the sidecar here when the rabbit role is not bound.
+func (t *SubAgentTool) SetFastClient(c ollama.Client, model string) {
+	if t == nil {
+		return
 	}
+	t.fastClient = c
+	t.fastModel = strings.TrimSpace(model)
 }
 
 type ParallelAgentsTool struct {
@@ -188,9 +193,9 @@ func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (stri
 func (t *SubAgentTool) chat(ctx context.Context, messages []ollama.Message, readOnly bool) (string, error) {
 	client := t.client
 	model, numCtx, numPredict, temperature := subAgentChatSettings(t.cfg)
-	if readOnly && t.cfg != nil && t.cfg.RoleInUse(config.RoleRabbit) && t.rabbitClient != nil {
-		client = t.rabbitClient
-		model = t.cfg.RoleModelName(config.RoleRabbit)
+	if readOnly && t.fastClient != nil && t.fastModel != "" {
+		client = t.fastClient
+		model = t.fastModel
 	}
 	stream, err := client.Chat(ctx, ollama.ChatRequest{
 		Model:     model,

@@ -430,3 +430,44 @@ func TestRabbitRoleRegistered(t *testing.T) {
 		t.Fatal("expected rabbit role description")
 	}
 }
+
+// The fallback chain is documented as rabbit and sidecar degrading to the
+// sidecar and then the main model, and decision following the same path, so the
+// intro, /providers and the retrieval wiring can all rely on one answer.
+func TestFallbackRoleModelWalksSidecarThenMain(t *testing.T) {
+	cfg := &Config{
+		OllamaHost: "http://localhost:11434",
+		RoleModels: map[Role]RoleModel{
+			RoleMain: {Provider: DefaultProviderName, Model: "main-model"},
+		},
+	}
+
+	provider, model, landed, ok := cfg.FallbackRoleModel(RoleRabbit)
+	if !ok || landed != RoleMain || provider != DefaultProviderName || model != "main-model" {
+		t.Fatalf("expected rabbit to land on main, got %q %q %q %v", provider, model, landed, ok)
+	}
+
+	// A bound sidecar is the previous model in the chain, so rabbit and
+	// decision must prefer it over main.
+	cfg.RoleModels[RoleSidecar] = RoleModel{Provider: "groq", Model: "side-model"}
+	provider, model, landed, ok = cfg.FallbackRoleModel(RoleRabbit)
+	if !ok || landed != RoleSidecar || provider != "groq" || model != "side-model" {
+		t.Fatalf("expected rabbit to land on the sidecar, got %q %q %q %v", provider, model, landed, ok)
+	}
+	if _, model, landed, ok := cfg.FallbackRoleModel(RoleDecision); !ok || landed != RoleSidecar || model != "side-model" {
+		t.Fatalf("expected decision to land on the sidecar, got %q %q %v", model, landed, ok)
+	}
+	// The sidecar itself degrades straight to main, never to itself.
+	if _, _, landed, ok := cfg.FallbackRoleModel(RoleSidecar); !ok || landed != RoleMain {
+		t.Fatalf("expected sidecar to land on main, got %q %v", landed, ok)
+	}
+	// Main has no fallback of its own.
+	if _, _, _, ok := cfg.FallbackRoleModel(RoleMain); ok {
+		t.Fatal("expected main to have no fallback")
+	}
+
+	status := cfg.RoleStatus(RoleRabbit)
+	if !status.Fallback || status.Provider != "groq" || status.Model != "side-model" {
+		t.Fatalf("unexpected rabbit status: %+v", status)
+	}
+}

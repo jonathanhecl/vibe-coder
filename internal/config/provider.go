@@ -343,6 +343,10 @@ type RoleStatus struct {
 	// Fallback reports that Provider and Model describe the target the role
 	// uses while it stays unbound.
 	Fallback bool
+	// Landed is the role the fallback chain stopped at, so a caller that
+	// already displays that role can point at it instead of repeating its
+	// provider and model. It is empty unless Fallback is true.
+	Landed Role
 	// Note explains what a role without a model fallback does instead.
 	Note string
 }
@@ -350,14 +354,24 @@ type RoleStatus struct {
 // RoleStatuses is intentionally not exported as a slice helper; callers iterate
 // AllRoles so the canonical order stays in one place.
 
+// roleFallbackChain lists the roles an unbound role degrades to, in order. It is
+// the single source of truth for the fallback shown by the intro, /providers and
+// /status, and for the wiring that actually runs retrieval, so the display
+// cannot promise a model the runtime does not use.
+var roleFallbackChain = map[Role][]Role{
+	RoleSidecar:  {RoleMain},
+	RoleDecision: {RoleSidecar, RoleMain},
+	RoleRabbit:   {RoleSidecar, RoleMain},
+}
+
 // RoleStatus returns the wiring of one role: its own binding when set,
 // otherwise the fallback target or the behavior it degrades to.
 func (c *Config) RoleStatus(role Role) RoleStatus {
 	if provider, model, ok := c.roleBinding(role); ok {
 		return RoleStatus{Role: role, Bound: true, Provider: provider, Model: model}
 	}
-	if provider, model, ok := c.FallbackRoleModel(role); ok {
-		return RoleStatus{Role: role, Provider: provider, Model: model, Fallback: true}
+	if provider, model, landed, ok := c.FallbackRoleModel(role); ok {
+		return RoleStatus{Role: role, Provider: provider, Model: model, Fallback: true, Landed: landed}
 	}
 	return RoleStatus{Role: role, Note: RoleBehaviorNote(role)}
 }
@@ -386,25 +400,21 @@ func (c *Config) roleBinding(role Role) (provider, model string, ok bool) {
 	return provider, model, true
 }
 
-// FallbackRoleModel returns the provider and model an unbound role falls back
-// to at runtime: sidecar and rabbit fall back to main, decision falls back to
-// the sidecar model and then to main. ok is false when the role has no model
-// fallback (main, embedding, vision) or when the fallback target is unbound.
-func (c *Config) FallbackRoleModel(role Role) (provider, model string, ok bool) {
+// FallbackRoleModel returns the provider, model and role an unbound role falls
+// back to, walking roleFallbackChain: sidecar and rabbit degrade to the sidecar
+// and then to the main model, and decision degrades the same way. landed is the
+// role the chain stopped at, so callers can pick the connection that serves it.
+// ok is false when the role has no chain or every target in it is unbound.
+func (c *Config) FallbackRoleModel(role Role) (provider, model string, landed Role, ok bool) {
 	if c == nil {
-		return "", "", false
+		return "", "", "", false
 	}
-	switch role {
-	case RoleSidecar, RoleRabbit:
-		return c.roleBinding(RoleMain)
-	case RoleDecision:
-		if provider, model, ok := c.roleBinding(RoleSidecar); ok {
-			return provider, model, true
+	for _, candidate := range roleFallbackChain[role] {
+		if provider, model, ok := c.roleBinding(candidate); ok {
+			return provider, model, candidate, true
 		}
-		return c.roleBinding(RoleMain)
-	default:
-		return "", "", false
 	}
+	return "", "", "", false
 }
 
 // RoleBehaviorNote explains what an unbound role does when it has no model to

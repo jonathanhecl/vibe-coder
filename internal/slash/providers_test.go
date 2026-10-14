@@ -107,9 +107,9 @@ func TestProvidersCommandListsProvidersAndRoles(t *testing.T) {
 		"main  qwen3.5:4b",
 		"decision  llama-3.3-70b-versatile",
 		"Unassigned roles",
-		"sidecar    Fallback to [ollama] qwen3.5:4b  (set it with /setmodel sidecar MODEL)",
+		"sidecar    Fallback to Main  (set it with /setmodel sidecar MODEL)",
 		"embedding  text-only retrieval (no encoder)  (set it with /setmodel embedding MODEL)",
-		"rabbit     Fallback to [ollama] qwen3.5:4b  (set it with /setmodel rabbit MODEL)",
+		"rabbit     Fallback to Main  (set it with /setmodel rabbit MODEL)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q\n---\n%s", want, got)

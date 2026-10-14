@@ -126,7 +126,7 @@ func main() {
 		sideClient = createLLMClient(cfg.EffectiveSidecarEndpoint(), cfg.SidecarApiKey, cfg.IsSidecarOpenAI())
 	}
 	visionRole := newVisionRole(cfg, client, sideClient)
-	rabbitClient := rabbitClientFor(cfg, client, sideClient)
+	fastClient, fastModel := fastRetrievalFor(cfg, client, sideClient)
 
 	sess := session.New(cfg)
 	sess.SetClient(client)
@@ -140,7 +140,7 @@ func main() {
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()
 	sub := tools.NewSubAgentTool(cfg, client)
-	sub.SetRabbitClient(rabbitClient)
+	sub.SetFastClient(fastClient, fastModel)
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
@@ -431,20 +431,47 @@ func embeddingClientFor(cfg *config.Config, client, sideClient ollama.Client) ol
 	}
 }
 
-// resolveVisionSupport detects once, at startup, whether the active model
-// advertises vision capability. It is best-effort: on any failure the agent
-// runs with VisionKnown=false and stays honest about trying.
-// rabbitClientFor returns the client the optional rabbit role should use:
-// main or sidecar when the role shares that provider, a dedicated client for
-// any other provider, and the main client as the fallback when the role is
-// unset or has no endpoint.
+// fastRetrievalFor resolves the connection and model used by read-only
+// retrieval (read-only sub-agents): the rabbit role when it is bound and its
+// provider has an endpoint, otherwise the role its fallback chain names — the
+// sidecar and then the main model — so retrieval degrades exactly as the intro
+// and /providers describe. It returns nil when the chain lands on the main
+// model, because that is already the sub-agent's own client and model.
+func fastRetrievalFor(cfg *config.Config, client, sideClient ollama.Client) (ollama.Client, string) {
+	if cfg == nil {
+		return nil, ""
+	}
+	if cfg.RoleInUse(config.RoleRabbit) {
+		if rabbitClient := rabbitClientFor(cfg, client, sideClient); rabbitClient != nil {
+			return rabbitClient, cfg.RoleModelName(config.RoleRabbit)
+		}
+	}
+	_, model, landed, ok := cfg.FallbackRoleModel(config.RoleRabbit)
+	if !ok {
+		return nil, ""
+	}
+	switch landed {
+	case config.RoleSidecar:
+		if sideClient == nil {
+			return nil, ""
+		}
+		return sideClient, model
+	default:
+		return nil, ""
+	}
+}
+
+// rabbitClientFor returns the client the bound rabbit role should use: main or
+// sidecar when the role shares that provider, a dedicated client for any other
+// provider, and nil when the role is unbound or its provider has no endpoint,
+// which leaves the fallback chain to resolve the retrieval model.
 func rabbitClientFor(cfg *config.Config, client, sideClient ollama.Client) ollama.Client {
 	if cfg == nil || !cfg.RoleInUse(config.RoleRabbit) {
-		return client
+		return nil
 	}
 	provider, ok := cfg.RoleProvider(config.RoleRabbit)
 	if !ok || strings.TrimSpace(provider.Endpoint) == "" {
-		return client
+		return nil
 	}
 	switch provider.Name {
 	case cfg.RoleBinding(config.RoleMain).Provider:
@@ -456,12 +483,12 @@ func rabbitClientFor(cfg *config.Config, client, sideClient ollama.Client) ollam
 			return sideClient
 		}
 	}
-	if client == nil {
-		return nil
-	}
 	return createLLMClient(provider.Endpoint, provider.APIKey, provider.Kind == config.ProviderOpenAI)
 }
 
+// resolveVisionSupport detects once, at startup, whether the active model
+// advertises vision capability. It is best-effort: on any failure the agent
+// runs with VisionKnown=false and stays honest about trying.
 func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients ...ollama.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

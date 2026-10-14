@@ -7,20 +7,44 @@ import (
 )
 
 // RoleValue renders how a role is wired: its own "[provider] model" pair, the
-// fallback target when the role is unset, or a short note when the role has no
-// model fallback. The same call renders plain text when styling is disabled, so
-// the banner and command output share one wording.
+// role it falls back to when it is unset, or a short note when the role has no
+// model fallback. A fallback names the role it lands on instead of repeating
+// that role's provider and model, because the same view already lists it. The
+// same call renders plain text when styling is disabled, so the banner and
+// command output share one wording.
 func (s Style) RoleValue(status config.RoleStatus) string {
 	switch {
 	case status.Bound:
 		return s.ProviderModel(status.Provider, status.Model)
 	case status.Fallback:
-		return s.Dim("Fallback to") + " " + s.ProviderModel(status.Provider, status.Model) +
+		return s.Dim("Fallback to") + " " + s.fallbackTarget(status) +
 			"  " + s.Green(config.RoleHint(status.Role))
 	case status.Note != "":
 		return s.Dim(status.Note) + "  " + s.Green(config.RoleHint(status.Role))
 	default:
 		return s.Green(config.RoleHint(status.Role))
+	}
+}
+
+// fallbackTarget renders what an unbound role falls back to. A role that is
+// always part of the role list is named, so the reader can look it up a line
+// above; anything else keeps its own "[provider] model" pair.
+func (s Style) fallbackTarget(status config.RoleStatus) string {
+	if alwaysListed(status.Landed) {
+		return s.BrightWhite(config.RoleTitle(status.Landed))
+	}
+	return s.ProviderModel(status.Provider, status.Model)
+}
+
+// alwaysListed reports whether a role is always rendered in the role list, which
+// is what lets a fallback point at it by name. The fallback chain only lands on
+// the main and sidecar roles, both of which the list always shows.
+func alwaysListed(role config.Role) bool {
+	switch role {
+	case config.RoleMain, config.RoleSidecar:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -35,23 +59,14 @@ func (s Style) ProviderModel(provider, model string) string {
 	return s.Gray("["+provider+"]") + " " + s.BrightWhite(model)
 }
 
-// RoleRow is one configuration line: a label with its value in both the plain
-// and the styled variant. It is the shared shape of the startup banner and the
-// /status table, so both surfaces stay word-for-word identical.
-type RoleRow struct {
-	Label  string
-	Plain  string
-	Render func(Style) string
-}
-
 // RoleRows renders one row per model role, in display order. A bound role
 // shows "[provider] model" and, when its model is known to see images, the
 // vision tag; an unbound role shows the fallback it uses or the behavior it
 // degrades to, followed by the command that sets it. Roles that cannot add
 // anything to what the other roles already do are left out, so the list stays
 // about what actually runs.
-func RoleRows(cfg *config.Config) []RoleRow {
-	rows := make([]RoleRow, 0, len(config.RoleDisplayOrder))
+func RoleRows(cfg *config.Config) []Row {
+	rows := make([]Row, 0, len(config.RoleDisplayOrder))
 	for _, role := range config.RoleDisplayOrder {
 		if !roleWorthListing(cfg, role) {
 			continue
@@ -94,11 +109,12 @@ func visionCovered(cfg *config.Config) bool {
 // roleRow renders one role, letting the role's own binding win and falling back
 // to the behavior it degrades to. The decision endpoint and the per-session
 // sidecar state refine the row when they apply.
-func roleRow(cfg *config.Config, role config.Role) RoleRow {
+func roleRow(cfg *config.Config, role config.Role) Row {
 	status := cfg.RoleStatus(role)
-	row := RoleRow{
-		Label: config.RoleTitle(role),
-		Plain: Style{}.RoleValue(status),
+	row := Row{
+		Label:   config.RoleTitle(role),
+		Plain:   Style{}.RoleValue(status),
+		Section: RoleSection,
 	}
 	row.Render = func(st Style) string { return st.RoleValue(status) }
 

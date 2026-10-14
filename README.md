@@ -690,7 +690,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, the provider and model bound to every role, UI, thinking/tools/vision, hidden thinking, assisted state, yes/plan mode, offline mode, mission, context usage). Provider endpoints are left to `/providers`
+- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, a `Models` section with the provider and model bound to every role, UI, thinking, tools, hidden thinking, assisted state, yes/plan mode, offline mode, mission, context usage). Role labels match the `/setmodel` vocabulary (`Main`, `Sidecar`, `Decision`, `Rabbit/Fast`, `Vision`, `Embedding`) and the vision tag follows the same listing rule as the intro. Provider endpoints are left to `/providers`
 - `/stats` — show session harness metrics (requests, provider-reported and estimated tokens, timings) plus the metrics JSONL file path
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file

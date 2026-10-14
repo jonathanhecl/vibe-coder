@@ -55,6 +55,17 @@ func TestStatusStyledUsesBannerLayout(t *testing.T) {
 			t.Fatalf("expected %q in styled status, got %q", want, rendered)
 		}
 	}
+	// The model rows are grouped under the same section as in the intro, as
+	// indented bullets, so the rest of the table keeps a narrow label column.
+	if !strings.Contains(rendered, tui.RoleSection) {
+		t.Fatalf("expected the %q section in styled status, got %q", tui.RoleSection, rendered)
+	}
+	if !strings.Contains(rendered, "    \x1b[90m- \x1b[0m") {
+		t.Fatalf("expected indented role bullets in styled status, got %q", rendered)
+	}
+	if strings.Contains(rendered, "\n  \x1b[1m\x1b[36mMain") {
+		t.Fatalf("role rows must be bullets, not flat rows, got %q", rendered)
+	}
 	// Provider endpoints belong to /providers.
 	if strings.Contains(rendered, "mac-mini.local") {
 		t.Fatalf("did not expect the provider endpoint in status, got %q", rendered)
@@ -165,7 +176,7 @@ func TestStatusMarksVisionRoleModel(t *testing.T) {
 	if !strings.Contains(rendered, "Vision: [ollama] moondream  vision") {
 		t.Fatalf("expected the vision role row to carry the tag, got %q", rendered)
 	}
-	if !strings.Contains(rendered, "Sidecar: Fallback to [ollama] llama3.2:3b") {
+	if !strings.Contains(rendered, "Sidecar: Fallback to Main") {
 		t.Fatalf("expected the unset sidecar row to show its fallback, got %q", rendered)
 	}
 }

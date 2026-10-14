@@ -14,65 +14,30 @@ type missionReporter interface {
 	MissionSnapshot() tools.Mission
 }
 
-// statusRow is one label/value pair. Plain output renders "Label: value"; the
-// styled output renders the banner-like aligned layout, using Short as the
-// label and Render (when set) for a colored value.
-type statusRow struct {
-	Label  string
-	Short  string
-	Plain  string
-	Render func(tui.Style) string
-}
-
+// printStatus renders the status table with the style of the command output.
 func printStatus(c *Ctx) {
 	writeStatus(c, tui.NewStyle(c.Out))
 }
 
-// writeStatus renders the current configuration. Colors and layout mirror the
-// startup banner; plain output keeps the line-based "Label: value" form for
-// logs and pipes. /info and /stats are aliases.
+// writeStatus renders the current configuration through the shared row layout,
+// so /status and the startup banner describe the same configuration the same
+// way. Colors and the aligned table appear only when styling is enabled; plain
+// output keeps the line-based "Label: value" form for logs and pipes.
 func writeStatus(c *Ctx, st tui.Style) {
 	rows := statusRows(c)
 	if len(rows) == 0 {
 		return
 	}
-	if !st.Enabled() {
-		for _, r := range rows {
-			fmt.Fprintf(c.Out, "%s: %s\n", r.Label, r.Plain)
-		}
-		return
+	if st.Enabled() {
+		fmt.Fprintln(c.Out)
+		fmt.Fprintf(c.Out, "  %s %s\n", st.BoldBrightGreen("vibe"), st.Gray("status"))
+		fmt.Fprintf(c.Out, "  %s\n", st.Gray(strings.Repeat("─", 46)))
 	}
-
-	labelWidth := 0
-	for _, r := range rows {
-		if l := len(r.short()); l > labelWidth {
-			labelWidth = l
-		}
-	}
-	fmt.Fprintln(c.Out)
-	fmt.Fprintf(c.Out, "  %s %s\n", st.BoldBrightGreen("vibe"), st.Gray("status"))
-	fmt.Fprintf(c.Out, "  %s\n", st.Gray(strings.Repeat("─", 46)))
-	for _, r := range rows {
-		value := r.Plain
-		if r.Render != nil {
-			value = r.Render(st)
-		} else {
-			value = st.BrightWhite(r.Plain)
-		}
-		label := r.short()
-		fmt.Fprintf(c.Out, "  %s%s  %s\n", st.BoldCyan(label), strings.Repeat(" ", labelWidth-len(label)), value)
-	}
+	tui.WriteRows(c.Out, st, rows)
 }
 
-func (r statusRow) short() string {
-	if strings.TrimSpace(r.Short) != "" {
-		return r.Short
-	}
-	return r.Label
-}
-
-func statusRows(c *Ctx) []statusRow {
-	rows := make([]statusRow, 0, 16)
+func statusRows(c *Ctx) []tui.Row {
+	rows := make([]tui.Row, 0, 16)
 
 	sessionID := ""
 	if c.Session != nil {
@@ -82,32 +47,31 @@ func statusRows(c *Ctx) []statusRow {
 	sessionRender := func(st tui.Style) string { return st.BrightWhite(sessionID) }
 	switch {
 	case c.Cfg.Temporal:
-		sessionPlain += "    (temporal)"
+		sessionPlain += " (temporal)"
 		sessionRender = func(st tui.Style) string {
 			return st.BrightWhite(sessionID) + "    " + st.Red("(temporal)")
 		}
 	case c.Cfg.Isolated:
-		sessionPlain += "    (isolated)"
+		sessionPlain += " (isolated)"
 		sessionRender = func(st tui.Style) string {
 			return st.BrightWhite(sessionID) + "    " + st.Yellow("(isolated)")
 		}
 	}
-	rows = append(rows, statusRow{Label: "Session", Plain: sessionPlain, Render: sessionRender})
-	rows = append(rows, statusRow{Label: "CWD", Plain: c.Cfg.Cwd})
+	rows = append(rows, tui.Row{Label: "Session", Plain: sessionPlain, Render: sessionRender})
+	rows = append(rows, tui.Row{Label: "CWD", Plain: c.Cfg.Cwd})
 	ui := strings.TrimSpace(c.Cfg.UI)
 	if ui == "" {
 		ui = "plain"
 	}
-	rows = append(rows, statusRow{Label: "UI", Plain: ui})
+	rows = append(rows, tui.Row{Label: "UI", Plain: ui})
 
-	// Model wiring comes from the same renderer as the startup banner; provider
-	// endpoints stay in /providers instead of being repeated here.
-	for _, role := range tui.RoleRows(c.Cfg) {
-		rows = append(rows, statusRow{Label: role.Label, Plain: role.Plain, Render: role.Render})
-	}
+	// Model wiring comes from the same renderer as the startup banner, grouped
+	// under the same "Models" section; provider endpoints stay in /providers
+	// instead of being repeated here.
+	rows = append(rows, tui.RoleRows(c.Cfg)...)
 
-	rows = append(rows, statusRow{Label: "Thinking", Plain: thinkingStatus(c)})
-	rows = append(rows, statusRow{
+	rows = append(rows, tui.Row{Label: "Thinking", Plain: thinkingStatus(c)})
+	rows = append(rows, tui.Row{
 		Label: "Hide think",
 		Plain: yesNo(c.Cfg.OllamaHideThink),
 		Render: func(st tui.Style) string {
@@ -117,8 +81,8 @@ func statusRows(c *Ctx) []statusRow {
 			return st.Gray("off")
 		},
 	})
-	rows = append(rows, statusRow{Label: "Tools", Plain: toolsStatus(c)})
-	rows = append(rows, statusRow{
+	rows = append(rows, tui.Row{Label: "Tools", Plain: toolsStatus(c)})
+	rows = append(rows, tui.Row{
 		Label: "Assisted",
 		Plain: assistedStatusValue(c),
 		Render: func(st tui.Style) string {
@@ -129,13 +93,13 @@ func statusRows(c *Ctx) []statusRow {
 		},
 	})
 
-	rows = append(rows, statusRow{Label: "Context", Plain: fmt.Sprintf("%d%%", contextUsagePct(c))})
+	rows = append(rows, tui.Row{Label: "Context", Plain: fmt.Sprintf("%d%%", contextUsagePct(c))})
 	messages := 0
 	if c.Session != nil {
 		messages = c.Session.MessageCount()
 	}
-	rows = append(rows, statusRow{Label: "Messages", Plain: fmt.Sprintf("%d", messages)})
-	rows = append(rows, statusRow{
+	rows = append(rows, tui.Row{Label: "Messages", Plain: fmt.Sprintf("%d", messages)})
+	rows = append(rows, tui.Row{
 		Label: "Yes mode",
 		Plain: yesModeValue(c),
 		Render: func(st tui.Style) string {
@@ -145,7 +109,7 @@ func statusRows(c *Ctx) []statusRow {
 			return st.Gray(yesModeValue(c))
 		},
 	})
-	rows = append(rows, statusRow{
+	rows = append(rows, tui.Row{
 		Label: "Plan mode",
 		Plain: planModeValue(c),
 		Render: func(st tui.Style) string {
@@ -155,7 +119,7 @@ func statusRows(c *Ctx) []statusRow {
 			return st.Gray("off")
 		},
 	})
-	rows = append(rows, statusRow{
+	rows = append(rows, tui.Row{
 		Label: "Offline",
 		Plain: offlineStatusValue(c),
 		Render: func(st tui.Style) string {
@@ -167,7 +131,7 @@ func statusRows(c *Ctx) []statusRow {
 	})
 
 	if c.Contexts != nil && c.Contexts.Has() {
-		rows = append(rows, statusRow{
+		rows = append(rows, tui.Row{
 			Label: "Pinned contexts",
 			Short: "Contexts",
 			Plain: fmt.Sprintf("%d: %s", c.Contexts.Count(), strings.Join(c.Contexts.SortedNames(), ", ")),
@@ -182,7 +146,7 @@ func statusRows(c *Ctx) []statusRow {
 			if goal := strings.TrimSpace(m.Goal); goal != "" {
 				line += " — " + goal
 			}
-			rows = append(rows, statusRow{Label: "Mission", Plain: line})
+			rows = append(rows, tui.Row{Label: "Mission", Plain: line})
 		}
 	}
 	return rows

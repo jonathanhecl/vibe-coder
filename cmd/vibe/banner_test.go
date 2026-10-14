@@ -9,7 +9,7 @@ import (
 )
 
 // bannerRowPlain returns the plain value of the row with the given label.
-func bannerRowPlain(t *testing.T, rows []bannerRow, label string) string {
+func bannerRowPlain(t *testing.T, rows []tui.Row, label string) string {
 	t.Helper()
 	for _, row := range rows {
 		if row.Label == label {
@@ -21,7 +21,7 @@ func bannerRowPlain(t *testing.T, rows []bannerRow, label string) string {
 }
 
 // bannerHasRow reports whether the banner lists a role.
-func bannerHasRow(rows []bannerRow, label string) bool {
+func bannerHasRow(rows []tui.Row, label string) bool {
 	for _, row := range rows {
 		if row.Label == label {
 			return true
@@ -47,7 +47,7 @@ func TestBannerRowsRoleWiring(t *testing.T) {
 		{"Session", "session-123"},
 		{"Main", "[ollama] llama3.2:3b"},
 		{"Sidecar", "[ollama] qwen3.5:4b"},
-		{"Rabbit/Fast", "Fallback to [ollama] llama3.2:3b  (set it with /setmodel rabbit MODEL)"},
+		{"Rabbit/Fast", "Fallback to Sidecar  (set it with /setmodel rabbit MODEL)"},
 		{"Vision", "images go to main, then sidecar  (set it with /setmodel vision MODEL)"},
 		{"Embedding", "text-only retrieval (no encoder)  (set it with /setmodel embedding MODEL)"},
 	}
@@ -64,8 +64,8 @@ func TestBannerRowsRoleWiring(t *testing.T) {
 	}
 	// The session row stands alone; every model role is listed under "Models".
 	for _, row := range rows[1:] {
-		if row.Section != bannerModelsSection {
-			t.Fatalf("%s row is not grouped under %q: %#v", row.Label, bannerModelsSection, row)
+		if row.Section != tui.RoleSection {
+			t.Fatalf("%s row is not grouped under %q: %#v", row.Label, tui.RoleSection, row)
 		}
 	}
 	if rows[0].Section != "" {
