@@ -392,6 +392,19 @@ behaviours: compaction will truncate to a static "Earlier conversation
 truncated…" note, large tool outputs will be inserted verbatim into the
 context, and ambiguous paths will not be rescued.
 
+### Fast model (rabbit)
+
+`RABBIT_MODEL` / `ROLE_RABBIT_MODEL` (or use `/setmodel <provider> rabbit <model>`)
+is an optional faster model used for read-only retrieval work such as
+`SubAgent` searches and batched `ReadMany` lookups. It runs with read-only
+tools and a tighter turn/byte budget, then hands the summary back to the
+main model.
+
+If the rabbit role is unset, or its provider is unreachable, retrieval falls
+back to the sidecar and then to the main model. Pick something small and
+fast (the tested target is `lfm2.5-8b-a1b-uncensored` style models);
+rabbit is best-effort and falls back rather than failing the task.
+
 ### Decision model
 
 `DECISION_MODEL` / `DECISION_ENDPOINT` configure a specialized, **text-only decision function** (not a conversational chat model, vision model, or tool-calling model). The client speaks the **System One protocol** — `POST <endpoint>/v1/systemone` with typed questions (`noul` for yes/no, `choice` for categorical picks, `score` for ordinal scales) — and gets structured answers back with probabilities and confidence. It works against either backend:
