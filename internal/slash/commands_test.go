@@ -729,7 +729,7 @@ func TestDispatchIsolatedSession(t *testing.T) {
 		t.Fatal("expected .vibe-isolated.jsonl to exist after /save")
 	}
 
-	// 2. /new clears the in-memory session and truncates .vibe-isolated.jsonl
+	// 2. /new clears the in-memory session and keeps only the folder marker
 	out.Reset()
 	handled, shouldExit, err = Dispatch(ctx, "/new")
 	if err != nil || !handled || shouldExit {

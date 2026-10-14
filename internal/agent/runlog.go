@@ -25,22 +25,15 @@ type runLogEntry struct {
 	Error   string    `json:"error,omitempty"`
 }
 
-// RunLogPath returns the per-session JSONL run-log path, or "" when the state
-// directory is unavailable (e.g. in tests) or when logging is suppressed
-// (e.g. temporal sessions).
+// RunLogPath returns the per-session JSONL run-log path, or "" when the run
+// records no log: temporal and isolated sessions keep no mission journal, and
+// an unavailable state directory (e.g. in tests) also disables it.
 func (a *Agent) RunLogPath() string {
 	if a == nil || a.cfg == nil || a.sess == nil {
 		return ""
 	}
-	if a.cfg.Temporal {
+	if a.cfg.Temporal || a.cfg.Isolated {
 		return ""
-	}
-	if a.cfg.Isolated {
-		cwd := strings.TrimSpace(a.cfg.Cwd)
-		if cwd == "" {
-			return ""
-		}
-		return filepath.Join(cwd, ".vibe-isolated-runs.jsonl")
 	}
 	dir := strings.TrimSpace(a.cfg.StateDir)
 	if dir == "" {

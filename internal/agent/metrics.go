@@ -12,22 +12,16 @@ import (
 )
 
 // MetricsPath returns the per-session JSONL metrics path, or "" when
-// recording is suppressed: temporal sessions keep nothing on disk, isolated
-// sessions write next to their workspace file, and MetricsDisabled turns the
-// file off while the in-memory summary keeps running.
+// recording is suppressed: temporal and isolated sessions record nothing on
+// disk (isolated keeps only its folder session, temporal keeps no trace), and
+// MetricsDisabled turns the file off while the in-memory summary keeps
+// running so /stats still reports the current run.
 func (a *Agent) MetricsPath() string {
 	if a == nil || a.cfg == nil || a.sess == nil {
 		return ""
 	}
-	if a.cfg.Harness.MetricsDisabled || a.cfg.Temporal {
+	if a.cfg.Harness.MetricsDisabled || a.cfg.Temporal || a.cfg.Isolated {
 		return ""
-	}
-	if a.cfg.Isolated {
-		cwd := strings.TrimSpace(a.cfg.Cwd)
-		if cwd == "" {
-			return ""
-		}
-		return filepath.Join(cwd, ".vibe-isolated-metrics.jsonl")
 	}
 	dir := strings.TrimSpace(a.cfg.StateDir)
 	if dir == "" {

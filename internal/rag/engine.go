@@ -69,23 +69,31 @@ type chunkEntry struct {
 }
 
 func NewEngine(cfg *config.Config, cli ollama.Client) (*Engine, error) {
-	dbPath := cfg.RAGPath
-	if strings.TrimSpace(dbPath) == "" {
-		if cfg.Isolated && strings.TrimSpace(cfg.Cwd) != "" {
+	dbPath := strings.TrimSpace(cfg.RAGPath)
+	inMemory := false
+	if dbPath == "" {
+		switch {
+		case cfg.Isolated && strings.TrimSpace(cfg.Cwd) != "":
 			dbPath = filepath.Join(cfg.Cwd, ".vibe-isolated-rag.db")
-		} else {
+		case cfg.Temporal:
+			// A temporal run leaves no trace, so its index lives in memory.
+			dbPath = ":memory:"
+			inMemory = true
+		default:
 			dbPath = filepath.Join(cfg.StateDir, "rag.db")
 		}
 	}
-	if !filepath.IsAbs(dbPath) {
-		abs, err := filepath.Abs(dbPath)
-		if err != nil {
+	if !inMemory {
+		if !filepath.IsAbs(dbPath) {
+			abs, err := filepath.Abs(dbPath)
+			if err != nil {
+				return nil, err
+			}
+			dbPath = abs
+		}
+		if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 			return nil, err
 		}
-		dbPath = abs
-	}
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return nil, err
 	}
 
 	dsn := "file:" + filepath.ToSlash(dbPath) + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"

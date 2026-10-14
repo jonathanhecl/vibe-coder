@@ -7,25 +7,19 @@ import (
 	"strings"
 )
 
-// An isolated run keeps every artifact it produces inside the working
-// directory it was started in. The session transcript, the mission run log,
-// the metrics, the pasted media, and the RAG index already live there; the
-// files below follow the same rule so an isolated run leaves nothing in the
-// user-level config and state directories.
+// An isolated run keeps what it records inside the working directory it was
+// started in. The session transcript, the pasted media, and the RAG index
+// already live there, and the prompt history joins them; the measured metrics
+// and the logs are not recorded at all, and the settings keep going to the
+// shared config file because they describe the user's models and providers
+// rather than the run.
 const (
 	// IsolatedSessionFileName is the folder-local session that makes a
 	// directory isolated: a run started in a folder holding one continues in
 	// isolated mode. The session store uses the same name.
 	IsolatedSessionFileName = ".vibe-isolated.jsonl"
-	// IsolatedConfigFileName holds the settings saved from an isolated run:
-	// /save, /setmodel persistence, and remembered tool permissions. It is
-	// read after the shared config file, so the folder only overrides what
-	// was configured from inside it.
-	IsolatedConfigFileName = ".vibe-isolated.env"
 	// IsolatedHistoryFileName stores submitted prompts for Up/Down recall.
 	IsolatedHistoryFileName = ".vibe-isolated-history.txt"
-	// IsolatedLogFileName is the debug log of an isolated run.
-	IsolatedLogFileName = ".vibe-isolated.log"
 )
 
 // isolatedSessionPresent reports whether cwd holds an isolated session with
@@ -85,11 +79,10 @@ func isolatedRequested(cli cliOptions, cwd string) bool {
 	return isolatedSessionPresent(cwd)
 }
 
-// EnterIsolatedLayout points every writable path at the isolated working
-// directory and reads the folder-local settings file as the last file-level
-// source. It is idempotent, so a caller that learns about the isolated mode
-// after Load (a folder that already holds an isolated session) can apply it
-// again. It is a no-op unless the run is isolated.
+// EnterIsolatedLayout points the paths an isolated run still records at the
+// working directory. It is idempotent, so a caller that learns about the
+// isolated mode after Load (a folder that already holds an isolated session)
+// can apply it again, and it is a no-op unless the run is isolated.
 func (c *Config) EnterIsolatedLayout() error {
 	if c == nil || !c.Isolated {
 		return nil
@@ -98,37 +91,15 @@ func (c *Config) EnterIsolatedLayout() error {
 	if cwd == "" {
 		return errors.New("isolated session requires a working directory")
 	}
-
-	c.ConfigFile = filepath.Join(cwd, IsolatedConfigFileName)
-	c.PermFile = c.ConfigFile
 	c.HistoryFile = filepath.Join(cwd, IsolatedHistoryFileName)
-
-	if _, err := os.Stat(c.ConfigFile); err == nil {
-		// Settings saved in this folder count as an existing configuration,
-		// so a first run does not prompt for setup on every isolated run.
-		c.ConfigFileExists = true
-	}
-	// The folder file may refine the run but cannot turn isolation off: the
-	// paths above already moved, and every write must stay in the folder.
-	isolated := c.Isolated
-	if err := applyConfigFile(c, c.ConfigFile); err != nil {
-		return err
-	}
-	c.Isolated = isolated
 	return nil
 }
 
-// LogPath returns the file this run writes its debug log to: the isolated log
-// inside the working directory, or vibe-coder.log in the config directory.
-// An empty result means logging is not available.
+// LogPath returns the file this run writes its debug log to, or "" when the
+// run records no log. Isolated and temporal runs leave nothing behind, and the
+// log carries CLI arguments, so neither writes one.
 func (c *Config) LogPath() string {
-	if c == nil {
-		return ""
-	}
-	if c.Isolated {
-		if cwd := strings.TrimSpace(c.Cwd); cwd != "" {
-			return filepath.Join(cwd, IsolatedLogFileName)
-		}
+	if c == nil || c.Isolated || c.Temporal {
 		return ""
 	}
 	if dir := strings.TrimSpace(c.ConfigDir); dir != "" {

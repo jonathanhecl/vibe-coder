@@ -61,14 +61,12 @@ func TestRunLogWritesRedactedJSONL(t *testing.T) {
 	}
 }
 
-func TestRunLogIsolated_ScopesToWorkspaceAndNeverWritesToStateDir(t *testing.T) {
+func TestRunLogIsolated_RecordsNothingAnywhere(t *testing.T) {
 	ag := newMissionAgent(t)
 	ag.cfg.Isolated = true
 
-	path := ag.RunLogPath()
-	wantPath := filepath.Join(ag.cfg.Cwd, ".vibe-isolated-runs.jsonl")
-	if path != wantPath {
-		t.Fatalf("expected RunLogPath %q, got %q", wantPath, path)
+	if path := ag.RunLogPath(); path != "" {
+		t.Fatalf("expected empty RunLogPath for an isolated session, got %q", path)
 	}
 
 	ag.reg.Get("MissionStart").Execute(context.Background(), map[string]any{
@@ -78,12 +76,11 @@ func TestRunLogIsolated_ScopesToWorkspaceAndNeverWritesToStateDir(t *testing.T) 
 	ag.noteToolExecuted()
 	ag.LogMissionTurn(nil)
 
-	// Workspace run log must exist
-	if _, err := os.Stat(wantPath); err != nil {
-		t.Fatalf("expected isolated run log at %q: %v", wantPath, err)
+	// Neither the workspace nor the state directory may hold a run log.
+	workspaceLog := filepath.Join(ag.cfg.Cwd, ".vibe-isolated-runs.jsonl")
+	if _, err := os.Stat(workspaceLog); !os.IsNotExist(err) {
+		t.Fatalf("expected no run log in the workspace, got %v", err)
 	}
-
-	// StateDir/runs must NOT exist or be created
 	stateRunsDir := filepath.Join(ag.cfg.StateDir, "runs")
 	if _, err := os.Stat(stateRunsDir); !os.IsNotExist(err) {
 		t.Fatalf("expected state runs dir %q to NOT exist, but it was created", stateRunsDir)

@@ -13,9 +13,9 @@ import (
 )
 
 // TestSaveInIsolatedSessionStaysInTheFolder pins the behaviour of /save inside
-// an isolated run: the transcript and the settings land in the working
-// directory, the mode does not change, and the user-level directories stay
-// untouched.
+// an isolated run: the transcript lands in the working directory, the settings
+// go to the shared config file like every other mode, the mode does not
+// change, and the user-level state directories stay untouched.
 func TestSaveInIsolatedSessionStaysInTheFolder(t *testing.T) {
 	home := t.TempDir()
 	projectDir := t.TempDir()
@@ -61,8 +61,11 @@ func TestSaveInIsolatedSessionStaysInTheFolder(t *testing.T) {
 	if !session.HasIsolatedSession(projectDir) {
 		t.Error("expected the folder to keep detecting the isolated session")
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, config.IsolatedConfigFileName)); err != nil {
-		t.Errorf("expected the folder settings file: %v", err)
+	if _, err := os.Stat(filepath.Join(home, "cfg.env")); err != nil {
+		t.Errorf("expected the settings in the shared config file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".vibe-isolated.env")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("an isolated run must not keep a settings file in the folder")
 	}
 	if !cfg.Isolated {
 		t.Error("saving must not leave the isolated mode")

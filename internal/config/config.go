@@ -281,9 +281,10 @@ func Load(args []string) (*Config, error) {
 		return nil, fmt.Errorf("invalid ollama host %q: %w", cfg.OllamaHost, err)
 	}
 
-	// An isolated run never touches the user-level directories: it does not
-	// create them and it writes only inside its working directory.
-	if !cfg.Isolated {
+	// Isolated and temporal runs never touch the user-level directories: the
+	// isolated one writes only inside its working directory, the temporal one
+	// leaves no trace, so neither creates these directories.
+	if !cfg.Isolated && !cfg.Temporal {
 		if err := os.MkdirAll(cfg.ConfigDir, 0o755); err != nil {
 			return nil, fmt.Errorf("create config dir: %w", err)
 		}

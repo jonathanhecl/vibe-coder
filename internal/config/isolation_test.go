@@ -8,10 +8,11 @@ import (
 	"testing"
 )
 
-// TestEnterIsolatedLayoutKeepsWritesInFolder asserts an isolated run points
-// every writable path at its working directory instead of the user-level
-// config and state directories.
-func TestEnterIsolatedLayoutKeepsWritesInFolder(t *testing.T) {
+// TestEnterIsolatedLayoutKeepsRecordsInFolder asserts an isolated run keeps
+// the records it still writes inside its working directory: the prompt history
+// moves into the folder, while the settings stay in the shared config file and
+// no log is written at all.
+func TestEnterIsolatedLayoutKeepsRecordsInFolder(t *testing.T) {
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "state")
 	configDir := filepath.Join(dir, "config")
@@ -20,68 +21,41 @@ func TestEnterIsolatedLayoutKeepsWritesInFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	sharedConfig := filepath.Join(configDir, "vibe-coder.env")
 	cfg := &Config{
 		Isolated:    true,
 		Cwd:         cwd,
 		ConfigDir:   configDir,
 		StateDir:    stateDir,
-		ConfigFile:  filepath.Join(configDir, "vibe-coder.env"),
-		PermFile:    filepath.Join(configDir, "vibe-coder.env"),
+		ConfigFile:  sharedConfig,
+		PermFile:    sharedConfig,
 		HistoryFile: filepath.Join(stateDir, "history.txt"),
 	}
 	if err := cfg.EnterIsolatedLayout(); err != nil {
 		t.Fatalf("EnterIsolatedLayout: %v", err)
 	}
 
-	wantConfig := filepath.Join(cwd, IsolatedConfigFileName)
-	if cfg.ConfigFile != wantConfig {
-		t.Errorf("ConfigFile = %q, want %q", cfg.ConfigFile, wantConfig)
-	}
-	if cfg.PermFile != wantConfig {
-		t.Errorf("PermFile = %q, want %q", cfg.PermFile, wantConfig)
-	}
 	wantHistory := filepath.Join(cwd, IsolatedHistoryFileName)
 	if cfg.HistoryFile != wantHistory {
 		t.Errorf("HistoryFile = %q, want %q", cfg.HistoryFile, wantHistory)
 	}
-	if got := cfg.LogPath(); got != filepath.Join(cwd, IsolatedLogFileName) {
-		t.Errorf("LogPath = %q, want the isolated log in the folder", got)
+	if !strings.HasPrefix(cfg.HistoryFile, cwd) {
+		t.Errorf("history %q escapes the isolated folder %q", cfg.HistoryFile, cwd)
 	}
-	for _, path := range []string{cfg.ConfigFile, cfg.PermFile, cfg.HistoryFile, cfg.LogPath()} {
-		if !strings.HasPrefix(path, cwd) {
-			t.Errorf("path %q escapes the isolated folder %q", path, cwd)
-		}
+	if cfg.ConfigFile != sharedConfig || cfg.PermFile != sharedConfig {
+		t.Errorf("isolated settings must stay in the shared config, got %q and %q", cfg.ConfigFile, cfg.PermFile)
+	}
+	if got := cfg.LogPath(); got != "" {
+		t.Errorf("LogPath = %q, want no log for an isolated run", got)
 	}
 }
 
-// TestEnterIsolatedLayoutReadsFolderSettings asserts settings saved inside the
-// folder apply to the next isolated run, and that the file cannot turn
-// isolation off.
-func TestEnterIsolatedLayoutReadsFolderSettings(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &Config{
-		Isolated:      true,
-		Cwd:           dir,
-		OllamaHost:    "http://localhost:11434",
-		RoleModels:    map[Role]RoleModel{},
-		Providers:     map[string]Provider{},
-		ContextWindow: 8192,
-	}
-	localPath := filepath.Join(dir, IsolatedConfigFileName)
-	if err := os.WriteFile(localPath, []byte("MODEL=folder-model\nISOLATED=false\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := cfg.EnterIsolatedLayout(); err != nil {
-		t.Fatalf("EnterIsolatedLayout: %v", err)
-	}
-	if cfg.Model != "folder-model" {
-		t.Errorf("Model = %q, want the folder setting", cfg.Model)
-	}
-	if !cfg.Isolated {
-		t.Error("the folder settings file must not turn isolation off")
-	}
-	if !cfg.ConfigFileExists {
-		t.Error("a settings file inside the folder counts as an existing configuration")
+// TestLogPathSkipsTemporal asserts a temporal run records no log either, so it
+// leaves no trace of its arguments.
+func TestLogPathSkipsTemporal(t *testing.T) {
+	cfg := &Config{Temporal: true, ConfigDir: t.TempDir()}
+	if got := cfg.LogPath(); got != "" {
+		t.Errorf("LogPath = %q, want no log for a temporal run", got)
 	}
 }
 
@@ -150,8 +124,11 @@ func TestLoadDetectsFolderIsolatedSession(t *testing.T) {
 	if !cfg.Isolated {
 		t.Fatal("expected the folder session to make the run isolated")
 	}
-	if cfg.ConfigFile != filepath.Join(dir, IsolatedConfigFileName) {
-		t.Errorf("ConfigFile = %q, want the folder settings file", cfg.ConfigFile)
+	if cfg.ConfigFile != filepath.Join(dir, "vibe-coder.env") {
+		t.Errorf("ConfigFile = %q, want the shared config file", cfg.ConfigFile)
+	}
+	if cfg.LogPath() != "" {
+		t.Errorf("LogPath = %q, want no log for an isolated run", cfg.LogPath())
 	}
 	if cfg.HistoryFile != filepath.Join(dir, IsolatedHistoryFileName) {
 		t.Errorf("HistoryFile = %q, want the folder history", cfg.HistoryFile)
