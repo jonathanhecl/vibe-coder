@@ -79,6 +79,7 @@ func (r *Registry) sortedNamesLocked() []string {
 
 func (r *Registry) RegisterDefaults() {
 	r.Register(NewReadTool())
+	r.Register(NewReadManyTool())
 	r.Register(NewWriteTool())
 	r.Register(NewEditTool())
 	r.Register(NewGlobTool())

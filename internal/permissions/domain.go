@@ -25,12 +25,37 @@ func ToolTargetPaths(toolName string, params map[string]any, ws string) []string
 	}
 	tool := strings.ToLower(strings.TrimSpace(toolName))
 	switch tool {
-	case "read", "write", "edit", "describeimage":
+	case "read", "readmany", "write", "edit", "describeimage":
+		var out []string
+		for _, key := range []string{"paths", "file_paths", "files", "filepaths"} {
+			switch v := params[key].(type) {
+			case []any:
+				for _, x := range v {
+					if s, ok := x.(string); ok && strings.TrimSpace(s) != "" {
+						out = append(out, strings.TrimSpace(s))
+					}
+				}
+			case []string:
+				for _, s := range v {
+					if strings.TrimSpace(s) != "" {
+						out = append(out, strings.TrimSpace(s))
+					}
+				}
+			case string:
+				if strings.TrimSpace(v) != "" {
+					out = append(out, strings.TrimSpace(v))
+				}
+			}
+		}
+		if len(out) > 0 {
+			return deduplicatePaths(out)
+		}
 		for _, key := range []string{"file_path", "filePath", "image_path", "path", "target", "filename", "file"} {
 			if p, ok := params[key].(string); ok && strings.TrimSpace(p) != "" {
 				return []string{strings.TrimSpace(p)}
 			}
 		}
+		return nil
 	case "notebookedit", "notebookread":
 		for _, key := range []string{"notebook_path", "file_path", "filePath", "path"} {
 			if p, ok := params[key].(string); ok && strings.TrimSpace(p) != "" {

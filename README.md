@@ -94,7 +94,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 
 ### Tools (exposed to the model)
 
-- **File ops**: `Read`, `Write`, `Edit` (with inline unified-diff preview in the TUI).
+- **File ops**: `Read`, `ReadMany`, `Write`, `Edit` (with inline unified-diff preview in the TUI).
 - **Search**: `Glob`, `Grep` (multiline, context lines, output modes).
 - **Shell**: `Bash` and `InteractiveBash` with dangerous-command blocklists and protected-path guards.
 - **Web**: `WebFetch` and `WebSearch` (DuckDuckGo scrape) with SSRF protection: private hosts are rejected up front, every redirect target is re-validated (max 5 hops), connections are pinned to publicly resolved addresses (DNS-rebinding guard), and requests respect cancellation.
@@ -785,6 +785,9 @@ do not call these directly, but their behavior affects speed and context usage:
   for partial file reads. Without those parameters it reads the full file
   with line numbers. On image files (`.jpg`, `.png`, `.gif`, `.bmp`) it
   attaches the picture to the conversation instead (vision-capable models only).
+- `ReadMany` reads several known files concurrently and returns each under its
+  own header. It accepts `paths` (alias `file_paths`/`files`) plus optional
+  `max_bytes` (per file) and `total_bytes` (combined cap).
 - `DescribeImage` has a vision-capable model look at an image file and answer
   a `question` about it (second opinion or closer look; sidecar preferred).
 - `Write` creates or overwrites a file; dangerous paths and protected

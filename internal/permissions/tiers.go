@@ -18,7 +18,7 @@ const (
 
 var (
 	safeTools = map[string]struct{}{
-		"read": {}, "glob": {}, "grep": {}, "subagent": {}, "askuserquestion": {},
+		"read": {}, "readmany": {}, "glob": {}, "grep": {}, "subagent": {}, "askuserquestion": {},
 		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {}, "todowrite": {},
 		"missionstart": {}, "missioncomplete": {}, "missionblocked": {},
 		"describeimage": {}, "gitstatus": {}, "gitdiff": {}, "decide": {},

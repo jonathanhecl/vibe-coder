@@ -95,9 +95,10 @@ func (t *SubAgentTool) runLoop(ctx context.Context, userPrompt string, turns int
 		return "", fmt.Errorf("sub-agent writes require the parent authorization executor")
 	}
 	allowed := map[string]Tool{
-		"Read": NewReadTool(),
-		"Glob": NewGlobTool(),
-		"Grep": NewGrepTool(),
+		"Read":     NewReadTool(),
+		"ReadMany": NewReadManyTool(),
+		"Glob":     NewGlobTool(),
+		"Grep":     NewGrepTool(),
 	}
 	if allowWrites {
 		allowed["Write"] = NewWriteTool()
