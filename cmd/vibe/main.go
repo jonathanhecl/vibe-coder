@@ -126,6 +126,7 @@ func main() {
 		sideClient = createLLMClient(cfg.EffectiveSidecarEndpoint(), cfg.SidecarApiKey, cfg.IsSidecarOpenAI())
 	}
 	visionRole := newVisionRole(cfg, client, sideClient)
+	rabbitClient := rabbitClientFor(cfg, client, sideClient)
 
 	sess := session.New(cfg)
 	sess.SetClient(client)
@@ -139,6 +140,7 @@ func main() {
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()
 	sub := tools.NewSubAgentTool(cfg, client)
+	sub.SetRabbitClient(rabbitClient)
 	reg.Register(sub)
 	reg.Register(tools.NewParallelAgentsTool(sub))
 	perm := permissions.NewManager(cfg)
@@ -432,6 +434,34 @@ func embeddingClientFor(cfg *config.Config, client, sideClient ollama.Client) ol
 // resolveVisionSupport detects once, at startup, whether the active model
 // advertises vision capability. It is best-effort: on any failure the agent
 // runs with VisionKnown=false and stays honest about trying.
+// rabbitClientFor returns the client the optional rabbit role should use:
+// main or sidecar when the role shares that provider, a dedicated client for
+// any other provider, and the main client as the fallback when the role is
+// unset or has no endpoint.
+func rabbitClientFor(cfg *config.Config, client, sideClient ollama.Client) ollama.Client {
+	if cfg == nil || !cfg.RoleInUse(config.RoleRabbit) {
+		return client
+	}
+	provider, ok := cfg.RoleProvider(config.RoleRabbit)
+	if !ok || strings.TrimSpace(provider.Endpoint) == "" {
+		return client
+	}
+	switch provider.Name {
+	case cfg.RoleBinding(config.RoleMain).Provider:
+		if client != nil {
+			return client
+		}
+	case cfg.RoleBinding(config.RoleSidecar).Provider:
+		if sideClient != nil {
+			return sideClient
+		}
+	}
+	if client == nil {
+		return nil
+	}
+	return createLLMClient(provider.Endpoint, provider.APIKey, provider.Kind == config.ProviderOpenAI)
+}
+
 func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients ...ollama.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

@@ -30,8 +30,17 @@ const (
 var subAgentInvokeRe = regexp.MustCompile(`(?is)<invoke[^>]*name=["']([A-Za-z0-9_:-]+)["'][^>]*>`)
 
 type SubAgentTool struct {
-	cfg    *config.Config
-	client ollama.Client
+	cfg          *config.Config
+	client       ollama.Client
+	rabbitClient ollama.Client
+}
+
+// SetRabbitClient configures the fast model used for read-only retrieval. Nil
+// (or unset) keeps the main client as the fallback.
+func (t *SubAgentTool) SetRabbitClient(c ollama.Client) {
+	if t != nil {
+		t.rabbitClient = c
+	}
 }
 
 type ParallelAgentsTool struct {
@@ -119,7 +128,7 @@ func (t *SubAgentTool) runLoop(ctx context.Context, userPrompt string, turns int
 	}
 	lastReply := ""
 	for turn := 0; turn < turns; turn++ {
-		reply, err := t.chat(ctx, messages)
+		reply, err := t.chat(ctx, messages, !allowWrites)
 		if err != nil {
 			return "", err
 		}
@@ -176,9 +185,14 @@ func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (stri
 	return t.runLoop(root, userPrompt, 1, false)
 }
 
-func (t *SubAgentTool) chat(ctx context.Context, messages []ollama.Message) (string, error) {
+func (t *SubAgentTool) chat(ctx context.Context, messages []ollama.Message, readOnly bool) (string, error) {
+	client := t.client
 	model, numCtx, numPredict, temperature := subAgentChatSettings(t.cfg)
-	stream, err := t.client.Chat(ctx, ollama.ChatRequest{
+	if readOnly && t.cfg != nil && t.cfg.RoleInUse(config.RoleRabbit) && t.rabbitClient != nil {
+		client = t.rabbitClient
+		model = t.cfg.RoleModelName(config.RoleRabbit)
+	}
+	stream, err := client.Chat(ctx, ollama.ChatRequest{
 		Model:     model,
 		Messages:  messages,
 		Stream:    true,
