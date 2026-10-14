@@ -47,6 +47,16 @@ func printClearOptions(c *Ctx) {
 // starts a fresh session. A previously persisted file for the current id is
 // removed as well so nothing is kept; a never-saved session simply resets.
 func runClearSession(c *Ctx) error {
+	// An isolated run keeps its only transcript in the working directory, so it
+	// is reset there: looking it up in the user-level sessions directory would
+	// leave the folder file behind while the run claims to have dropped it.
+	if c.Cfg != nil && c.Cfg.Isolated {
+		if err := c.Session.ClearIsolated(); err != nil {
+			return fmt.Errorf("discard isolated session: %w", err)
+		}
+		fmt.Fprintf(c.Out, "Discarded current session without saving. Started a new session (%s)\n", c.Session.ID())
+		return nil
+	}
 	oldID := c.Session.ID()
 	if err := session.DeleteSession(c.Cfg, oldID); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("discard current session: %w", err)

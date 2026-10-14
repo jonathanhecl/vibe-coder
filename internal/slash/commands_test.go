@@ -745,8 +745,17 @@ func TestDispatchIsolatedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() != 0 {
-		t.Fatalf("expected file to be truncated to 0 bytes, got %d", info.Size())
+	if info.Size() == 0 {
+		t.Fatal("expected the marker that keeps the folder isolated to survive /new")
+	}
+	if !session.HasIsolatedSession(projectDir) {
+		t.Fatal("expected the folder to stay isolated after /new")
+	}
+	loaded := session.New(cfg)
+	if ok, err := loaded.LoadIsolated(); err != nil {
+		t.Fatalf("load isolated after /new: %v", err)
+	} else if ok {
+		t.Fatal("expected no messages to load from a cleared isolated session")
 	}
 
 	// 3. /sessions lists notice that isolated session is active in current directory

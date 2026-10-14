@@ -59,7 +59,7 @@ func main() {
 		exitWithError(err)
 	}
 
-	closer, logErr := logger.Init(cfg.ConfigDir)
+	closer, logErr := logger.Init(cfg.LogPath())
 	if logErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to initialize log file: %v\n", logErr)
 	} else if closer != nil {
@@ -304,6 +304,7 @@ func printAvailableModels(rootCtx context.Context, client ollama.Client) error {
 	return nil
 }
 
+// resolveSession loads or starts the session this run works on.
 func resolveSession(cfg *config.Config, sess *session.Session) (bool, error) {
 	if cfg == nil || sess == nil || cfg.Temporal {
 		return false, nil
@@ -329,8 +330,9 @@ func resolveSession(cfg *config.Config, sess *session.Session) (bool, error) {
 		}
 		return false, nil
 	}
-	// Auto-detect isolated session in current directory
-	if !cfg.NewSession && session.HasIsolatedSession(cfg.Cwd) {
+	// Auto-detect isolated session in current directory. Load settles this for
+	// the normal flow; this covers callers that resolve a session directly.
+	if !cfg.NewSession && !cfg.Temporal && session.HasIsolatedSession(cfg.Cwd) {
 		ok, err := sess.LoadIsolated()
 		if err == nil && ok {
 			cfg.Isolated = true

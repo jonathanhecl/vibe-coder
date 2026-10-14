@@ -596,7 +596,8 @@ func TestIsolatedSessionLifecycle(t *testing.T) {
 		t.Fatalf("expected preserved work state, got %s", string(s2.WorkState()))
 	}
 
-	// 4. ClearIsolated truncates file and resets memory, and cleans up run log and media
+	// 4. ClearIsolated resets memory, keeps the folder isolated through the
+	// marker line, and cleans up run log and media
 	if err := s2.ClearIsolated(); err != nil {
 		t.Fatalf("clear isolated: %v", err)
 	}
@@ -610,11 +611,17 @@ func TestIsolatedSessionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() != 0 {
-		t.Fatalf("expected 0 bytes after clear, got %d", info.Size())
+	if info.Size() == 0 {
+		t.Fatal("expected the isolated marker to survive the clear")
 	}
-	if HasIsolatedSession(projectDir) {
-		t.Fatal("expected HasIsolatedSession to be false after file truncated")
+	if !HasIsolatedSession(projectDir) {
+		t.Fatal("expected HasIsolatedSession to stay true so the folder keeps detecting the mode")
+	}
+	reloaded := New(cfg)
+	if ok, err := reloaded.LoadIsolated(); err != nil {
+		t.Fatalf("load isolated after clear: %v", err)
+	} else if ok {
+		t.Fatal("expected no messages to load from a cleared isolated session")
 	}
 	if _, err := os.Stat(isoRunLog); !os.IsNotExist(err) {
 		t.Fatalf("expected isolated run log to be removed after clear, got %v", err)

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -15,9 +16,10 @@ var (
 	logFile    *os.File
 )
 
-// Init opens vibe-coder.log under configDir, truncating it to store logs
-// from the last execution only.
-func Init(configDir string) (io.Closer, error) {
+// Init opens the log file at path, truncating it to store logs from the last
+// execution only. An empty path disables file logging and returns a nil
+// closer, which keeps the caller free of cleanup branches.
+func Init(path string) (io.Closer, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -28,11 +30,16 @@ func Init(configDir string) (io.Closer, error) {
 		fileLogger = nil
 	}
 
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return nil, fmt.Errorf("create config dir for logging: %w", err)
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
 	}
 
-	path := filepath.Join(configDir, "vibe-coder.log")
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("create log dir: %w", err)
+		}
+	}
 	// The log may contain CLI args and prompts, so restrict to owner-only.
 	// OpenFile only applies the mode on creation, so Chmod afterwards to
 	// also tighten log files created previously with wider permissions.

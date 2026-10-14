@@ -1,11 +1,13 @@
 package slash
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 )
 
@@ -198,5 +200,46 @@ func TestClearUnknownTarget(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "Unknown clear target") || !strings.Contains(got, "/clear session") {
 		t.Fatalf("expected unknown-target note plus options, got %q", got)
+	}
+}
+
+// TestClearSessionResetsTheIsolatedFile asserts /clear session discards the
+// folder-local transcript of an isolated run instead of silently leaving it
+// behind in the sessions directory of the user.
+func TestClearSessionResetsTheIsolatedFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{
+		Cwd:         dir,
+		SessionsDir: filepath.Join(dir, "sessions"),
+		ConfigDir:   dir,
+		ConfigFile:  filepath.Join(dir, "vibe-coder.env"),
+		Isolated:    true,
+	}
+	s := session.New(cfg)
+	s.AddUser("isolated prompt")
+	s.AddAssistant("isolated answer")
+	if err := s.Save(); err != nil {
+		t.Fatalf("save isolated session: %v", err)
+	}
+	if !session.HasIsolatedSession(dir) {
+		t.Fatal("expected the isolated session file")
+	}
+
+	var out bytes.Buffer
+	ctx := &Ctx{Cfg: cfg, Session: s, Agent: &fakePlanAgent{}, Out: &out}
+	if _, _, err := Dispatch(ctx, "/clear session"); err != nil {
+		t.Fatalf("clear session: %v", err)
+	}
+	if !strings.Contains(out.String(), "Discarded current session") {
+		t.Fatalf("expected the discard confirmation, got %q", out.String())
+	}
+	if !session.HasIsolatedSession(dir) {
+		t.Error("expected the folder to stay isolated after clearing its session")
+	}
+	reloaded := session.New(cfg)
+	if ok, err := reloaded.LoadIsolated(); err != nil {
+		t.Fatalf("load isolated after clear: %v", err)
+	} else if ok {
+		t.Error("expected the discarded transcript to be gone from the folder")
 	}
 }

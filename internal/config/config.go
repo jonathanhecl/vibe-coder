@@ -234,13 +234,28 @@ func Load(args []string) (*Config, error) {
 		return nil, err
 	}
 
-	applyEnv(cfg)
-	cfg.Harness.normalize()
-
 	cli, err := parseCLI(args)
 	if err != nil {
 		return nil, err
 	}
+
+	// The isolated mode is settled before the settings are read from the
+	// folder, so the folder file stays at file level: the shared file is read
+	// first, the folder file refines it, and the environment and the CLI still
+	// win. It also keeps a run that stays in its folder from creating or
+	// writing into the user-level config and state directories.
+	if !cfg.Isolated && isolatedRequested(cli, cfg.Cwd) {
+		cfg.Isolated = true
+	}
+	if cfg.Isolated {
+		if err := cfg.EnterIsolatedLayout(); err != nil {
+			return nil, err
+		}
+	}
+
+	applyEnv(cfg)
+	cfg.Harness.normalize()
+
 	applyCLI(cfg, cli)
 
 	cfg.reconcileRegistry()
@@ -266,14 +281,18 @@ func Load(args []string) (*Config, error) {
 		return nil, fmt.Errorf("invalid ollama host %q: %w", cfg.OllamaHost, err)
 	}
 
-	if err := os.MkdirAll(cfg.ConfigDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create config dir: %w", err)
-	}
-	if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create state dir: %w", err)
-	}
-	if err := os.MkdirAll(cfg.SessionsDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create sessions dir: %w", err)
+	// An isolated run never touches the user-level directories: it does not
+	// create them and it writes only inside its working directory.
+	if !cfg.Isolated {
+		if err := os.MkdirAll(cfg.ConfigDir, 0o755); err != nil {
+			return nil, fmt.Errorf("create config dir: %w", err)
+		}
+		if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
+			return nil, fmt.Errorf("create state dir: %w", err)
+		}
+		if err := os.MkdirAll(cfg.SessionsDir, 0o755); err != nil {
+			return nil, fmt.Errorf("create sessions dir: %w", err)
+		}
 	}
 
 	return cfg, nil

@@ -2,6 +2,7 @@ package slash
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
@@ -23,15 +24,23 @@ func runSaveCommand(c *Ctx) error {
 		return nil
 	}
 	hasMessages := c.Session != nil && c.Session.MessageCount() > 0
+	cwd := strings.TrimSpace(c.Cfg.Cwd)
 	if hasMessages {
 		if err := c.Session.Save(); err != nil {
 			return err
 		}
-		if c.Cfg.Isolated {
-			fmt.Fprintf(c.Out, "Saved isolated session (%s) and settings\n", c.Session.ID())
-		} else {
+		switch {
+		case c.Cfg.Isolated && cwd != "":
+			fmt.Fprintf(c.Out, "Saved isolated session (%s) and settings - still isolated in %s\n", c.Session.ID(), cwd)
+		case c.Cfg.Isolated:
+			fmt.Fprintf(c.Out, "Saved isolated session (%s) and settings - still isolated\n", c.Session.ID())
+		default:
 			fmt.Fprintf(c.Out, "Saved session (%s) and settings\n", c.Session.ID())
 		}
+		return nil
+	}
+	if c.Cfg.Isolated && cwd != "" {
+		fmt.Fprintf(c.Out, "Saved settings - isolated session has no messages yet, still isolated in %s\n", cwd)
 		return nil
 	}
 	fmt.Fprintln(c.Out, "Saved settings")

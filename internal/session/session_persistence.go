@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
 const maxSessionFileBytes = 50 * 1024 * 1024
@@ -24,8 +26,9 @@ const maxSessionLineBytes = 16 * 1024 * 1024
 var invalidSessionIDChars = regexp.MustCompile(`[^A-Za-z0-9_\-]`)
 
 // IsolatedSessionFileName is the single file used to store an isolated session
-// in the project directory.
-const IsolatedSessionFileName = ".vibe-isolated.jsonl"
+// in the project directory. The config package owns the name because it also
+// detects the mode from it.
+const IsolatedSessionFileName = config.IsolatedSessionFileName
 
 // HasIsolatedSession reports whether an isolated session file exists in cwd
 // and contains non-empty content.
@@ -334,8 +337,10 @@ func (s *Session) LoadIsolated() (bool, error) {
 	return true, nil
 }
 
-// ClearIsolated empties the isolated session file on disk and resets
-// the in-memory session.
+// ClearIsolated resets the in-memory session and rewrites the isolated session
+// file with nothing but its marker line. The marker keeps the folder marked as
+// isolated, so a later run in it stays isolated instead of falling back to the
+// user-level session store.
 func (s *Session) ClearIsolated() error {
 	s.mu.RLock()
 	cwd := ""
@@ -346,8 +351,8 @@ func (s *Session) ClearIsolated() error {
 	s.Clear()
 	if cwd != "" {
 		path := filepath.Join(cwd, IsolatedSessionFileName)
-		if err := os.WriteFile(path, []byte{}, 0o600); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("clear isolated session file: %w", err)
+		if err := writeIsolatedMarker(path, s.ID(), cwd); err != nil {
+			return err
 		}
 		_ = os.Remove(filepath.Join(cwd, ".vibe-isolated-runs.jsonl"))
 		_ = os.RemoveAll(filepath.Join(cwd, ".vibe-isolated-media"))
@@ -355,6 +360,27 @@ func (s *Session) ClearIsolated() error {
 	s.mu.Lock()
 	s.lastSavedRevision = s.revision
 	s.mu.Unlock()
+	return nil
+}
+
+// writeIsolatedMarker writes the metadata line of an isolated session file
+// without any message, which is how a cleared session keeps its folder
+// isolated.
+func writeIsolatedMarker(path, id, cwd string) error {
+	payload, err := json.Marshal(map[string]any{
+		"_meta": map[string]any{
+			"session_id":      id,
+			"project_path":    cwd,
+			"pinned_contexts": []string{},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("encode isolated marker: %w", err)
+	}
+	payload = append(payload, '\n')
+	if err := os.WriteFile(path, payload, 0o600); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clear isolated session file: %w", err)
+	}
 	return nil
 }
 

@@ -82,16 +82,29 @@ func TestLogFileIsOwnerOnly(t *testing.T) {
 		t.Skip("Unix permission bits are not enforced on Windows")
 	}
 	dir := t.TempDir()
-	closer, err := Init(dir)
+	logPath := filepath.Join(dir, "vibe-coder.log")
+	closer, err := Init(logPath)
 	if err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
 	defer closer.Close()
-	info, err := os.Stat(filepath.Join(dir, "vibe-coder.log"))
+	info, err := os.Stat(logPath)
 	if err != nil {
 		t.Fatalf("failed to stat log file: %v", err)
 	}
 	if perm := info.Mode().Perm(); perm&0o077 != 0 {
 		t.Errorf("expected owner-only permissions on log file, got %04o", perm)
+	}
+}
+
+// TestInitWithoutPath asserts an empty log path disables file logging instead
+// of failing, so a caller can pipe an unavailable path straight through.
+func TestInitWithoutPath(t *testing.T) {
+	closer, err := Init("  ")
+	if err != nil {
+		t.Fatalf("Init(\"\") error: %v", err)
+	}
+	if closer != nil {
+		t.Error("expected no closer when file logging is disabled")
 	}
 }
