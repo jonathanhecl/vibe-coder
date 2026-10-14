@@ -80,13 +80,35 @@ func (d *Describer) Describe(ctx context.Context, imagePath, question string) (s
 	if err != nil {
 		return "", err
 	}
+	answer, err := d.DescribePayload(ctx, payload, filepath.Base(trimmed), question)
+	if err != nil {
+		return "", err
+	}
+	d.cache.Put(key, answer)
+	return answer, nil
+}
+
+// DescribePayload has the vision model answer question about an image that
+// already exists as a base64 payload (for example a screenshot captured in
+// memory). Unlike Describe it does not touch the cache: every payload is
+// unique. label is a short human-readable name shown to the model.
+func (d *Describer) DescribePayload(ctx context.Context, payload, label, question string) (string, error) {
+	if !d.Enabled() {
+		return "", fmt.Errorf("the vision role is not configured")
+	}
+	if strings.TrimSpace(payload) == "" {
+		return "", fmt.Errorf("image payload is empty")
+	}
+	if strings.TrimSpace(question) == "" {
+		question = sidecar.DefaultDescribeQuestion
+	}
 	callCtx, cancel := context.WithTimeout(ctx, sidecar.CallTimeout)
 	defer cancel()
 	resp, err := d.client.ChatSync(callCtx, ollama.ChatRequest{
 		Model: d.model,
 		Messages: []ollama.Message{
-			{Role: "system", Content: sidecar.VisualAssistantSystem},
-			{Role: "user", Content: fmt.Sprintf("%s\n\n[image file: %s]", question, filepath.Base(trimmed)), Images: []string{payload}},
+			{Role: "system", Content: sidecar.VisualSystemFor(question)},
+			{Role: "user", Content: fmt.Sprintf("%s\n\n[image: %s]", question, label), Images: []string{payload}},
 		},
 		// Thinking must be off, not merely omitted: Ollama enables it by
 		// default on capable models, and reasoning tokens would eat the
@@ -103,6 +125,5 @@ func (d *Describer) Describe(ctx context.Context, imagePath, question string) (s
 	if answer == "" {
 		return "", fmt.Errorf("vision model returned empty description")
 	}
-	d.cache.Put(key, answer)
 	return answer, nil
 }

@@ -803,6 +803,13 @@ do not call these directly, but their behavior affects speed and context usage:
   `max_bytes` (per file) and `total_bytes` (combined cap).
 - `DescribeImage` has a vision-capable model look at an image file and answer
   a `question` about it (second opinion or closer look; sidecar preferred).
+  A focused `question` (e.g. "Is the Save button visible?") gets an answer to
+  only that; omitting it asks for a thorough general description.
+- `Screenshot` captures a monitor or the active window and has a vision model
+  answer a `question` about it, so the agent can verify visual results of its
+  own work. The capture is analyzed in memory and never saved to disk, the
+  session, or the transcript. Params: `target` (`screen`/`window`), `monitor`
+  (`all`/`current`/1-based number; screen only), `question`.
 - `Write` creates or overwrites a file; dangerous paths and protected
   directories are blocked.
 - `Edit` applies a replacement; the TUI renders a colored unified-diff preview.
@@ -885,6 +892,34 @@ Rules and limits:
   send time and are cached per session, so `--resume` re-reads them from disk.
 - The sidecar never receives images (summarization, condensation, and path
   disambiguation stay text-only).
+
+### Screenshots
+
+The `Screenshot` tool captures the screen or the active window and sends the
+pixels straight to the vision routing (same model order as `DescribeImage`).
+The capture never becomes a file the model or the session can see: it is
+encoded in memory, answered as text, and forgotten — no transcript marker,
+no leftover image.
+
+Backends per platform:
+
+- **Linux Wayland** — `grim` on Hyprland (`hyprctl` supplies monitor/window
+  geometry) and Sway (`swaymsg`); `spectacle` on KDE; `gnome-screenshot` on
+  GNOME. `spectacle` and `gnome-screenshot` only write files, so the capture
+  goes through a private `0600` file in a fresh `0700` directory under
+  `$XDG_RUNTIME_DIR` (tmpfs, i.e. RAM) that is deleted right after reading.
+- **Linux X11** — ImageMagick `import` captures the root window or the active
+  window (`xdotool`/`xprop` for the window id); monitor selections are cropped
+  in memory using `xrandr --listmonitors` geometry.
+- **Windows** — pure Go via `user32`/`gdi32` (`EnumDisplayMonitors`,
+  `BitBlt`, `DwmGetWindowAttribute`); no external tools needed.
+- **macOS** — `screencapture` (a temp file under `$TMPDIR`, removed after
+  reading; `all` means the main display) plus `osascript` for the frontmost
+  window bounds. Requires Screen Recording permission for the terminal app
+  (System Settings → Privacy & Security → Screen Recording).
+
+If no backend is available the tool fails with a clear error naming what to
+install instead of guessing.
 
 ## RAG Usage
 

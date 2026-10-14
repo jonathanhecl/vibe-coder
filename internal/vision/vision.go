@@ -13,6 +13,9 @@ const (
 	MaxInputBytes = 15 * 1024 * 1024
 	// MaxDimension bounds the longest side after downscaling.
 	MaxDimension = 1024
+	// ScreenshotMaxDimension bounds the longest side of an in-memory
+	// screenshot. Screenshots keep more resolution so UI text stays legible.
+	ScreenshotMaxDimension = 1920
 	// JPEGQuality balances payload size against classification accuracy.
 	JPEGQuality = 80
 	// MaxImagesPerMessage caps attachments resolved on a single message.

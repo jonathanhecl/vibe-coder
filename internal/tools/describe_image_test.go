@@ -282,3 +282,34 @@ func (m *mockRoutingVisionClient) Version(ctx context.Context) (string, error)  
 func (m *mockRoutingVisionClient) Pull(ctx context.Context, model string, p func(ollama.PullEvent)) error {
 	return errors.New("not used")
 }
+
+// A focused question gets the answer-only system prompt; a blank one keeps
+// the descriptive persona.
+func TestDescribeImageFocusedQuestionSystemPrompt(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "photo.png")
+	writeDescribeToolImage(t, path)
+	cfg := &config.Config{
+		Model: "text-model", SidecarModel: "moondream",
+		VisionKnown: true, VisionAvailable: false,
+		SidecarVisionKnown: true, SidecarVisionAvailable: true,
+	}
+	fc := &visionFakeClient{reply: "Yes."}
+	tool := NewDescribeImageTool(cfg, fc, sidecar.New(cfg, fc))
+
+	res := tool.Execute(context.Background(), map[string]any{"file_path": path, "question": "Is it red?"})
+	if res.IsError {
+		t.Fatalf("expected answer, got error: %s", res.Output)
+	}
+	if fc.last.Messages[0].Content != sidecar.FocusedVisualSystem {
+		t.Fatalf("expected focused system prompt, got %q", fc.last.Messages[0].Content)
+	}
+
+	res = tool.Execute(context.Background(), map[string]any{"file_path": path})
+	if res.IsError {
+		t.Fatalf("expected answer, got error: %s", res.Output)
+	}
+	if fc.last.Messages[0].Content != sidecar.VisualAssistantSystem {
+		t.Fatalf("expected descriptive system prompt, got %q", fc.last.Messages[0].Content)
+	}
+}

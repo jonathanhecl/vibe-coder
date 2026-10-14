@@ -168,6 +168,7 @@ func main() {
 		sidePool.SetDecider(decider)
 	}
 	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool).SetVisionRole(visionRole))
+	reg.Register(tools.NewScreenshotTool(cfg, client, sidePool).SetVisionRole(visionRole))
 
 	mcpCtx, mcpCancel := mcp.DefaultInitContext()
 	defer mcpCancel()

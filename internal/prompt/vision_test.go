@@ -100,3 +100,24 @@ func TestBuildVisionSectionStates(t *testing.T) {
 		})
 	}
 }
+
+// When some model can see, the prompt advertises Screenshot for visual
+// self-checks; when nobody can see it stays silent about it.
+func TestBuildVisionAdvertisesScreenshot(t *testing.T) {
+	t.Parallel()
+	seeing := &config.Config{
+		Cwd: t.TempDir(), Model: "text-model", SidecarModel: "moondream",
+		VisionKnown: true, VisionAvailable: false,
+		SidecarVisionKnown: true, SidecarVisionAvailable: true,
+	}
+	if got := Build(seeing); !strings.Contains(got, "call Screenshot with a focused question") {
+		t.Fatalf("expected Screenshot guidance, got:\n%s", got)
+	}
+	blind := &config.Config{
+		Cwd: t.TempDir(), Model: "text-model",
+		VisionKnown: true, VisionAvailable: false,
+	}
+	if got := Build(blind); strings.Contains(got, "call Screenshot") {
+		t.Fatalf("expected no Screenshot guidance without a vision route, got:\n%s", got)
+	}
+}

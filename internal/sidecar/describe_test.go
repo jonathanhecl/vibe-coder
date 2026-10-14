@@ -120,3 +120,73 @@ func TestDescribeImageRequiresEnabledPool(t *testing.T) {
 		t.Fatal("expected disabled-pool error")
 	}
 }
+
+func TestVisualSystemFor(t *testing.T) {
+	t.Parallel()
+	if got := VisualSystemFor(""); got != VisualAssistantSystem {
+		t.Fatal("blank question should use the descriptive system")
+	}
+	if got := VisualSystemFor(DefaultDescribeQuestion); got != VisualAssistantSystem {
+		t.Fatal("default question should use the descriptive system")
+	}
+	if got := VisualSystemFor("Is the Save button visible?"); got != FocusedVisualSystem {
+		t.Fatal("custom question should use the focused system")
+	}
+}
+
+func TestDescribePayloadSendsImageAndFocusedSystem(t *testing.T) {
+	t.Parallel()
+	pool, fc := newDescribeTestPool("Yes, it is visible.")
+	desc, err := pool.DescribePayload(context.Background(), "aGVsbG8=", "screenshot (all monitors)", "Is the Save button visible?")
+	if err != nil {
+		t.Fatalf("describe payload: %v", err)
+	}
+	if desc != "Yes, it is visible." {
+		t.Fatalf("unexpected answer: %q", desc)
+	}
+	if len(fc.lastReqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(fc.lastReqs))
+	}
+	req := fc.lastReqs[0]
+	if req.Messages[0].Content != FocusedVisualSystem {
+		t.Fatalf("expected focused system prompt, got %q", req.Messages[0].Content)
+	}
+	if len(req.Messages[1].Images) != 1 || req.Messages[1].Images[0] != "aGVsbG8=" {
+		t.Fatalf("expected the payload image, got %+v", req.Messages[1].Images)
+	}
+	if !strings.Contains(req.Messages[1].Content, "screenshot (all monitors)") {
+		t.Fatalf("expected the label in the user message, got %q", req.Messages[1].Content)
+	}
+
+	// Payloads are unique, so nothing is cached: a second call with the
+	// same question still hits the model.
+	if _, err := pool.DescribePayload(context.Background(), "aGVsbG8=", "screenshot (all monitors)", "Is the Save button visible?"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fc.lastReqs) != 2 {
+		t.Fatalf("expected no caching for payloads, got %d requests", len(fc.lastReqs))
+	}
+}
+
+func TestDescribePayloadDefaultsQuestion(t *testing.T) {
+	t.Parallel()
+	pool, fc := newDescribeTestPool("A screen.")
+	if _, err := pool.DescribePayload(context.Background(), "aGVsbG8=", "screenshot (all monitors)", ""); err != nil {
+		t.Fatal(err)
+	}
+	if fc.lastReqs[0].Messages[0].Content != VisualAssistantSystem {
+		t.Fatalf("expected descriptive system for the default question, got %q", fc.lastReqs[0].Messages[0].Content)
+	}
+}
+
+func TestDescribePayloadRejectsBadInputs(t *testing.T) {
+	t.Parallel()
+	pool, _ := newDescribeTestPool("x")
+	if _, err := pool.DescribePayload(context.Background(), "", "label", "q"); err == nil {
+		t.Fatal("expected empty payload error")
+	}
+	disabled := New(&config.Config{}, &fakeClient{reply: "x"})
+	if _, err := disabled.DescribePayload(context.Background(), "aA==", "label", "q"); err == nil {
+		t.Fatal("expected disabled-pool error")
+	}
+}

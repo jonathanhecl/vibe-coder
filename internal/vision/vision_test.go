@@ -163,3 +163,55 @@ func TestCacheKeyChangesOnWrite(t *testing.T) {
 		t.Fatal("expected cache key to change after rewrite")
 	}
 }
+
+func TestEncodeImageDownscalesToMaxDim(t *testing.T) {
+	t.Parallel()
+	img := image.NewRGBA(image.Rect(0, 0, 3000, 100))
+	payload, err := EncodeImage(img, ScreenshotMaxDimension)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("payload is not base64: %v", err)
+	}
+	decoded, format, err := image.Decode(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("payload does not decode: %v", err)
+	}
+	if format != "jpeg" {
+		t.Fatalf("expected jpeg payload, got %s", format)
+	}
+	b := decoded.Bounds()
+	if b.Dx() != ScreenshotMaxDimension {
+		t.Fatalf("expected longest side %d, got %dx%d", ScreenshotMaxDimension, b.Dx(), b.Dy())
+	}
+}
+
+func TestEncodeBytesDecodesAndDownscales(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "wide.png")
+	writePNG(t, path, 3000, 100)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := EncodeBytes(data, ScreenshotMaxDimension)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("payload is not base64: %v", err)
+	}
+	decoded, _, err := image.Decode(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatalf("payload does not decode: %v", err)
+	}
+	if got := decoded.Bounds().Dx(); got != ScreenshotMaxDimension {
+		t.Fatalf("expected longest side %d, got %d", ScreenshotMaxDimension, got)
+	}
+	if _, err := EncodeBytes([]byte("not an image"), ScreenshotMaxDimension); err == nil {
+		t.Fatal("expected decode error for garbage input")
+	}
+}

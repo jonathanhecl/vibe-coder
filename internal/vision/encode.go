@@ -12,11 +12,12 @@ import (
 
 	// Register decoders. BMP comes from x/image; WebP is intentionally
 	// unsupported (no decoder in this family) and rejected with a clear error.
-	_ "golang.org/x/image/bmp"
-	"golang.org/x/image/draw"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	_ "golang.org/x/image/bmp"
+	"golang.org/x/image/draw"
 )
 
 // EncodeFile loads an image from disk, downscales it so the longest side is
@@ -48,10 +49,35 @@ func EncodeFile(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("decode image %s: %w (supported formats: %s)", trimmed, err, SupportedFormats())
 	}
-	img = downscale(img)
+	return encodeJPEG(img, trimmed, MaxDimension)
+}
+
+// EncodeBytes decodes raw image data, downscales it so the longest side is
+// at most maxDim, and returns a base64 JPEG payload.
+func EncodeBytes(data []byte, maxDim int) (string, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("decode image: %w (supported formats: %s)", err, SupportedFormats())
+	}
+	return EncodeImage(img, maxDim)
+}
+
+// EncodeImage downscales img so the longest side is at most maxDim and
+// returns a base64 JPEG payload ready for the Ollama /api/chat images field.
+func EncodeImage(img image.Image, maxDim int) (string, error) {
+	img = downscale(img, maxDim)
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: JPEGQuality}); err != nil {
-		return "", fmt.Errorf("encode image %s: %w", trimmed, err)
+		return "", fmt.Errorf("encode image: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+func encodeJPEG(img image.Image, label string, maxDim int) (string, error) {
+	img = downscale(img, maxDim)
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: JPEGQuality}); err != nil {
+		return "", fmt.Errorf("encode image %s: %w", label, err)
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
@@ -69,17 +95,17 @@ func CacheKey(path string) (string, error) {
 	return fmt.Sprintf("%s|%d|%d", abs, info.Size(), info.ModTime().UnixNano()), nil
 }
 
-func downscale(img image.Image) image.Image {
+func downscale(img image.Image, maxDim int) image.Image {
 	bounds := img.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	longest := w
 	if h > longest {
 		longest = h
 	}
-	if longest <= MaxDimension {
+	if longest <= maxDim {
 		return img
 	}
-	scale := float64(MaxDimension) / float64(longest)
+	scale := float64(maxDim) / float64(longest)
 	dst := image.NewRGBA(image.Rect(0, 0, int(float64(w)*scale), int(float64(h)*scale)))
 	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
 	return dst

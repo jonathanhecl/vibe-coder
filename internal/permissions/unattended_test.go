@@ -58,3 +58,10 @@ func TestMissionToolsAreSafeTier(t *testing.T) {
 		}
 	}
 }
+
+func TestScreenshotIsSafeTier(t *testing.T) {
+	t.Parallel()
+	if toolTier(normalizeTool("Screenshot")) != TierSafe {
+		t.Fatal("Screenshot should be safe tier so it never prompts")
+	}
+}
