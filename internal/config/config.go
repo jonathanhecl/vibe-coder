@@ -409,7 +409,13 @@ func (c *Config) rawSidecarEndpoint() string {
 	if c != nil && strings.TrimSpace(c.SidecarEndpoint) != "" {
 		return strings.TrimSpace(c.SidecarEndpoint)
 	}
-	return c.rawModelEndpoint()
+	// The sidecar defaults to the Ollama host, not to the main model's
+	// endpoint, because the main model may live on an OpenAI-compatible
+	// provider while the sidecar stays on native Ollama.
+	if c != nil && strings.TrimSpace(c.OllamaHost) != "" {
+		return strings.TrimSpace(c.OllamaHost)
+	}
+	return defaultOllamaHost
 }
 
 // EffectiveModelEndpoint returns the resolved endpoint URL for the main model.

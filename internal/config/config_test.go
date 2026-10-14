@@ -787,6 +787,24 @@ func TestEndpointAndProviderPrecedence(t *testing.T) {
 		t.Errorf("expected auto-detected OpenAI endpoint")
 	}
 
+	// 2b. When main is OpenAI and no explicit sidecar endpoint is set, the
+	// sidecar must fall back to the Ollama host instead of the main endpoint.
+	t.Setenv("MODEL_ENDPOINT", "http://127.0.0.1:8080/v1")
+	t.Setenv("OLLAMA_HOST", "http://side-ollama:11434")
+	cfg, err = Load([]string{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.EffectiveModelEndpoint() != "http://127.0.0.1:8080/v1" {
+		t.Errorf("expected env endpoint, got %q", cfg.EffectiveModelEndpoint())
+	}
+	if cfg.EffectiveSidecarEndpoint() != "http://side-ollama:11434" {
+		t.Errorf("expected sidecar to fall back to Ollama host, got %q", cfg.EffectiveSidecarEndpoint())
+	}
+	if cfg.IsSidecarOpenAI() {
+		t.Errorf("expected sidecar endpoint not to be OpenAI")
+	}
+
 	// 3. CLI override
 	cfg, err = Load([]string{"--endpoint", "http://my-host:9000/v1", "--sidecar-endpoint", "http://side-host:11434"})
 	if err != nil {
