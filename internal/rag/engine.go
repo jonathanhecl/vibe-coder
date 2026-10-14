@@ -463,13 +463,30 @@ func (e *Engine) FormatContext(chunks []Chunk) string {
 	var b strings.Builder
 	b.WriteString("[RAG Context]\n")
 	for _, c := range chunks {
-		b.WriteString("// ")
-		b.WriteString(filepath.ToSlash(c.File))
-		b.WriteString(fmt.Sprintf(":%d-%d\n", c.Start, c.End))
-		b.WriteString(c.Text)
+		b.WriteString(formatChunk(c))
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// formatChunk renders one chunk as the block the agent injects, so a caller
+// that reranks chunks can rebuild the same shape the engine produces.
+func formatChunk(c Chunk) string {
+	return "// " + filepath.ToSlash(c.File) + fmt.Sprintf(":%d-%d\n", c.Start, c.End) + c.Text
+}
+
+// QueryCandidates returns the retrieved chunks as individual blocks instead of
+// one joined context block, so the harness can rerank them before injecting.
+func (e *Engine) QueryCandidates(ctx context.Context, query string, k int) ([]string, error) {
+	chunks, err := e.Query(ctx, query, k)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		items = append(items, formatChunk(c))
+	}
+	return items, nil
 }
 
 func (e *Engine) QueryText(ctx context.Context, query string, k int) (string, error) {

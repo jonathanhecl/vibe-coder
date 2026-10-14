@@ -22,7 +22,7 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 		}
 		// RAG is additive context. If retrieval fails, the run can still
 		// proceed with the user's request and normal tool access.
-		if ctxText, err := rag.QueryText(ctx, userInput, k); err == nil && strings.TrimSpace(ctxText) != "" {
+		if ctxText, err := a.retrieveContext(ctx, rag, userInput, k); err == nil && strings.TrimSpace(ctxText) != "" {
 			a.sess.AddUser(ctxText)
 		}
 	}
