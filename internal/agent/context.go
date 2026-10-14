@@ -20,9 +20,19 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 		if k <= 0 {
 			k = 3
 		}
+		// A raw request is a poor retrieval query: it carries instructions and
+		// phrasing. When the sidecar is available it is rewritten into a short
+		// keyword query first, in one gated call; the original request is kept
+		// whenever the rewrite is unavailable or unusable.
+		query := userInput
+		if side := a.side; side != nil {
+			if rewritten := side.RewriteQuery(ctx, userInput); rewritten != "" {
+				query = rewritten
+			}
+		}
 		// RAG is additive context. If retrieval fails, the run can still
 		// proceed with the user's request and normal tool access.
-		if ctxText, err := a.retrieveContext(ctx, rag, userInput, k); err == nil && strings.TrimSpace(ctxText) != "" {
+		if ctxText, err := a.retrieveContext(ctx, rag, query, k); err == nil && strings.TrimSpace(ctxText) != "" {
 			a.sess.AddUser(ctxText)
 		}
 	}
