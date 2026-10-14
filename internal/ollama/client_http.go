@@ -4,8 +4,21 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"time"
+)
+
+// Connection-establishment timeouts. The overall client Timeout stays at zero
+// on purpose: a local model can legitimately stream for minutes, so bounding
+// the whole request would cut long generations. Bounding dial, TLS handshake
+// and response headers instead makes a dead or unreachable endpoint fail in
+// seconds while leaving long streams intact.
+const (
+	defaultDialTimeout           = 10 * time.Second
+	defaultTLSHandshakeTimeout   = 10 * time.Second
+	defaultResponseHeaderTimeout = 60 * time.Second
 )
 
 func NewHTTP(baseURL string) Client {
@@ -20,10 +33,36 @@ func NewHTTPWithAPIKey(baseURL, apiKey string) Client {
 		baseURL: NormalizeURL(baseURL),
 		apiKey:  strings.TrimSpace(apiKey),
 		http: &http.Client{
-			Timeout: defaultHTTPTimeout,
+			Timeout:   defaultHTTPTimeout,
+			Transport: defaultTransport(),
 		},
 		thinkDisabledModels: make(map[string]bool),
 		toolsDisabledModels: make(map[string]bool),
+	}
+}
+
+// defaultTransport bounds connection establishment without capping the whole
+// request, so an unreachable endpoint fails fast while long generations keep
+// streaming.
+func defaultTransport() *http.Transport {
+	return transportWithHeaderTimeout(defaultResponseHeaderTimeout)
+}
+
+// transportWithHeaderTimeout builds the transport with an explicit
+// response-header timeout, so tests can exercise the bound quickly.
+func transportWithHeaderTimeout(d time.Duration) *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   defaultDialTimeout,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          32,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: d,
 	}
 }
 
