@@ -413,3 +413,20 @@ func TestProviderKindAndRoleParsing(t *testing.T) {
 		t.Fatalf("unexpected normalized name: %q", got)
 	}
 }
+
+func TestRabbitRoleRegistered(t *testing.T) {
+	role, ok := ParseRole("rabbit")
+	if !ok || role != RoleRabbit {
+		t.Fatalf("expected rabbit role, got %q %v", role, ok)
+	}
+	alias, ok := ParseRole("FAST")
+	if !ok || alias != RoleRabbit {
+		t.Fatalf("expected fast alias, got %q %v", alias, ok)
+	}
+	if got := CapabilityRequirement(RoleRabbit); got != CapabilityCompletion {
+		t.Fatalf("unexpected rabbit capability: %q", got)
+	}
+	if desc := RoleDescription(RoleRabbit); desc == "" {
+		t.Fatal("expected rabbit role description")
+	}
+}
