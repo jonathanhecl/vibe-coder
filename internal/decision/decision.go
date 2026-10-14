@@ -763,6 +763,121 @@ func (c *Client) CheckThinkingLoop(ctx context.Context, thinkingText string) (bo
 	return c.DecideBool(ctx, state, question)
 }
 
+// relevanceScale is the ordinal scale used by ScoreRelevance. Five points give
+// enough resolution to separate a strong hit from a weak one while staying
+// small enough for the judge to answer several candidates in one batched
+// request.
+var relevanceScale = []string{
+	"irrelevant",
+	"weakly relevant",
+	"moderately relevant",
+	"strongly relevant",
+	"perfectly relevant",
+}
+
+// relevanceQuestionID names the score question for one candidate inside a
+// batched ScoreRelevance request.
+func relevanceQuestionID(i int) string { return fmt.Sprintf("relevance%d", i) }
+
+// ScoreRelevance asks the decision model how relevant each candidate is to the
+// query and returns one score per candidate, normalized to [0,1]. It prefers a
+// single batched request carrying one score question per candidate and falls
+// back to one callScore request per candidate when the batched payload cannot
+// carry several questions. Empty candidates return an empty slice and a nil
+// error; a disabled client returns an error so the caller can fall back.
+func (c *Client) ScoreRelevance(ctx context.Context, query string, candidates []string) ([]float64, error) {
+	if !c.Enabled() {
+		return nil, errors.New("decision: endpoint not configured")
+	}
+	if len(candidates) == 0 {
+		return []float64{}, nil
+	}
+	scores, err := c.scoreRelevanceBatch(ctx, query, candidates)
+	if err == nil {
+		return scores, nil
+	}
+	return c.scoreRelevanceSequential(ctx, query, candidates)
+}
+
+// scoreRelevanceBatch carries every candidate in one request: the shared state
+// lists the query and the numbered candidates, and each question scores one of
+// them on relevanceScale.
+func (c *Client) scoreRelevanceBatch(ctx context.Context, query string, candidates []string) ([]float64, error) {
+	questions := make(map[string]question, len(candidates))
+	for i := range candidates {
+		questions[relevanceQuestionID(i)] = question{
+			Type: "score",
+			Instructions: fmt.Sprintf(
+				"How relevant is candidate %d to the query? Judge only whether it helps answer or implement the query.",
+				i),
+			Criteria: relevanceScale,
+		}
+	}
+	answers, err := c.call(ctx, soRequest{
+		State:     relevanceState(query, candidates),
+		Questions: questions,
+	})
+	if err != nil {
+		return nil, err
+	}
+	scores := make([]float64, len(candidates))
+	for i := range candidates {
+		ans, ok := answers[relevanceQuestionID(i)]
+		if !ok {
+			return nil, fmt.Errorf("decision: response missing relevance answer for candidate %d", i)
+		}
+		scores[i] = normalizeRelevance(ans.Score)
+	}
+	return scores, nil
+}
+
+// scoreRelevanceSequential scores one candidate per request, for endpoints that
+// cannot carry several questions in one payload. It stops at the first failure
+// so a dead endpoint costs one extra call, not one per candidate.
+func (c *Client) scoreRelevanceSequential(ctx context.Context, query string, candidates []string) ([]float64, error) {
+	scores := make([]float64, len(candidates))
+	for i, candidate := range candidates {
+		ans, err := c.callScore(ctx,
+			relevanceState(query, []string{candidate}),
+			"How relevant is this candidate to the query? Judge only whether it helps answer or implement the query.",
+			relevanceScale)
+		if err != nil {
+			return nil, err
+		}
+		scores[i] = normalizeRelevance(ans.Score)
+	}
+	return scores, nil
+}
+
+// relevanceState renders the shared state for a relevance judgment: the query
+// followed by the numbered candidates the questions refer to.
+func relevanceState(query string, candidates []string) string {
+	var b strings.Builder
+	b.WriteString("Query:\n")
+	b.WriteString(strings.TrimSpace(query))
+	b.WriteString("\n\nCandidates:\n")
+	for i, candidate := range candidates {
+		fmt.Fprintf(&b, "%d. %s\n", i, strings.TrimSpace(candidate))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// normalizeRelevance maps an ordinal score on relevanceScale to [0,1].
+func normalizeRelevance(score float64) float64 {
+	max := float64(len(relevanceScale) - 1)
+	if max <= 0 {
+		return 0
+	}
+	n := score / max
+	if n < 0 {
+		return 0
+	}
+	if n > 1 {
+		return 1
+	}
+	return n
+}
+
 // riskScale is the ordinal scale used for AskSafety risk assessment.
 var riskScale = []string{"none", "low", "medium", "high"}
 
