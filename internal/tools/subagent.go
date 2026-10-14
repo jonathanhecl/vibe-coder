@@ -269,9 +269,13 @@ func buildSubAgentPrompt(cfg *config.Config, allowWrites bool, allowed map[strin
 	b.WriteString("\n\n# Sub-agent scope\n")
 	b.WriteString("You are an isolated research sub-agent. Answer the delegated prompt directly.\n")
 	if allowWrites {
-		b.WriteString("You may use these tools: " + strings.Join(names, ", ") + ".\n")
+		b.WriteString("You may use these tools: ")
+		b.WriteString(strings.Join(names, ", "))
+		b.WriteString(".\n")
 	} else {
-		b.WriteString("You are read-only. Use only: " + strings.Join(names, ", ") + ". Do not edit files or run commands.\n")
+		b.WriteString("You are read-only. Use only: ")
+		b.WriteString(strings.Join(names, ", "))
+		b.WriteString(". Do not edit files or run commands.\n")
 	}
 	b.WriteString("To call a tool, reply with XML blocks: <invoke name=\"ToolName\">{\"param\":\"value\"}</invoke> (up to 3 per reply). ")
 	b.WriteString("A reply with no tool call is your final answer.")
