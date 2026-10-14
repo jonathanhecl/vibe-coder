@@ -690,7 +690,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, model, sidecar, decision model, assisted state, Ollama host, UI, vision/thinking/tools, hidden thinking, yes/plan mode, offline mode, mission, context usage)
+- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, the provider and model bound to every role, UI, thinking/tools/vision, hidden thinking, assisted state, yes/plan mode, offline mode, mission, context usage). Provider endpoints are left to `/providers`
 - `/stats` — show session harness metrics (requests, provider-reported and estimated tokens, timings) plus the metrics JSONL file path
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
@@ -703,9 +703,9 @@ Pinned context files are injected into the system prompt on every turn, so they 
 
 ### Providers & roles
 
-A **provider** is a named, reusable endpoint (`ollama` by default). A **role** binds to a `(provider, model)` pair. The five roles are `main`, `sidecar`, `decision`, `embedding` and `vision`.
+A **provider** is a named, reusable endpoint (`ollama` by default). A **role** binds to a `(provider, model)` pair. The six roles are `main`, `sidecar`, `decision`, `embedding`, `vision` and `rabbit`.
 
-- `/providers` — list the configured providers and, for each role, the model bound to it
+- `/providers` — list the configured providers, the model bound to each role under its provider, and an `Unassigned roles` block that says what each remaining role falls back to; models that can see images carry the cyan `vision` tag
 - `/provider <NAME>` — show one provider (kind, endpoint, API key state, roles)
 - `/provider add <NAME> [endpoint]` — add a reusable provider (the endpoint is prompted when omitted; if you skip it, create it later with `/provider <NAME> endpoint <url>`)
 - `/provider <NAME> endpoint <url>` — set a provider endpoint (creates the provider when it does not exist); when the provider needs an API key it is requested
@@ -842,8 +842,9 @@ Checkpoint creation rejects paths outside the repository, Git metadata, symlink 
 
 `vibe` detects at startup whether the active model advertises vision
 capability (`/api/tags`) and tells the agent about it in the system prompt,
-so it knows whether attached images actually reach it. `/status` reports
-`Vision: yes|no|unknown`, and `/setmodel` re-checks on every switch.
+so it knows whether attached images actually reach it. `/status` and the
+startup banner mark the model with the `vision` tag, and `/setmodel` re-checks
+on every switch.
 
 With a vision-capable model (e.g. `llava`, `qwen2-vl`, `moondream`), ask
 about pictures directly — `Read` on an image file attaches it:

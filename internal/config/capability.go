@@ -1,6 +1,10 @@
 package config
 
-import "github.com/jonathanhecl/vibe-coder/internal/ollama"
+import (
+	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+)
 
 // CapabilityVerdict is the outcome of checking a model against a role.
 type CapabilityVerdict string
@@ -81,4 +85,25 @@ func modelSupportsCapability(model ollama.Model, capability string) bool {
 	default:
 		return model.Supports(capability)
 	}
+}
+
+// ModelHasVision reports whether a model is known to see images. It consults the
+// capability cache collected at startup, the live capability flags of the model
+// in use, and treats the model bound to the vision role as seeing, since binding
+// it is an explicit statement about the model.
+func (c *Config) ModelHasVision(modelName string) bool {
+	if c == nil {
+		return false
+	}
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return false
+	}
+	if vision, known := ollama.LookupVision(c.VisionByModel, modelName); known && vision {
+		return true
+	}
+	if c.VisionKnown && c.VisionAvailable && strings.EqualFold(strings.TrimSpace(c.Model), modelName) {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(c.RoleModelName(RoleVision)), modelName)
 }

@@ -104,13 +104,32 @@ func TestProvidersCommandListsProvidersAndRoles(t *testing.T) {
 		"(ollama)",
 		"(openai)",
 		"key: set",
-		"roles: main=qwen3.5:4b",
-		"roles: decision=llama-3.3-70b-versatile",
-		"Unassigned roles: sidecar, embedding, vision",
+		"main  qwen3.5:4b",
+		"decision  llama-3.3-70b-versatile",
+		"Unassigned roles",
+		"sidecar    Fallback to [ollama] qwen3.5:4b  (set it with /setmodel sidecar MODEL)",
+		"embedding  text-only retrieval (no encoder)  (set it with /setmodel embedding MODEL)",
+		"rabbit     Fallback to [ollama] qwen3.5:4b  (set it with /setmodel rabbit MODEL)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output missing %q\n---\n%s", want, got)
 		}
+	}
+}
+
+func TestProvidersCommandMarksVisionModels(t *testing.T) {
+	ctx, cfg, out := newProviderTestCtx(t)
+
+	if err := cfg.SetRoleModel(config.RoleSidecar, config.DefaultProviderName, "moondream"); err != nil {
+		t.Fatalf("SetRoleModel: %v", err)
+	}
+	if _, _, err := Dispatch(ctx, "/providers"); err != nil {
+		t.Fatalf("Dispatch(/providers) error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "sidecar  moondream  vision") {
+		t.Fatalf("expected the sidecar line to carry the vision tag, got:\n%s", got)
 	}
 }
 

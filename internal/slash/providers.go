@@ -147,8 +147,14 @@ func (c *Ctx) rolesForModel(providerName, modelName string) []string {
 	return roles
 }
 
-// rolesOnProvider lists "role=model" pairs for the roles bound to a provider.
-func (c *Ctx) rolesOnProvider(providerName string) []string {
+// providerRole is one role bound to a provider.
+type providerRole struct {
+	Role  config.Role
+	Model string
+}
+
+// providerRoles lists the roles bound to a provider, in canonical order.
+func (c *Ctx) providerRoles(providerName string) []providerRole {
 	if c.Cfg == nil {
 		return nil
 	}
@@ -156,7 +162,7 @@ func (c *Ctx) rolesOnProvider(providerName string) []string {
 	if providerName == "" {
 		providerName = config.DefaultProviderName
 	}
-	var pairs []string
+	var roles []providerRole
 	for _, role := range config.AllRoles {
 		binding := c.Cfg.RoleBinding(role)
 		model := strings.TrimSpace(binding.Model)
@@ -170,23 +176,25 @@ func (c *Ctx) rolesOnProvider(providerName string) []string {
 		if bound != providerName {
 			continue
 		}
-		pairs = append(pairs, fmt.Sprintf("%s=%s", role, model))
+		roles = append(roles, providerRole{Role: role, Model: model})
 	}
-	return pairs
+	return roles
 }
 
-// unassignedRoles lists the roles that have no model yet.
-func (c *Ctx) unassignedRoles() []string {
+// unassignedStatuses lists the roles that have no model yet, with the fallback
+// or behavior each one degrades to.
+func (c *Ctx) unassignedStatuses() []config.RoleStatus {
 	if c.Cfg == nil {
 		return nil
 	}
-	var roles []string
+	var statuses []config.RoleStatus
 	for _, role := range config.AllRoles {
-		if strings.TrimSpace(c.Cfg.RoleModelName(role)) == "" {
-			roles = append(roles, string(role))
+		if c.Cfg.RoleInUse(role) {
+			continue
 		}
+		statuses = append(statuses, c.Cfg.RoleStatus(role))
 	}
-	return roles
+	return statuses
 }
 
 // roleNames returns the role names for error messages and usage hints.
@@ -238,17 +246,76 @@ func runProvidersCommand(c *Ctx, args []string) error {
 			line += "  " + st.Green("key: set")
 		}
 		fmt.Fprintln(c.Out, line)
-		if roles := c.rolesOnProvider(name); len(roles) > 0 {
-			fmt.Fprintf(c.Out, "      %s\n", st.Dim("roles: "+strings.Join(roles, " · ")))
-		}
+		c.writeProviderRoles(st, name, "      ")
 	}
-	if unassigned := c.unassignedRoles(); len(unassigned) > 0 {
+	if statuses := c.unassignedStatuses(); len(statuses) > 0 {
 		fmt.Fprintln(c.Out)
-		fmt.Fprintln(c.Out, st.Dim("Unassigned roles: "+strings.Join(unassigned, ", ")))
+		fmt.Fprintln(c.Out, st.BoldCyan("Unassigned roles"))
+		c.writeRoleStatuses(st, statuses, "  ")
 	}
 	fmt.Fprintln(c.Out)
 	fmt.Fprintln(c.Out, "Use /provider add <NAME>, /models <PROVIDER>, /setmodel <PROVIDER> <role> <model>.")
 	return nil
+}
+
+// writeProviderRoles prints one line per role bound to a provider, so the role
+// list reads as "who uses what" instead of one wrapped line. Roles whose model
+// can see images are marked with the vision tag.
+func (c *Ctx) writeProviderRoles(st tui.Style, providerName, indent string) {
+	roles := c.providerRoles(providerName)
+	if len(roles) == 0 {
+		return
+	}
+	width := roleColumnWidth(roles)
+	for _, entry := range roles {
+		value := st.BrightWhite(entry.Model)
+		if c.modelHasVision(entry.Model) {
+			value += "  " + st.CapabilityTag(config.CapabilityVision)
+		}
+		fmt.Fprintf(c.Out, "%s%s  %s\n", indent, st.Cyan(padRole(string(entry.Role), width)), value)
+	}
+}
+
+// writeRoleStatuses prints one line per unbound role: the fallback it uses, or
+// the behavior it degrades to, followed by the command that configures it.
+func (c *Ctx) writeRoleStatuses(st tui.Style, statuses []config.RoleStatus, indent string) {
+	width := 0
+	for _, status := range statuses {
+		if l := len(string(status.Role)); l > width {
+			width = l
+		}
+	}
+	for _, status := range statuses {
+		fmt.Fprintf(c.Out, "%s%s  %s\n", indent, st.Cyan(padRole(string(status.Role), width)), st.RoleValue(status))
+	}
+}
+
+// roleColumnWidth returns the widest role name so the column stays aligned.
+func roleColumnWidth(roles []providerRole) int {
+	width := 0
+	for _, entry := range roles {
+		if l := len(string(entry.Role)); l > width {
+			width = l
+		}
+	}
+	return width
+}
+
+// padRole right-pads a role name to width.
+func padRole(role string, width int) string {
+	if len(role) >= width {
+		return role
+	}
+	return role + strings.Repeat(" ", width-len(role))
+}
+
+// modelHasVision reports whether a model is known to see images, using the
+// capability cache collected at startup and the bound vision role.
+func (c *Ctx) modelHasVision(modelName string) bool {
+	if c.Cfg == nil {
+		return false
+	}
+	return c.Cfg.ModelHasVision(modelName)
 }
 
 // printProviderUsage documents the provider command family.
@@ -518,8 +585,8 @@ func printProviderDetail(c *Ctx, name string) {
 	} else {
 		fmt.Fprintln(c.Out, "  API key: not set")
 	}
-	if roles := c.rolesOnProvider(p.Name); len(roles) > 0 {
-		fmt.Fprintln(c.Out, "  roles: "+strings.Join(roles, " · "))
+	if roles := c.providerRoles(p.Name); len(roles) > 0 {
+		c.writeProviderRoles(st, p.Name, "  ")
 	} else {
 		fmt.Fprintln(c.Out, "  roles: none")
 	}

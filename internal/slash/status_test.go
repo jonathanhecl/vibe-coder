@@ -24,7 +24,7 @@ func TestStatusAliases(t *testing.T) {
 		if err != nil || !handled || shouldExit {
 			t.Fatalf("%s: handled=%t exit=%t err=%v", cmd, handled, shouldExit, err)
 		}
-		if !strings.Contains(out.String(), "Model: llama3.2:3b") {
+		if !strings.Contains(out.String(), "Model: [ollama] llama3.2:3b") {
 			t.Fatalf("%s: expected model line, got %q", cmd, out.String())
 		}
 	}
@@ -50,10 +50,14 @@ func TestStatusStyledUsesBannerLayout(t *testing.T) {
 	if !strings.Contains(rendered, "\x1b[") {
 		t.Fatalf("expected ANSI styling, got %q", rendered)
 	}
-	for _, want := range []string{"status", "llama3.2:3b", "http://mac-mini.local:11434", "rich", "Hide think", "on"} {
+	for _, want := range []string{"status", "llama3.2:3b", "[ollama]", "rich", "Hide think", "on"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected %q in styled status, got %q", want, rendered)
 		}
+	}
+	// Provider endpoints belong to /providers.
+	if strings.Contains(rendered, "mac-mini.local") {
+		t.Fatalf("did not expect the provider endpoint in status, got %q", rendered)
 	}
 }
 
@@ -131,11 +135,38 @@ func TestStatusShowsDecisionEndpoint(t *testing.T) {
 
 	writeStatus(ctx, tui.NewStyleForTest(false))
 	rendered := out.String()
-	if !strings.Contains(rendered, "Decision model: endpoint http://mac-mini.local:8765") {
+	if !strings.Contains(rendered, "Decision: http://mac-mini.local:8765") {
 		t.Fatalf("expected endpoint in status, got %q", rendered)
 	}
 	if !strings.Contains(rendered, "Assisted: on") {
 		t.Fatalf("expected assisted on with endpoint configured, got %q", rendered)
+	}
+}
+
+func TestStatusMarksVisionRoleModel(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Model:         "llama3.2:3b",
+		ContextWindow: 32768,
+		Cwd:           tmp,
+		SessionsDir:   tmp,
+		VisionByModel: map[string]bool{"moondream": true},
+		RoleModels: map[config.Role]config.RoleModel{
+			config.RoleMain:   {Provider: "ollama", Model: "llama3.2:3b"},
+			config.RoleVision: {Provider: "ollama", Model: "moondream"},
+		},
+	}
+	s := session.New(cfg)
+	out := &bytes.Buffer{}
+	ctx := &Ctx{Cfg: cfg, Session: s, Agent: &fakePlanAgent{}, Out: out}
+
+	writeStatus(ctx, tui.NewStyleForTest(false))
+	rendered := out.String()
+	if !strings.Contains(rendered, "Vision: [ollama] moondream  vision") {
+		t.Fatalf("expected the vision role row to carry the tag, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "Sidecar: Fallback to [ollama] llama3.2:3b") {
+		t.Fatalf("expected the unset sidecar row to show its fallback, got %q", rendered)
 	}
 }
 

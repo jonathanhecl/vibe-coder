@@ -18,93 +18,95 @@ const bannerWordmark = `  ██╗   ██╗██╗██████╗ �
    ╚████╔╝ ██║██████╔╝███████╗
     ╚═══╝  ╚═╝╚═════╝ ╚══════╝`
 
-// bannerField is one label/value pair shown under the startup logo.
-type bannerField struct {
-	Label string
-	Value string
-}
-
-// bannerFields returns the runtime facts surfaced at startup. Keeping them as
-// data makes the layout testable without depending on ANSI escape codes.
-func bannerFields(cfg *config.Config, sessionID string, resumed bool) []bannerField {
-	model := ""
-	host := ""
-	hostLabel := "Ollama"
-	if cfg != nil {
-		model = cfg.Model
-		host = cfg.EffectiveModelEndpoint()
-		if cfg.IsModelOpenAI() {
-			hostLabel = "Endpoint"
-		}
-	}
-	sessVal := sessionID
-	if cfg != nil && cfg.Temporal {
-		sessVal = fmt.Sprintf("%s    (temporal)", sessionID)
-	} else if cfg != nil && cfg.Isolated {
-		sessVal = fmt.Sprintf("%s    (isolated)", sessionID)
-	} else if resumed {
-		sessVal = fmt.Sprintf("%s    (resumed)", sessionID)
-	}
-	fields := []bannerField{
-		{Label: "Session", Value: sessVal},
-		{Label: "Model", Value: model},
-		{Label: "Sidecar", Value: formatSidecarBanner(cfg)},
-		{Label: hostLabel, Value: host},
-	}
-	if cfg != nil && cfg.DecisionInUse() {
-		val := decisionBannerValue(cfg)
-		if cfg.AssistedYes {
-			val = fmt.Sprintf("%s (assisted enabled)", val)
-		} else {
-			val = fmt.Sprintf("%s (run '/yes assisted' to enable)", val)
-		}
-		fields = append(fields, bannerField{Label: "Decision", Value: val})
-	}
+// bannerRows returns the runtime facts surfaced at startup: the session id, one
+// line per model role, and the mode flags. Roles keep the "Rol [provider] model"
+// shape and show their fallback while they stay unset. Endpoints live in
+// /providers, so they are not repeated here.
+func bannerRows(cfg *config.Config, sessionID string, resumed bool) []tui.RoleRow {
+	rows := make([]tui.RoleRow, 0, len(config.AllRoles)+2)
+	rows = append(rows, sessionBannerRow(cfg, sessionID, resumed))
+	rows = append(rows, withDecisionAssistedHint(tui.RoleRows(cfg), cfg)...)
 	if cfg != nil && cfg.Offline {
-		fields = append(fields, bannerField{Label: "Offline", Value: "enabled (network blocked)"})
+		rows = append(rows, tui.RoleRow{
+			Label:  "Offline",
+			Plain:  "enabled (network blocked)",
+			Render: func(st tui.Style) string { return st.Yellow("enabled (network blocked)") },
+		})
 	}
-	return fields
+	return rows
 }
 
-// decisionBannerValue returns the configured decision model target: the
-// endpoint URL when one is set, otherwise the decision model name.
-func decisionBannerValue(cfg *config.Config) string {
-	if cfg == nil {
-		return ""
+// withDecisionAssistedHint adds the assisted state to the Decision row. The
+// startup banner carries it because it has no Assisted row of its own; /status
+// reports it on its own row instead.
+func withDecisionAssistedHint(rows []tui.RoleRow, cfg *config.Config) []tui.RoleRow {
+	if cfg == nil || !cfg.DecisionInUse() {
+		return rows
 	}
-	if ep := strings.TrimSpace(cfg.DecisionEndpoint); ep != "" {
-		return ep
-	}
-	return strings.TrimSpace(cfg.DecisionModel)
-}
-
-func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style) string {
-	if !style.Enabled() {
-		sessionLine := "Session started: " + sessionID
-		if cfg != nil && cfg.Temporal {
-			sessionLine += " (temporal)"
-		} else if cfg != nil && cfg.Isolated {
-			sessionLine += " (isolated)"
-		} else if resumed {
-			sessionLine += " (resumed)"
+	for i := range rows {
+		if rows[i].Label != config.RoleTitle(config.RoleDecision) {
+			continue
 		}
-		out := fmt.Sprintf(
-			"vibe %s\n%s\nModel: %s\nSidecar: %s\nOllama host: %s\n",
-			version.Value, sessionLine, cfg.Model, formatSidecarBanner(cfg), cfg.OllamaHost,
-		)
-		if cfg != nil && cfg.DecisionInUse() {
-			decisionVal := decisionBannerValue(cfg)
-			if cfg.AssistedYes {
-				decisionVal = fmt.Sprintf("%s (assisted enabled)", decisionVal)
-			} else {
-				decisionVal = fmt.Sprintf("%s (run '/yes assisted' to enable)", decisionVal)
+		base := rows[i].Render
+		if cfg.AssistedYes {
+			rows[i].Plain += " (assisted enabled)"
+			rows[i].Render = func(st tui.Style) string {
+				return base(st) + " " + st.Green("(assisted enabled)")
 			}
-			out += fmt.Sprintf("Decision: %s\n", decisionVal)
+		} else {
+			rows[i].Plain += " (run '/yes assisted' to enable)"
+			rows[i].Render = func(st tui.Style) string {
+				return base(st) + " " + st.BrightWhite("(run '/yes assisted' to enable)")
+			}
 		}
-		if cfg != nil && cfg.Offline {
-			out += "Offline: enabled (network blocked)\n"
+	}
+	return rows
+}
+
+// sessionBannerRow shows the session id plus its temporal/isolated/resumed tag.
+func sessionBannerRow(cfg *config.Config, sessionID string, resumed bool) tui.RoleRow {
+	white := func(st tui.Style) string { return st.BrightWhite(sessionID) }
+	switch {
+	case cfg != nil && cfg.Temporal:
+		return tui.RoleRow{Label: "Session", Plain: sessionID + " (temporal)", Render: func(st tui.Style) string {
+			return st.BrightWhite(sessionID) + "    " + st.Red("(temporal)")
+		}}
+	case cfg != nil && cfg.Isolated:
+		return tui.RoleRow{Label: "Session", Plain: sessionID + " (isolated)", Render: func(st tui.Style) string {
+			return st.BrightWhite(sessionID) + "    " + st.Yellow("(isolated)")
+		}}
+	case resumed:
+		return tui.RoleRow{Label: "Session", Plain: sessionID + " (resumed)", Render: func(st tui.Style) string {
+			return st.BrightWhite(sessionID) + "    " + st.Cyan("(resumed)")
+		}}
+	default:
+		return tui.RoleRow{Label: "Session", Plain: sessionID, Render: white}
+	}
+}
+
+// startupBanner renders the startup header. The plain path keeps a line-based
+// "Label: value" form for logs and pipes; the styled path draws the wordmark and
+// an aligned, colored layout.
+func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style) string {
+	rows := bannerRows(cfg, sessionID, resumed)
+	if !style.Enabled() {
+		var b strings.Builder
+		fmt.Fprintf(&b, "vibe %s\n", version.Value)
+		for _, r := range rows {
+			if r.Label == "Session" {
+				fmt.Fprintf(&b, "Session started: %s\n", r.Plain)
+				continue
+			}
+			fmt.Fprintf(&b, "%s: %s\n", r.Label, r.Plain)
 		}
-		return out
+		return b.String()
+	}
+
+	labelWidth := 0
+	for _, r := range rows {
+		if len(r.Label) > labelWidth {
+			labelWidth = len(r.Label)
+		}
 	}
 
 	var b strings.Builder
@@ -118,66 +120,17 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 	b.WriteString("\n  ")
 	b.WriteString(style.Gray(strings.Repeat("─", 46)))
 	b.WriteString("\n")
-	for _, f := range bannerFields(cfg, sessionID, resumed) {
-		b.WriteString("  ")
-		b.WriteString(style.BoldCyan(fmt.Sprintf("%-8s", f.Label)))
-		b.WriteString(" ")
-		if f.Label == "Session" {
-			if cfg != nil && cfg.Temporal {
-				b.WriteString(style.BrightWhite(sessionID))
-				b.WriteString("    ")
-				b.WriteString(style.Red("(temporal)"))
-			} else if cfg != nil && cfg.Isolated {
-				b.WriteString(style.BrightWhite(sessionID))
-				b.WriteString("    ")
-				b.WriteString(style.Yellow("(isolated)"))
-			} else if resumed {
-				b.WriteString(style.BrightWhite(sessionID))
-				b.WriteString("    ")
-				b.WriteString(style.Cyan("(resumed)"))
-			} else {
-				b.WriteString(style.BrightWhite(f.Value))
-			}
-		} else if f.Label == "Decision" {
-			if cfg != nil && cfg.AssistedYes {
-				b.WriteString(style.BrightWhite(decisionBannerValue(cfg)))
-				b.WriteString(" ")
-				b.WriteString(style.Green("(assisted enabled)"))
-			} else if cfg != nil && cfg.DecisionInUse() {
-				b.WriteString(style.BrightWhite(decisionBannerValue(cfg)))
-				b.WriteString(" ")
-				b.WriteString(style.BrightWhite("(run '/yes assisted' to enable)"))
-			} else {
-				b.WriteString(style.BrightWhite(f.Value))
-			}
-		} else if f.Label == "Offline" {
-			b.WriteString(style.Yellow(f.Value))
-		} else {
-			b.WriteString(style.BrightWhite(f.Value))
+	for _, r := range rows {
+		value := style.BrightWhite(r.Plain)
+		if r.Render != nil {
+			value = r.Render(style)
 		}
+		b.WriteString("  ")
+		b.WriteString(style.BoldCyan(fmt.Sprintf("%-*s", labelWidth, r.Label)))
+		b.WriteString(" ")
+		b.WriteString(value)
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 	return b.String()
-}
-
-func formatSidecarBanner(cfg *config.Config) string {
-	if cfg == nil {
-		return "(disabled)"
-	}
-	if cfg.SidecarDisabled {
-		return "(disabled)"
-	}
-	if cfg.SidecarSkipSession {
-		m := strings.TrimSpace(cfg.SidecarModel)
-		if m == "" {
-			return "(session off — no SIDECAR_MODEL)"
-		}
-		return fmt.Sprintf("%s (session off — /sidecar on)", m)
-	}
-	m := strings.TrimSpace(cfg.SidecarModel)
-	if m == "" {
-		return "(disabled — set SIDECAR_MODEL)"
-	}
-	return m
 }

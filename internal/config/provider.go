@@ -330,6 +330,121 @@ func (c *Config) RoleInUse(role Role) bool {
 	return c.RoleModelName(role) != ""
 }
 
+// RoleStatus describes how a role is wired, in a form both the startup banner
+// and command output can render. It carries data only, never formatting.
+type RoleStatus struct {
+	Role Role
+	// Bound reports that the role has its own provider and model.
+	Bound bool
+	// Provider and Model are the bound binding, the fallback target when
+	// Fallback is true, or empty when the role has neither.
+	Provider string
+	Model    string
+	// Fallback reports that Provider and Model describe the target the role
+	// uses while it stays unbound.
+	Fallback bool
+	// Note explains what a role without a model fallback does instead.
+	Note string
+}
+
+// RoleStatuses is intentionally not exported as a slice helper; callers iterate
+// AllRoles so the canonical order stays in one place.
+
+// RoleStatus returns the wiring of one role: its own binding when set,
+// otherwise the fallback target or the behavior it degrades to.
+func (c *Config) RoleStatus(role Role) RoleStatus {
+	if provider, model, ok := c.roleBinding(role); ok {
+		return RoleStatus{Role: role, Bound: true, Provider: provider, Model: model}
+	}
+	if provider, model, ok := c.FallbackRoleModel(role); ok {
+		return RoleStatus{Role: role, Provider: provider, Model: model, Fallback: true}
+	}
+	return RoleStatus{Role: role, Note: RoleBehaviorNote(role)}
+}
+
+// roleBinding reports the provider and model a role is bound to. It reads the
+// role registry and falls back to the legacy flat fields, so configs built
+// without a full Load (tests, early startup) still report their wiring. An
+// unbound role reports ok=false.
+func (c *Config) roleBinding(role Role) (provider, model string, ok bool) {
+	if c == nil {
+		return "", "", false
+	}
+	binding := c.RoleBinding(role)
+	model = strings.TrimSpace(binding.Model)
+	provider = NormalizeProviderName(binding.Provider)
+	if model == "" {
+		legacyModel, _, _ := c.legacyRoleFields(role)
+		model = strings.TrimSpace(legacyModel)
+		if model == "" {
+			return "", "", false
+		}
+	}
+	if provider == "" {
+		provider = DefaultProviderName
+	}
+	return provider, model, true
+}
+
+// FallbackRoleModel returns the provider and model an unbound role falls back
+// to at runtime: sidecar and rabbit fall back to main, decision falls back to
+// the sidecar model and then to main. ok is false when the role has no model
+// fallback (main, embedding, vision) or when the fallback target is unbound.
+func (c *Config) FallbackRoleModel(role Role) (provider, model string, ok bool) {
+	if c == nil {
+		return "", "", false
+	}
+	switch role {
+	case RoleSidecar, RoleRabbit:
+		return c.roleBinding(RoleMain)
+	case RoleDecision:
+		if provider, model, ok := c.roleBinding(RoleSidecar); ok {
+			return provider, model, true
+		}
+		return c.roleBinding(RoleMain)
+	default:
+		return "", "", false
+	}
+}
+
+// RoleBehaviorNote explains what an unbound role does when it has no model to
+// fall back to. It returns "" for roles that do have a fallback target.
+func RoleBehaviorNote(role Role) string {
+	switch role {
+	case RoleEmbedding:
+		return "text-only retrieval (no encoder)"
+	case RoleVision:
+		return "images go to main, then sidecar"
+	default:
+		return ""
+	}
+}
+
+// RoleHint is the command that configures an unbound role.
+func RoleHint(role Role) string {
+	return fmt.Sprintf("(set it with /setmodel %s MODEL)", role)
+}
+
+// RoleTitle returns the label a role uses in the startup banner.
+func RoleTitle(role Role) string {
+	switch role {
+	case RoleMain:
+		return "Model"
+	case RoleSidecar:
+		return "Sidecar"
+	case RoleDecision:
+		return "Decision"
+	case RoleEmbedding:
+		return "Embedding"
+	case RoleVision:
+		return "Vision"
+	case RoleRabbit:
+		return "Rabbit"
+	default:
+		return string(role)
+	}
+}
+
 // SetRoleModel binds a role to a provider and model. An empty model clears the role.
 func (c *Config) SetRoleModel(role Role, provider, model string) error {
 	if _, ok := ParseRole(string(role)); !ok {

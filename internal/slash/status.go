@@ -94,19 +94,18 @@ func statusRows(c *Ctx) []statusRow {
 	}
 	rows = append(rows, statusRow{Label: "Session", Plain: sessionPlain, Render: sessionRender})
 	rows = append(rows, statusRow{Label: "CWD", Plain: c.Cfg.Cwd})
-	hostLabel := "Ollama"
-	if c.Cfg.IsModelOpenAI() {
-		hostLabel = "Endpoint"
-	}
-	rows = append(rows, statusRow{Label: hostLabel, Plain: c.Cfg.EffectiveModelEndpoint()})
 	ui := strings.TrimSpace(c.Cfg.UI)
 	if ui == "" {
 		ui = "plain"
 	}
 	rows = append(rows, statusRow{Label: "UI", Plain: ui})
 
-	rows = append(rows, statusRow{Label: "Model", Plain: c.Cfg.Model})
-	rows = append(rows, statusRow{Label: "Vision", Plain: visionStatusValue(c)})
+	// Model wiring comes from the same renderer as the startup banner; provider
+	// endpoints stay in /providers instead of being repeated here.
+	for _, role := range tui.RoleRows(c.Cfg) {
+		rows = append(rows, statusRow{Label: role.Label, Plain: role.Plain, Render: role.Render})
+	}
+
 	rows = append(rows, statusRow{Label: "Thinking", Plain: thinkingStatus(c)})
 	rows = append(rows, statusRow{
 		Label: "Hide think",
@@ -119,14 +118,6 @@ func statusRows(c *Ctx) []statusRow {
 		},
 	})
 	rows = append(rows, statusRow{Label: "Tools", Plain: toolsStatus(c)})
-	rows = append(rows, statusRow{Label: "Sidecar", Plain: sidecarStatusValue(c)})
-	if c.Cfg.DecisionInUse() {
-		rows = append(rows, statusRow{
-			Label: "Decision model",
-			Short: "Decision",
-			Plain: decisionStatusValue(c),
-		})
-	}
 	rows = append(rows, statusRow{
 		Label: "Assisted",
 		Plain: assistedStatusValue(c),
@@ -262,34 +253,6 @@ func offlineStatusValue(c *Ctx) string {
 		return "enabled (network blocked)"
 	}
 	return "disabled"
-}
-
-// decisionStatusValue renders the configured decision target for /info,
-// showing the v3 endpoint when v3 is active and the model name otherwise.
-func decisionStatusValue(c *Ctx) string {
-	if ep := strings.TrimSpace(c.Cfg.DecisionEndpoint); ep != "" {
-		return fmt.Sprintf("endpoint %s", ep)
-	}
-	return strings.TrimSpace(c.Cfg.DecisionModel)
-}
-
-// sidecarStatusValue condenses the sidecar state into one line, matching the
-// wording used by the startup banner.
-func sidecarStatusValue(c *Ctx) string {
-	cfg := c.Cfg
-	switch {
-	case cfg.SidecarDisabled:
-		return "disabled (SIDECAR_DISABLED in config)"
-	case cfg.SidecarSkipSession:
-		if m := strings.TrimSpace(cfg.SidecarModel); m != "" {
-			return m + " (off for this session)"
-		}
-		return "off for this session (no SIDECAR_MODEL)"
-	case strings.TrimSpace(cfg.SidecarModel) != "":
-		return strings.TrimSpace(cfg.SidecarModel)
-	default:
-		return "disabled (set SIDECAR_MODEL)"
-	}
 }
 
 func printTokens(c *Ctx) {

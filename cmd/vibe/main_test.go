@@ -142,7 +142,7 @@ func TestOneShotPromptSmoke(t *testing.T) {
 	if !strings.Contains(got, "Session started:") {
 		t.Fatalf("expected startup banner in one-shot output, got: %q", got)
 	}
-	if !strings.Contains(got, "Model: llama3.2:3b") {
+	if !strings.Contains(got, "Model: [ollama] llama3.2:3b") {
 		t.Fatalf("expected model line in one-shot output, got: %q", got)
 	}
 	if !strings.Contains(got, "response") {
@@ -168,14 +168,14 @@ func TestStartupBanner(t *testing.T) {
 	if !strings.Contains(out, "Session started: session-123") {
 		t.Fatalf("missing session id: %q", out)
 	}
-	if !strings.Contains(out, "Model: llama3.2:3b") {
+	if !strings.Contains(out, "Model: [ollama] llama3.2:3b") {
 		t.Fatalf("missing model line: %q", out)
 	}
-	if !strings.Contains(out, "Sidecar:") || !strings.Contains(out, "SIDECAR_MODEL") {
-		t.Fatalf("missing sidecar line: %q", out)
+	if !strings.Contains(out, "Sidecar: Fallback to [ollama] llama3.2:3b") {
+		t.Fatalf("missing sidecar fallback line: %q", out)
 	}
-	if !strings.Contains(out, "Ollama host: http://localhost:11434") {
-		t.Fatalf("missing host line: %q", out)
+	if strings.Contains(out, "Ollama:") {
+		t.Fatalf("endpoints belong to /providers, not the banner: %q", out)
 	}
 }
 

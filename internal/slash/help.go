@@ -50,7 +50,7 @@ func printHelp(c *Ctx) {
 			{"/show-think", "show model thinking blocks in CLI output (default)"},
 		}},
 		{"Providers & roles", [][2]string{
-			{"/providers", "list providers and the model each role uses"},
+			{"/providers", "list providers, the model bound to each role, and unassigned fallbacks"},
 			{"/provider add <NAME> [endpoint]", "register a new provider"},
 			{"/provider <NAME> endpoint <url>", "set a provider endpoint (creates it when new)"},
 			{"/provider <NAME> key <api-key>", "store a provider API key"},
