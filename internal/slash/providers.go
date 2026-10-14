@@ -24,34 +24,16 @@ var capabilityTagOrder = []string{
 	config.CapabilityDecision,
 }
 
-// capabilityTagStyle gives every capability a stable color, so a model row can
-// be scanned without reading the tag names.
+// capabilityTagStyle gives every capability its stable color. The palette lives
+// in tui so the same tag renders identically across /models, /setmodel and the
+// onboarding wizard.
 func capabilityTagStyle(st tui.Style, tag string) string {
-	switch tag {
-	case config.CapabilityCompletion:
-		return st.BrightGreen(tag)
-	case config.CapabilityTools:
-		return st.Green(tag)
-	case config.CapabilityVision:
-		return st.BoldCyan(tag)
-	case config.CapabilityThinking:
-		return st.Yellow(tag)
-	case config.CapabilityEmbedding:
-		return st.Magenta(tag)
-	case config.CapabilityDecision:
-		return st.BoldMagenta(tag)
-	default:
-		return st.Gray(tag)
-	}
+	return st.CapabilityTag(tag)
 }
 
 // coloredCapabilityTags renders each capability tag with its own color.
 func coloredCapabilityTags(st tui.Style, tags []string) []string {
-	out := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		out = append(out, capabilityTagStyle(st, tag))
-	}
-	return out
+	return st.CapabilityTags(tags)
 }
 
 // capabilityTagsFor reports the capability tags to show for one model. It

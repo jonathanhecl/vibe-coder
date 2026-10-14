@@ -109,7 +109,7 @@ func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui
 
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString(style.Cyan(bannerWordmark))
+	b.WriteString(style.Lime(bannerWordmark))
 	b.WriteString("\n\n")
 	b.WriteString("  ")
 	b.WriteString(style.DimGreen("local-first coding agent for Ollama"))

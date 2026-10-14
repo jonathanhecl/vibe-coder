@@ -92,6 +92,23 @@ func (s Style) BoldRed(text string) string     { return s.wrap(cBold+cRed, text)
 // BoldBrightGreen is used for high-contrast “matrix” accents (e.g. permission gate).
 func (s Style) BoldBrightGreen(text string) string { return s.wrap(cBold+cBrightGreen, text) }
 
+// Color256 wraps text in a foreground color from the xterm-256 palette, so the
+// richer brand accents (lime, amber, violet) render on any 256-color terminal
+// while degrading to plain text when colors are disabled.
+func (s Style) Color256(code int, text string) string {
+	if !s.enabled {
+		return text
+	}
+	return fmt.Sprintf("\x1b[38;5;%dm%s%s", code, text, cReset)
+}
+
+// Lime is the hacker-style lime green used for the wordmark and brand accents.
+func (s Style) Lime(text string) string { return s.Color256(colorLime, text) }
+
+// colorLime is xterm-256 #afff00, a yellow-green lime that reads as both
+// "verde lima" and a matrix-green accent.
+const colorLime = 154
+
 // ClearPendingLine returns the escape sequence used to wipe a previously
 // printed line so it can be redrawn with the final state.
 func (s Style) ClearPendingLine() string {

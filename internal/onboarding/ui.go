@@ -66,7 +66,7 @@ func (w *wizard) option(key, text string, tags ...string) {
 	if w.style.Enabled() {
 		line := fmt.Sprintf("  %s %s", w.style.BoldBrightGreen("["+key+"]"), text)
 		if len(tags) > 0 {
-			line += "  " + w.style.Dim(strings.Join(tags, " · "))
+			line += "  " + strings.Join(w.style.CapabilityTags(tags), w.style.Dim(" · "))
 		}
 		fmt.Fprintln(w.out, line)
 		return
