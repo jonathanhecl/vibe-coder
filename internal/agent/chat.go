@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -213,6 +215,43 @@ func clipAnchor(s string) string {
 	}
 	return string(runes[:maxUserAnchorChars]) + "…"
 }
+
+// isConnectionError reports whether err means the remote model endpoint is
+// unreachable or refused the connection at the transport level. It excludes
+// user cancellations and our own request timeouts so those stay fatal.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		switch {
+		case errors.Is(e, syscall.ECONNREFUSED),
+			errors.Is(e, syscall.ETIMEDOUT),
+			errors.Is(e, syscall.EHOSTUNREACH),
+			errors.Is(e, syscall.ENETUNREACH),
+			errors.Is(e, syscall.ECONNRESET):
+			return true
+		}
+		msg := strings.ToLower(e.Error())
+		if strings.Contains(msg, "connection refused") ||
+			strings.Contains(msg, "no such host") ||
+			strings.Contains(msg, "i/o timeout") ||
+			strings.Contains(msg, "broken pipe") ||
+			strings.Contains(msg, "network is unreachable") ||
+			(strings.Contains(msg, "dial") && strings.Contains(msg, "connect:")) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 	var lastErr error
 	thinkingLoopRetries := 0
@@ -294,6 +333,17 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 			}
 		}
 
+		if isConnectionError(lastErr) && a.side != nil && a.side.Enabled() {
+			if reply, toolCalls, err := a.trySidecarAsMain(rootCtx); err == nil {
+				if reply != "" || len(toolCalls) > 0 {
+					return reply, toolCalls, nil
+				}
+				lastErr = fmt.Errorf("main model %s unreachable; sidecar returned empty response", shortModelName(a.cfg.Model))
+			} else {
+				lastErr = fmt.Errorf("main model %s unreachable (%v); sidecar fallback failed: %w", shortModelName(a.cfg.Model), lastErr, err)
+			}
+		}
+
 		if thinkingLoopRetries > 0 && thinkingLoopRetries < maxThinkingLoopRetries && errors.Is(lastErr, ErrThinkingLoopDetected) {
 			select {
 			case <-rootCtx.Done():
@@ -308,6 +358,49 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 		lastErr = fmt.Errorf("empty assistant response")
 	}
 	return "", nil, lastErr
+}
+
+// trySidecarAsMain sends the current turn to the sidecar model as a temporary
+// substitute when the main model endpoint is unreachable. It reuses the same
+// system prompt and transcript, but disables tools and explicit thinking so a
+// small sidecar is more likely to answer. On success the reply is returned as
+// if it came from the main model; the next turn will try the main model again.
+func (a *Agent) trySidecarAsMain(rootCtx context.Context) (string, []ToolCall, error) {
+	sideClient := a.side.ChatClient()
+	if sideClient == nil {
+		return "", nil, errors.New("sidecar client not available")
+	}
+
+	ctx, cancel := context.WithTimeout(rootCtx, a.cfg.EffectiveChatTimeout())
+	systemPrompt := a.buildSystemPrompt()
+	messages, wstats := a.buildOllamaMessages(ctx, systemPrompt)
+	// Usage belongs to the sidecar request; clear it so a failed sidecar
+	// attempt never records the previous turn's counters.
+	a.lastUsage = nil
+	a.ui.StartWaiting(fmt.Sprintf("%s unreachable; using sidecar %s…", shortModelName(a.cfg.Model), shortModelName(a.cfg.SidecarModel)))
+	chatStart := time.Now()
+	stream, err := sideClient.Chat(ctx, ollama.ChatRequest{
+		Model:     a.cfg.SidecarModel,
+		Messages:  messages,
+		Stream:    true,
+		Think:     ollama.ResolveThinkSetting(a.cfg.OllamaThinkLevel, a.cfg.OllamaNoThink, false, false),
+		Tools:     nil,
+		KeepAlive: a.cfg.KeepAliveFor(config.RoleSidecar),
+		Options: ollama.ChatOptions{
+			NumCtx:      a.cfg.ContextWindow,
+			NumPredict:  a.cfg.MaxTokens,
+			Temperature: a.cfg.Temperature,
+		},
+	})
+	if err != nil {
+		a.ui.StopWaiting()
+		cancel()
+		a.recordChatAttempt(systemPrompt, wstats, chatStart, 0, err)
+		return "", nil, err
+	}
+	reply, toolCalls, err := a.streamAssistantResponse(rootCtx, cancel, stream)
+	a.recordChatAttempt(systemPrompt, wstats, chatStart, len(toolCalls), err)
+	return reply, toolCalls, err
 }
 
 // nativeChatTools converts the registry schemas to Ollama function

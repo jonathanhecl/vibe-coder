@@ -112,3 +112,13 @@ func (p *Pool) Threshold() int {
 	}
 	return p.threshold
 }
+
+// ChatClient returns the underlying ollama client, or nil when the pool is not
+// wired. Callers can use it as a temporary substitute for the main model's
+// client when the main endpoint is unreachable.
+func (p *Pool) ChatClient() ollama.Client {
+	if p == nil {
+		return nil
+	}
+	return p.client
+}
