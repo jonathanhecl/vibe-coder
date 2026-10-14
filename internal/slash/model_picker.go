@@ -30,14 +30,21 @@ func (c *Ctx) printModelRows(models []ollama.Model, title string, suffixFor func
 }
 
 // installedModels lists the host's models, falling back to the names cached at
-// startup when the live /api/tags call is unavailable.
+// startup when the live /api/tags call is unavailable. It prefers the
+// default provider lister so /models reports that provider's own capability
+// tags rather than the main chat client's inferred tags.
 func (c *Ctx) installedModels(ctx context.Context) []ollama.Model {
-	if c.Models != nil {
+	listers := []ModelLister{c.DefaultLister, c.Models}
+	for _, lister := range listers {
+		if lister == nil {
+			continue
+		}
 		listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		if models, err := c.Models.Tags(listCtx); err == nil && len(models) > 0 {
+		if models, err := lister.Tags(listCtx); err == nil && len(models) > 0 {
+			cancel()
 			return models
 		}
+		cancel()
 	}
 	return c.cachedModels()
 }

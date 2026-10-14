@@ -703,7 +703,7 @@ Pinned context files are injected into the system prompt on every turn, so they 
 
 ### Providers & roles
 
-A **provider** is a named, reusable endpoint (`ollama` by default). A **role** binds to a `(provider, model)` pair. The six roles are `main`, `sidecar`, `decision`, `embedding`, `vision` and `rabbit`.
+A **provider** is a named, reusable endpoint (`ollama` by default). A **role** binds to a `(provider, model)` pair. The six roles are `main`, `sidecar`, `rabbit`, `decision`, `vision` and `embedding`.
 
 - `/providers` — list the configured providers, the model bound to each role under its provider, and an `Unassigned roles` block that says what each remaining role falls back to; models that can see images carry the cyan `vision` tag
 - `/provider <NAME>` — show one provider (kind, endpoint, API key state, roles)

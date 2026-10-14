@@ -84,9 +84,9 @@ func capabilityTagsFor(m ollama.Model, cfg *config.Config) []string {
 	return tags
 }
 
-// providerClient builds a client for a provider, honoring its wire protocol.
+// ProviderClient builds a client for a provider, honoring its wire protocol.
 // It returns nil when the provider has no endpoint yet.
-func (c *Ctx) providerClient(p config.Provider) ollama.Client {
+func ProviderClient(p config.Provider) ollama.Client {
 	endpoint := strings.TrimSpace(p.Endpoint)
 	if endpoint == "" {
 		return nil
@@ -99,6 +99,11 @@ func (c *Ctx) providerClient(p config.Provider) ollama.Client {
 		return openai.New(endpoint, opts...)
 	}
 	return ollama.NewHTTPWithAPIKey(ollama.NormalizeURL(endpoint), p.APIKey)
+}
+
+// providerClient is the method alias so existing call sites keep working.
+func (c *Ctx) providerClient(p config.Provider) ollama.Client {
+	return ProviderClient(p)
 }
 
 // providerModels lists the models a provider offers. The default provider
@@ -128,7 +133,7 @@ func (c *Ctx) rolesForModel(providerName, modelName string) []string {
 	}
 	modelName = strings.TrimSpace(modelName)
 	var roles []string
-	for _, role := range config.AllRoles {
+	for _, role := range config.RoleDisplayOrder {
 		binding := c.Cfg.RoleBinding(role)
 		if strings.TrimSpace(binding.Model) == "" {
 			continue
@@ -153,7 +158,7 @@ type providerRole struct {
 	Model string
 }
 
-// providerRoles lists the roles bound to a provider, in canonical order.
+// providerRoles lists the roles bound to a provider, in display order.
 func (c *Ctx) providerRoles(providerName string) []providerRole {
 	if c.Cfg == nil {
 		return nil
@@ -163,7 +168,7 @@ func (c *Ctx) providerRoles(providerName string) []providerRole {
 		providerName = config.DefaultProviderName
 	}
 	var roles []providerRole
-	for _, role := range config.AllRoles {
+	for _, role := range config.RoleDisplayOrder {
 		binding := c.Cfg.RoleBinding(role)
 		model := strings.TrimSpace(binding.Model)
 		if model == "" {
@@ -188,7 +193,7 @@ func (c *Ctx) unassignedStatuses() []config.RoleStatus {
 		return nil
 	}
 	var statuses []config.RoleStatus
-	for _, role := range config.AllRoles {
+	for _, role := range config.RoleDisplayOrder {
 		if c.Cfg.RoleInUse(role) {
 			continue
 		}
@@ -199,8 +204,8 @@ func (c *Ctx) unassignedStatuses() []config.RoleStatus {
 
 // roleNames returns the role names for error messages and usage hints.
 func roleNames() string {
-	names := make([]string, 0, len(config.AllRoles))
-	for _, role := range config.AllRoles {
+	names := make([]string, 0, len(config.RoleDisplayOrder))
+	for _, role := range config.RoleDisplayOrder {
 		names = append(names, string(role))
 	}
 	return strings.Join(names, ", ")
@@ -210,7 +215,7 @@ func roleNames() string {
 func printRoleStatus(c *Ctx) {
 	st := tui.NewStyle(c.Out)
 	fmt.Fprintln(c.Out, st.BoldCyan("Role assignments"))
-	for _, role := range config.AllRoles {
+	for _, role := range config.RoleDisplayOrder {
 		binding := c.Cfg.RoleBinding(role)
 		model := strings.TrimSpace(binding.Model)
 		if model == "" {

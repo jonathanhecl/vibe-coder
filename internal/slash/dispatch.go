@@ -25,6 +25,10 @@ type Ctx struct {
 	// can offer a numbered picker. Optional: when nil the pickers fall back to
 	// the capability maps cached at startup.
 	Models ModelLister
+	// DefaultLister lists models from the default provider. When set, it
+	// overrides Models for the default provider picker so /models shows the
+	// provider's own capability tags even when the main model lives elsewhere.
+	DefaultLister ModelLister
 	// Prompter asks interactive questions (e.g. Append vs Replace for
 	// /context). It is optional: when nil, commands print the
 	// non-interactive guidance instead. tui.UI satisfies it.

@@ -460,7 +460,7 @@ func RoleTitle(role Role) string {
 // RoleDisplayOrder is the order roles are listed when the configuration is
 // shown: the models that carry a turn first, then the optional helpers. The
 // canonical AllRoles order stays the one used for iteration and validation.
-var RoleDisplayOrder = []Role{RoleMain, RoleSidecar, RoleDecision, RoleRabbit, RoleVision, RoleEmbedding}
+var RoleDisplayOrder = []Role{RoleMain, RoleSidecar, RoleRabbit, RoleDecision, RoleVision, RoleEmbedding}
 
 // SetRoleModel binds a role to a provider and model. An empty model clears the role.
 func (c *Config) SetRoleModel(role Role, provider, model string) error {
