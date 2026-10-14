@@ -168,6 +168,9 @@ func applyEnv(cfg *Config) {
 			cfg.Harness.MetricsDisabled = b
 		}
 	}
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_RAG_MODE", "RAG_MODE")); v != "" {
+		cfg.RAGMode = v
+	}
 }
 
 // splitPathList splits an env/config path list on the OS path-list

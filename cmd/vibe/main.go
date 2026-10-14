@@ -220,6 +220,14 @@ func main() {
 		return
 	}
 
+	if cfg.SessionHistoryRAGEnabled() {
+		if _, ok := client.(ollama.Embedder); !ok {
+			fmt.Fprintln(os.Stderr, "warning: experimental RAG context mode is enabled, but the main model client has no embedder; history recall stays disabled and compaction drops demoted turns")
+		} else {
+			fmt.Fprintln(os.Stdout, "Experimental RAG context mode enabled (session history via recall).")
+		}
+	}
+
 	resumed, err := resolveSession(cfg, sess)
 	if err != nil {
 		exitWithError(err)

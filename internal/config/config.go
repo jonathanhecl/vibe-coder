@@ -314,7 +314,7 @@ Flags:
   --keep-alive-worker int   Ollama keep_alive (idle seconds) for worker roles (sidecar, decision, embedding, vision) (default 300)
   --context string          Pin a .md/.txt guide file as persistent session instruction (repeatable)
   --rag                     Enable RAG mode
-  --rag-mode string         RAG mode
+  --rag-mode string         RAG mode type (code|context|chat|hybrid; context is experimental session-history RAG)
   --rag-path string         RAG path
   --rag-topk int            RAG top-k chunks
   --rag-index string        Build/index RAG path and exit
@@ -438,6 +438,24 @@ func (c *Config) IsSidecarOpenAI() bool {
 		return false
 	}
 	return IsOpenAIEndpoint(c.rawSidecarEndpoint())
+}
+
+// SessionHistoryRAGEnabled reports whether the experimental RAG-for-session-
+// history strategy is active. It reuses the otherwise-unused RAGMode field so
+// callers can opt in with --rag-mode context (or chat/hybrid/rag/session).
+// Unlike file RAG (cfg.RAG), which is about retrieving codebase chunks, this
+// mode changes how prior chat turns are carried into the next request: it
+// compacts earlier, keeps only a recent verbatim tail, and recalls relevant
+// demoted history through the in-memory session memory.
+func (c *Config) SessionHistoryRAGEnabled() bool {
+	if c == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(c.RAGMode)) {
+	case "context", "chat", "hybrid", "rag", "session":
+		return true
+	}
+	return false
 }
 
 // IsOpenAIEndpoint reports whether an endpoint URL matches OpenAI-compatible (/v1) conventions.

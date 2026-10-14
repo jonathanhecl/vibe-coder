@@ -15,6 +15,12 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 	a.mu.Unlock()
 	a.sess.AddUser(userInput)
 
+	// Experimental session-history RAG: make earlier turns recallable before
+	// the first compaction, including sessions resumed from disk.
+	if a.cfg != nil && a.cfg.SessionHistoryRAGEnabled() && a.sess != nil {
+		a.sess.HydrateMemory(ctx)
+	}
+
 	if rag := a.getRAG(); rag != nil && a.cfg.RAG {
 		k := a.cfg.RAGTopK
 		if k <= 0 {
@@ -68,6 +74,16 @@ func (a *Agent) recallMemoryWanted() bool {
 	if a.sess == nil || a.cfg == nil {
 		return false
 	}
+	// Experimental RAG-for-session-history mode: always recall demoted
+	// history so prior turns can be retrieved on demand. It still degrades
+	// safely to empty when there is no embedder or no entries yet.
+	if a.cfg.SessionHistoryRAGEnabled() {
+		if a.sess.MemoryCount() > 0 {
+			return true
+		}
+		// Allow the first recall to run once compaction has created entries.
+		return a.compactedPending.Load()
+	}
 	if a.compactedPending.Load() {
 		return true
 	}
@@ -110,7 +126,17 @@ func (a *Agent) compactBestEffort(ctx context.Context) {
 	if pct <= 0 {
 		pct = 85
 	}
-	if transcriptCost(masked) <= budget.Transcript*pct/100 && len(hist) <= 300 {
+	// Experimental RAG-for-session-history mode compacts sooner: the raw
+	// older turns are demoted into the in-memory store and recalled on demand,
+	// while only a recent verbatim tail plus a summary stay on the wire.
+	if a.cfg != nil && a.cfg.SessionHistoryRAGEnabled() && pct > 50 {
+		pct = 50
+	}
+	histLimit := 300
+	if a.cfg != nil && a.cfg.SessionHistoryRAGEnabled() {
+		histLimit = 120
+	}
+	if transcriptCost(masked) <= budget.Transcript*pct/100 && len(hist) <= histLimit {
 		return
 	}
 	keepTailTokens := budget.Transcript * 40 / 100

@@ -165,6 +165,48 @@ func memoryCosine(a, b []float64) float64 {
 	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
+// HydrateMemory demotes the transcript's older turns into the in-memory store
+// so they can be recalled by relevance. It is a no-op when the store already
+// holds entries or when the transcript is short. Useful after resuming a
+// persisted session, whose RAG state is lost when vibe exits.
+func (s *Session) HydrateMemory(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	mem := s.ensureMemory()
+	if mem.count() > 0 {
+		return
+	}
+	s.mu.RLock()
+	cfg := s.cfg
+	if cfg == nil || len(s.messages) == 0 {
+		s.mu.RUnlock()
+		return
+	}
+	keepTailTokens := cfg.ContextWindow / 4
+	if keepTailTokens <= 0 {
+		keepTailTokens = 32768 / 4
+	}
+	cut := len(s.messages)
+	sum := 0
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		cost := estimateMessageTokens(s.messages[i].Content)
+		if sum+cost > keepTailTokens && len(s.messages)-cut >= 4 {
+			break
+		}
+		sum += cost
+		cut = i
+	}
+	if cut <= 0 {
+		s.mu.RUnlock()
+		return
+	}
+	old := append([]Message(nil), s.messages[:cut]...)
+	s.mu.RUnlock()
+
+	mem.demote(ctx, demoteTexts(old))
+}
+
 // demoteTexts renders the discarded messages to bounded fragments ready to be
 // embedded. Tool results are labeled so recall reads naturally.
 func demoteTexts(messages []Message) []string {

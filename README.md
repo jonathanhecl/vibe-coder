@@ -577,7 +577,7 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 - `--show-think` — show Ollama thinking blocks in CLI output (overrides config/env)
 - `--context <file>` — pin a `.md`/`.txt` guide file as a persistent session instruction (repeatable, accumulated; also `VIBE_CODER_CONTEXT` env and `CONTEXT=` config key)
 - `--rag` — enable RAG mode
-- `--rag-mode <type>` — RAG mode type
+- `--rag-mode <type>` — codebase RAG mode type; `context`/`chat`/`hybrid` enable the experimental session-history strategy (lower compaction trigger, recall of demoted turns, needs an embedding model)
 - `--rag-path <path>` — RAG database path
 - `--rag-topk <n>` — RAG top-k chunks
 - `--rag-index <path>` — build/index RAG path and exit
@@ -599,6 +599,8 @@ Per-request harness metrics (model-reported token counts, estimated prompt-secti
 Large tool outputs older than the last `KEEP_TOOL_RESULTS` tool turns are masked on the wire only — the stored transcript is never mutated — replaced by a short `[elided]` stub. `TOOL_OUTPUT_MAX_TOKENS` caps a single tool result (auto = 15% of the context window, 2000-token floor, ≈4 bytes per token) across `Read`, `Bash`, `InteractiveBash`/`SendInput`, `HTTPRequest`, and `WebFetch`, including sub-agent tools.
 
 Compaction fires when the *masked* transcript exceeds `COMPACT_AT_PERCENT` of the transcript budget (or history grows past 300 messages), keeps a 40%-of-budget token tail, summarizes the rest via the sidecar/main model, preserves the original first user request, and carries prior summaries forward so repeated compactions never lose them.
+
+Experimental session-history mode (`--rag-mode context`, plus the `context`/`chat`/`hybrid`/`session` `RAG_MODE` env/config values) is optional and compacts earlier (50% trigger / 120-message guard) so older turns move into the in-memory store, while recall brings back only the relevant ones. It needs an embedding-capable client; otherwise it stays inert and compaction behaves as usual. The store is rebuilt on resume because it is intentionally in-memory.
 
 Measuring a harness change:
 

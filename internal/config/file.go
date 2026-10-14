@@ -164,6 +164,8 @@ func applyConfigFile(cfg *Config, path string) error {
 			if parsed, err := strconv.Atoi(value); err == nil {
 				cfg.Harness.CompactAtPercent = parsed
 			}
+		case "RAG_MODE":
+			cfg.RAGMode = value
 		case "KEEP_ALIVE_MAIN":
 			if parsed, err := strconv.Atoi(value); err == nil {
 				cfg.KeepAliveMain = parsed
