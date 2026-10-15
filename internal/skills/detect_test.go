@@ -65,18 +65,37 @@ func TestReadOnlyDirsResolvesSymlinks(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(real, "s"), filepath.Join(root, "s")); err != nil {
+	link := filepath.Join(root, "s")
+	if err := os.Symlink(filepath.Join(real, "s"), link); err != nil {
+		t.Fatal(err)
+	}
+	// The contract is that the resolved path is allowed, so the expectation must
+	// be resolved the same way the code resolves it. On macOS t.TempDir() lives
+	// under /var, itself a symlink to /private/var: the raw join and the
+	// resolved path differ by that prefix, and only the resolved form can ever
+	// come back. Resolving both sides keeps the assertion exact on every
+	// platform instead of only where /var is a real directory.
+	want, err := filepath.EvalSymlinks(filepath.Join(real, "s"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Cwd: t.TempDir(), ConfigDir: t.TempDir(), SkillsDirs: []string{root}}
 	dirs := ReadOnlyDirs(cfg)
-	found := false
+	if !hasDir(dirs, want) {
+		t.Fatalf("expected the resolved skill dir %q in %v", want, dirs)
+	}
+	// The link path is allowed too: the model may read a skill through either
+	// spelling, and a permission check compares the path it was given.
+	if !hasDir(dirs, link) {
+		t.Fatalf("expected the skill link %q in %v", link, dirs)
+	}
+}
+
+func hasDir(dirs []string, want string) bool {
 	for _, d := range dirs {
-		if d == filepath.Join(real, "s") {
-			found = true
+		if d == want {
+			return true
 		}
 	}
-	if !found {
-		t.Fatalf("expected the resolved skill dir %q in %v", filepath.Join(real, "s"), dirs)
-	}
+	return false
 }
