@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -79,8 +80,13 @@ func Paste(destDir string) (*Content, error) {
 
 // imagePath returns a unique PNG path inside dir, falling back to the OS
 // temp dir when dir is empty or unusable.
+// imageSeq separates names created inside the same clock tick. Two pastes in a
+// row can land on one timestamp, and the second file would then overwrite the
+// first.
+var imageSeq atomic.Uint64
+
 func imagePath(dir string) string {
-	base := fmt.Sprintf("vibe_clipboard_%d.png", time.Now().UnixNano())
+	base := fmt.Sprintf("vibe_clipboard_%d_%d.png", time.Now().UnixNano(), imageSeq.Add(1))
 	if strings.TrimSpace(dir) == "" {
 		return filepath.Join(os.TempDir(), base)
 	}

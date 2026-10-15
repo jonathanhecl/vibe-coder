@@ -232,3 +232,19 @@ func TestParseFileURLs_WindowsPath(t *testing.T) {
 		t.Errorf("parseFileURLs[0] = %q, want prefix 'C:'", paths[0])
 	}
 }
+
+// TestImagePath_UniqueInATightLoop pins the contract this path is used for:
+// two clipboard images must never land on the same file, because the second
+// paste would overwrite the first. A timestamp alone only separates calls that
+// are far enough apart, so the loop is the point of the test.
+func TestImagePath_UniqueInATightLoop(t *testing.T) {
+	dir := t.TempDir()
+	seen := make(map[string]struct{}, 10000)
+	for call := 0; call < 10000; call++ {
+		path := imagePath(dir)
+		if _, duplicate := seen[path]; duplicate {
+			t.Fatalf("imagePath returned the same path twice on call %d: %q", call, path)
+		}
+		seen[path] = struct{}{}
+	}
+}
