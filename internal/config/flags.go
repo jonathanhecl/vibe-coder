@@ -45,6 +45,11 @@ type cliOptions struct {
 	ragIndex         optionalString
 	contextFiles     stringSlice
 	skillsDirs       optionalString
+	lsp              bool
+	noLSP            bool
+	lspServers       optionalString
+	lspTimeout       optionalInt
+	noLSPAfterEdit   bool
 	help             optionalBool
 	version          optionalBool
 	thinkLevel       optionalString
@@ -105,6 +110,11 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.ragIndex, "rag-index", "rag index path")
 	fs.Var(&opts.contextFiles, "context", "pin a .md/.txt guide file as persistent session instruction (repeatable)")
 	fs.Var(&opts.skillsDirs, "skills-dirs", "extra directories scanned for skills (path-list separated)")
+	fs.BoolVar(&opts.lsp, "lsp", false, "enable language-server diagnostics for this run")
+	fs.BoolVar(&opts.noLSP, "no-lsp", false, "disable language-server diagnostics for this run")
+	fs.Var(&opts.lspServers, "lsp-servers", "override a language server command (family:command, family:command)")
+	fs.Var(&opts.lspTimeout, "lsp-timeout", "milliseconds to wait for the language server's report (250..60000)")
+	fs.BoolVar(&opts.noLSPAfterEdit, "no-lsp-after-edit", false, "do not check diagnostics automatically after a written file")
 	fs.Var(&opts.help, "help", "show help")
 	fs.Var(&opts.version, "version", "show version")
 	fs.Var(&opts.thinkLevel, "think", "thinking effort: off|low|medium|high|max")
@@ -118,6 +128,9 @@ func parseCLI(args []string) (cliOptions, error) {
 	}
 	if opts.hideThink && opts.showThink {
 		return opts, fmt.Errorf("cannot use both --hide-think and --show-think")
+	}
+	if opts.lsp && opts.noLSP {
+		return opts, fmt.Errorf("cannot use both --lsp and --no-lsp")
 	}
 	if len(fs.Args()) > 0 {
 		return opts, fmt.Errorf("unexpected positional arguments: %s", strings.Join(fs.Args(), " "))
@@ -259,6 +272,21 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.showThink {
 		cfg.OllamaHideThink = false
+	}
+	if cli.lsp {
+		cfg.LSP.Enabled = LSPOn
+	}
+	if cli.noLSP {
+		cfg.LSP.Enabled = LSPOff
+	}
+	if cli.lspServers.set {
+		cfg.LSP.Servers = parseLSPServers(cli.lspServers.value)
+	}
+	if cli.lspTimeout.set {
+		cfg.LSP.TimeoutMS = cli.lspTimeout.value
+	}
+	if cli.noLSPAfterEdit {
+		cfg.LSP.AfterEdit = false
 	}
 }
 

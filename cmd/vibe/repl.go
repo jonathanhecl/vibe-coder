@@ -9,6 +9,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
+	"github.com/jonathanhecl/vibe-coder/internal/lsp"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
@@ -37,7 +38,7 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	), nil
 }
 
-func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI, ctxStore *contextfiles.Store, mcpMgr *mcp.Manager) {
+func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI, ctxStore *contextfiles.Store, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) {
 	// Model listing (/models) should come from the default provider, not from
 	// the main model's chat client, so capabilities match the provider's API.
 	// The main client stays available for live capability probes.
@@ -57,6 +58,7 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 		Contexts:      ctxStore,
 		Prompter:      ui,
 		MCP:           mcpMgr,
+		LSP:           lspMgr,
 	}
 
 	for {

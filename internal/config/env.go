@@ -169,6 +169,22 @@ func applyEnv(cfg *Config) {
 			cfg.Harness.MetricsDisabled = b
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_LSP_ENABLED")); v != "" {
+		cfg.LSP.Enabled = v
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_LSP_SERVERS")); v != "" {
+		cfg.LSP.Servers = parseLSPServers(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_LSP_AFTER_EDIT")); v != "" {
+		if b, ok := parseBoolish(v); ok {
+			cfg.LSP.AfterEdit = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_LSP_TIMEOUT_MS")); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			cfg.LSP.TimeoutMS = parsed
+		}
+	}
 	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_CODER_RAG_MODE", "RAG_MODE")); v != "" {
 		cfg.RAGMode = v
 	}

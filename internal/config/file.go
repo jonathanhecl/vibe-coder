@@ -180,6 +180,18 @@ func applyConfigFile(cfg *Config, path string) error {
 			if b, ok := parseBoolish(value); ok {
 				cfg.Harness.MetricsDisabled = b
 			}
+		case "LSP_ENABLED":
+			cfg.LSP.Enabled = value
+		case "LSP_SERVERS":
+			cfg.LSP.Servers = parseLSPServers(value)
+		case "LSP_AFTER_EDIT":
+			if b, ok := parseBoolish(value); ok {
+				cfg.LSP.AfterEdit = b
+			}
+		case "LSP_TIMEOUT_MS":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				cfg.LSP.TimeoutMS = parsed
+			}
 		}
 	}
 

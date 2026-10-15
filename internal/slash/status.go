@@ -2,6 +2,7 @@ package slash
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
@@ -73,6 +74,20 @@ func statusRows(c *Ctx) []tui.Row {
 		},
 	})
 	rows = append(rows, tui.Row{Label: "Tools", Plain: toolsStatus(c)})
+	rows = append(rows, tui.Row{
+		Label: "Language servers",
+		Short: "LSP",
+		Plain: lspStatusValue(c),
+		Render: func(st tui.Style) string {
+			if lspResolved(c) {
+				return st.Green(lspStatusValue(c))
+			}
+			if !c.Cfg.LSP.Requested() {
+				return st.Gray(lspStatusValue(c))
+			}
+			return st.Yellow(lspStatusValue(c))
+		},
+	})
 	rows = append(rows, tui.Row{
 		Label: "Assisted",
 		Plain: assistedStatusValue(c),
@@ -183,6 +198,39 @@ func assistedStatusValue(c *Ctx) string {
 	default:
 		return "off (no decision model)"
 	}
+}
+
+// lspResolved reports whether a language server answered for this workspace.
+func lspResolved(c *Ctx) bool {
+	if c.LSP == nil {
+		return false
+	}
+	return len(c.LSP.Resolved()) > 0
+}
+
+// lspStatusValue describes the language servers the session resolved, or why
+// there are none to show: switched off, or nothing in this workspace to run.
+func lspStatusValue(c *Ctx) string {
+	if !c.Cfg.LSP.Requested() {
+		return "off (LSP_ENABLED=off)"
+	}
+	if !lspResolved(c) {
+		if c.Cfg.LSP.Demanded() {
+			return "none for this workspace (LSP_ENABLED=on)"
+		}
+		return "none for this workspace"
+	}
+	resolved := c.LSP.Resolved()
+	families := make([]string, 0, len(resolved))
+	for family, command := range resolved {
+		families = append(families, family+": "+command)
+	}
+	sort.Strings(families)
+	value := strings.Join(families, ", ")
+	if c.Cfg.LSP.AfterEdit {
+		return fmt.Sprintf("%s (after edit, %dms)", value, c.Cfg.LSP.TimeoutMS)
+	}
+	return fmt.Sprintf("%s (manual, %dms)", value, c.Cfg.LSP.TimeoutMS)
 }
 
 func planModeValue(c *Ctx) string {

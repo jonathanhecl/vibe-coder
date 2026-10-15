@@ -37,12 +37,23 @@ type Ctx struct {
 	// MCP is the session's MCP runtime, reported by /mcp. Optional: when nil,
 	// the command reports that no server is configured.
 	MCP MCPReporter
+	// LSP is the session's language server runtime, reported by /status and
+	// used by the Diagnostics tool. Optional: when nil the row reports that no
+	// server resolved for this workspace.
+	LSP LSPReporter
 }
 
 // MCPReporter exposes the state of the configured MCP servers. *mcp.Manager
 // satisfies it.
 type MCPReporter interface {
 	Reports() []mcp.ServerReport
+}
+
+// LSPReporter exposes the language servers resolved for the workspace. It is
+// kept to the one method the rows need, so *lsp.Manager satisfies it without
+// this package depending on the protocol client.
+type LSPReporter interface {
+	Resolved() map[string]string
 }
 
 // ModelLister lists the installed models. ollama.Client satisfies it.

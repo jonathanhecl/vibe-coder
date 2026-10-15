@@ -197,13 +197,25 @@ func main() {
 	reg.Register(tools.NewSkillTool(cfg))
 
 	// Language servers are resolved once per session from the workspace markers
-	// and PATH. The tool is registered only when this workspace has a server to
-	// ask, so the model never sees a diagnostics tool that cannot answer.
-	lspMgr := lsp.NewManager(lsp.Config{Root: cfg.Cwd})
+	// and PATH. The manager exists even when nothing resolves, so /status can
+	// say why; the tool is registered only when there is a server to ask, so the
+	// model never sees a diagnostics tool that cannot answer.
+	lspMgr := lsp.NewManager(lsp.Config{
+		Root:    cfg.Cwd,
+		Servers: cfg.LSP.Servers,
+		Timeout: cfg.LSP.Timeout(),
+	})
 	defer lspMgr.Close()
-	if lspMgr.Available() {
+	switch {
+	case !cfg.LSP.Requested():
+		logger.Infof("Language server diagnostics: disabled")
+	case lspMgr.Available():
 		reg.Register(tools.NewDiagnosticsTool(lspMgr))
 		logger.Infof("Language servers: %v", lspMgr.Resolved())
+	case cfg.LSP.Demanded():
+		// An explicit request that found nothing is worth saying out loud: the
+		// alternative is a session that silently never checks anything.
+		logger.Infof("Language server diagnostics: no server found for %s (LSP_ENABLED=on)", cfg.Cwd)
 	}
 
 	// MCP servers are best effort and independent: each one is started on its
@@ -220,7 +232,7 @@ func main() {
 	ag.SetContextStore(ctxStore)
 	ag.SetSidecar(sidePool)
 	ag.SetVisionRole(visionRole)
-	if lspMgr.Available() {
+	if lspMgr.Available() && cfg.LSP.Requested() && cfg.LSP.AfterEdit {
 		// The same manager behind the tool: an edit is checked automatically
 		// when there is a server that can answer for the file.
 		ag.SetDiagnostics(lspMgr)
@@ -306,7 +318,7 @@ func main() {
 	}
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	logger.Infof("Entering interactive REPL loop.")
-	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore, mcpMgr)
+	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore, mcpMgr, lspMgr)
 	logger.Infof("Exiting interactive REPL loop, finishing execution.")
 }
 

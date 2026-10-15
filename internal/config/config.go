@@ -147,6 +147,10 @@ type Config struct {
 	// Harness holds the agent-harness tunables (context budget, tool-result
 	// retention, metrics). Precedence: defaults < config file < env.
 	Harness HarnessConfig
+	// LSP holds the language-server settings (enabled, server overrides,
+	// automatic post-edit diagnostics, wait timeout). Precedence: defaults <
+	// config file < env < CLI; see lsp.go.
+	LSP LSPConfig
 	// SkillsDirs lists extra directories scanned for Agent Skills
 	// (<dir>/<skill-name>/SKILL.md). Sources: SKILLS_DIRS (file),
 	// VIBE_CODER_SKILLS_DIRS (env), --skills-dirs (flag); a higher source
@@ -264,6 +268,9 @@ func Load(args []string) (*Config, error) {
 	cfg.Harness.normalize()
 
 	applyCLI(cfg, cli)
+	// Unlike the harness tunables, these are settable from the CLI, so they are
+	// clamped once every source has had its say.
+	cfg.LSP.normalize()
 	cfg.SkillsDirs = normalizeSkillsDirs(cfg.Cwd, cfg.SkillsDirs)
 
 	cfg.reconcileRegistry()
@@ -414,6 +421,11 @@ func defaultConfig(cwd, configDir, stateDir string) *Config {
 		Harness: HarnessConfig{
 			KeepToolResults:  defaultKeepToolResults,
 			CompactAtPercent: defaultCompactAtPercent,
+		},
+		LSP: LSPConfig{
+			Enabled:   defaultLSPEnabled,
+			AfterEdit: true,
+			TimeoutMS: defaultLSPTimeout,
 		},
 		Providers: map[string]Provider{
 			DefaultProviderName: {
