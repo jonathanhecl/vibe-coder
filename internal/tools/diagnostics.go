@@ -87,13 +87,17 @@ func (t *DiagnosticsTool) Execute(ctx context.Context, params map[string]any) Re
 		}
 		return errResult(fmt.Sprintf("diagnostics failed for %s: %v", path, err))
 	}
-	return t.render(path, minSeverity, result)
+	return Result{Output: RenderDiagnostics(path, result, minSeverity, t.maxOutput)}
 }
 
-// render formats what the server said, severity first, one line per diagnostic.
-// The path is echoed as the model passed it: a relative path stays short, and
-// it is the string the model will use in its next edit.
-func (t *DiagnosticsTool) render(path string, minSeverity int, result lsp.Result) Result {
+// RenderDiagnostics formats what a language server said, severity first, one
+// line per diagnostic. The path is echoed exactly as it was given: a relative
+// path stays short, and it is the string the model will reuse in its next edit.
+//
+// The agent's automatic post-edit path renders through this same function, so
+// the two entry points cannot disagree about what the server said. A maxBytes of
+// zero or less falls back to defaultDiagnosticsMaxBytes.
+func RenderDiagnostics(path string, result lsp.Result, minSeverity, maxBytes int) string {
 	items := make([]lsp.Diagnostic, 0, len(result.Diagnostics))
 	for _, d := range result.Diagnostics {
 		if severityFloor(d.Severity) > minSeverity {
@@ -108,12 +112,12 @@ func (t *DiagnosticsTool) render(path string, minSeverity int, result lsp.Result
 		// model must never read the second as the first: swallowing a timeout
 		// as "no diagnostics" is how a broken server silently approves edits.
 		if result.Fresh {
-			return Result{Output: fmt.Sprintf("no diagnostics: %s (%s)", path, result.Language)}
+			return fmt.Sprintf("no diagnostics: %s (%s)", path, result.Language)
 		}
-		return Result{Output: fmt.Sprintf("no diagnostics reported for %s (%s): the language server did not answer for the version just sent", path, result.Language)}
+		return fmt.Sprintf("no diagnostics reported for %s (%s): the language server did not answer for the version just sent", path, result.Language)
 	}
 
-	limit := t.maxOutput
+	limit := maxBytes
 	if limit <= 0 {
 		limit = defaultDiagnosticsMaxBytes
 	}
@@ -137,7 +141,20 @@ func (t *DiagnosticsTool) render(path string, minSeverity int, result lsp.Result
 	if !result.Fresh {
 		b.WriteString("(the language server did not answer for the version just sent; this list may be stale)\n")
 	}
-	return Result{Output: strings.TrimRight(b.String(), "\n")}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// HasErrors reports whether a diagnostic list carries at least one error. The
+// agent uses it to decide that a test suite has nothing to add for an edit. An
+// absent or out-of-range severity counts as an error, the same rule the renderer
+// applies, so a caller that shows nothing it classifies as red cannot happen.
+func HasErrors(diagnostics []lsp.Diagnostic) bool {
+	for _, d := range diagnostics {
+		if severityFloor(d.Severity) == lsp.SeverityError {
+			return true
+		}
+	}
+	return false
 }
 
 // diagnosticLine renders one diagnostic the way a compiler does. LSP positions

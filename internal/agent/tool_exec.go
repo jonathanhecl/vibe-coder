@@ -109,16 +109,23 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 			w.RefreshSnapshot()
 		}
 		if !a.InPlanMode() {
-			approve := func(args []string) bool {
-				quoted := make([]string, len(args))
-				for i, arg := range args {
-					quoted[i] = fmt.Sprintf("%q", arg)
+			edited := asString(toolParams["file_path"])
+			// Diagnostics first: a language server answers in milliseconds, and a
+			// fresh error is a verdict the test suite cannot improve on, so it
+			// skips the suite for this edit instead of paying a minute for the
+			// same answer.
+			if !a.observeEditDiagnostics(ctx, edited) {
+				approve := func(args []string) bool {
+					quoted := make([]string, len(args))
+					for i, arg := range args {
+						quoted[i] = fmt.Sprintf("%q", arg)
+					}
+					return a.perm.Check("Bash", map[string]any{"command": strings.Join(quoted, " "), "workdir": a.cfg.Cwd}, a.ui)
 				}
-				return a.perm.Check("Bash", map[string]any{"command": strings.Join(quoted, " "), "workdir": a.cfg.Cwd}, a.ui)
-			}
-			if auto := a.autoTest.RunAfterEdit(ctx, asString(toolParams["file_path"]), approve); strings.TrimSpace(auto) != "" {
-				a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
-				a.recordToolObservation(ctx, "AUTO-TEST", auto, "", false)
+				if auto := a.autoTest.RunAfterEdit(ctx, edited, approve); strings.TrimSpace(auto) != "" {
+					a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
+					a.recordToolObservation(ctx, "AUTO-TEST", auto, "", false)
+				}
 			}
 		}
 	}

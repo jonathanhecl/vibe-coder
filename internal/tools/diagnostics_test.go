@@ -395,3 +395,41 @@ func TestDiagnosticsToolIsNotARegistryDefault(t *testing.T) {
 		t.Error("Diagnostics is registered by RegisterDefaults, want it registered with a source")
 	}
 }
+
+func TestHasErrorsCountsOnlyErrorsAndUnknownSeverities(t *testing.T) {
+	cases := []struct {
+		name        string
+		diagnostics []lsp.Diagnostic
+		want        bool
+	}{
+		{name: "no diagnostics", diagnostics: nil, want: false},
+		{name: "empty list", diagnostics: []lsp.Diagnostic{}, want: false},
+		{name: "an error", diagnostics: []lsp.Diagnostic{severityDiagnostic(lsp.SeverityError, 0, 0, "boom")}, want: true},
+		{name: "a warning only", diagnostics: []lsp.Diagnostic{severityDiagnostic(lsp.SeverityWarning, 0, 0, "careful")}, want: false},
+		{name: "information only", diagnostics: []lsp.Diagnostic{severityDiagnostic(lsp.SeverityInformation, 0, 0, "fyi")}, want: false},
+		{name: "a hint only", diagnostics: []lsp.Diagnostic{severityDiagnostic(lsp.SeverityHint, 0, 0, "maybe")}, want: false},
+		{name: "one error among warnings", diagnostics: []lsp.Diagnostic{
+			severityDiagnostic(lsp.SeverityWarning, 0, 0, "careful"),
+			severityDiagnostic(lsp.SeverityError, 1, 0, "boom"),
+		}, want: true},
+		{
+			// A server that omits severity is still reporting something it wants
+			// fixed, and the renderer shows it as an error.
+			name:        "an omitted severity",
+			diagnostics: []lsp.Diagnostic{severityDiagnostic(0, 0, 0, "unlabelled")},
+			want:        true,
+		},
+		{
+			name:        "an out of range severity",
+			diagnostics: []lsp.Diagnostic{severityDiagnostic(9, 0, 0, "unlabelled")},
+			want:        true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := HasErrors(tc.diagnostics); got != tc.want {
+				t.Errorf("HasErrors = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -43,6 +43,9 @@ type Agent struct {
 	watcher     *watcher.Watcher
 	cp          *gitx.Checkpoint
 	autoTest    *gitx.AutoTest
+	// diagnostics is the language server consulted after every successful edit.
+	// Nil (the default) disables the automatic diagnostics path.
+	diagnostics diagnosticsSource
 	rag         ragProvider
 	paths       *pathMemory
 	side        *sidecar.Pool

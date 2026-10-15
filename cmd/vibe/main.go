@@ -220,6 +220,11 @@ func main() {
 	ag.SetContextStore(ctxStore)
 	ag.SetSidecar(sidePool)
 	ag.SetVisionRole(visionRole)
+	if lspMgr.Available() {
+		// The same manager behind the tool: an edit is checked automatically
+		// when there is a server that can answer for the file.
+		ag.SetDiagnostics(lspMgr)
+	}
 	if cfg.DecisionInUse() {
 		ag.SetDecider(decider)
 	}
