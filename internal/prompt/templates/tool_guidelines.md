@@ -11,5 +11,6 @@
 - Fix problems directly with Write/Edit instead of only explaining them.
 - Edit: the "     5|" prefix from Read is not file content. old_string must match the file exactly, including indentation. Prefer start_line/end_line for whole-line changes; when a string repeats, set replace_all=true or use a larger unique block.
 - GitStatus/GitDiff review working-tree changes; GitUndo restores the latest checkpoint after a bad edit.
+- After an edit, a "[DIAGNOSTICS]" result reports what the language server found in the file you just changed. It is authoritative for that file: fix the reported errors instead of re-reading or re-running the suite. When it says the auto-test was skipped, clearing those errors is what unblocks the suite; running the suite first only repeats what the server already said.
 - TodoWrite: only for tasks with 3+ steps. Declare the full plan once, keep exactly one item "in_progress", and call it again with merge=true as each step completes.
 - AskUserQuestion: "questions" is an array of objects, each with "prompt" and a non-empty "options" array (strings, or objects with "label").

@@ -147,6 +147,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`. Servers start independently and best effort: a broken one is reported and costs only itself. `/mcp` (or the startup block) shows each server's scope, state and tool count, `/mcp tools` lists the wrapped tool names, calls are bounded by a per-call timeout, and output respects the shared tool output cap.
 - **Agent Skills on demand** — discovers `SKILL.md` skill folders and flat `.md` files under project, user, and `SKILLS_DIRS` roots; the prompt carries a name+description catalog and the `Skill` tool loads the full content, with read-only access to bundled files.
 - **File checkpoint + auto-test** — pre-Edit/Write copies leave the working tree, index, and stashes untouched. A successful changed file becomes a completed checkpoint; failed or unchanged edits do not replace usable undo history. Related tests request shell execution permission, and failures or denied execution are re-injected as `[AUTO-TEST]` observations.
+- **Language server diagnostics** — after a successful `Edit`/`Write` the file's language server (gopls, typescript-language-server, rust-analyzer, `ruff server`/`pylsp`) is asked for a report, and the result lands as a `[DIAGNOSTICS]` observation. A fresh error skips the auto-test for that edit: the server answered in milliseconds what the suite would take a minute to say. The read-only `Diagnostics` tool exposes the same report on demand, and `/status` shows which servers resolved.
 - **File watcher** — external file changes appear as `[System Note] N file change(s) detected` on the next iteration.
 
 ## Requirements
@@ -575,6 +576,11 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 - `-y, --yes` — enable yes mode (auto-approve non-dangerous tools)
 - `--assisted-yes` — enable assisted execution mode with the decision model (auto-approve safe commands, prompt for dangerous commands)
 - `--offline` — enable offline mode (blocks network tools and external commands while permitting localhost)
+- `--lsp` — force language-server diagnostics on for this run (default `auto`: active when a server resolves for the workspace)
+- `--no-lsp` — disable language-server diagnostics for this run
+- `--lsp-servers <family:command,...>` — override a server command per language family (`go`, `python`, `typescript`, `rust`); an override needs no workspace marker
+- `--lsp-timeout <ms>` — how long to wait for the server's report on the version just sent (default `5000`, clamped `250..60000`)
+- `--no-lsp-after-edit` — do not check diagnostics automatically after a written file (the `Diagnostics` tool stays available)
 - `--debug` — enable debug logs
 - `-n, --new` — start a new session (bypass automatic session resume for current directory)
 - `-t, --temporal, --temp` — start a temporal session (discards chat transcript on exit; keeps agent code changes)
@@ -604,6 +610,13 @@ Harness tunables (defaults < config file < env):
 - `TOOL_OUTPUT_MAX_TOKENS=<n>` / `VIBE_CODER_TOOL_OUTPUT_MAX_TOKENS` — cap on a single tool result's token size (default `0` = auto; negative values normalize to `0`)
 - `COMPACT_AT_PERCENT=<n>` / `VIBE_CODER_COMPACT_AT_PERCENT` — context-window fill percentage that triggers compaction (default `85`, clamped to `50..95`)
 - `METRICS_DISABLED=true|false` / `VIBE_CODER_METRICS_DISABLED` — turn off JSONL metrics recording (the in-memory `/stats` summary still updates)
+
+Language servers (defaults < config file < env < CLI):
+
+- `LSP_ENABLED=auto|on|off` / `VIBE_CODER_LSP_ENABLED` — gate for diagnostics, both the automatic check and the `Diagnostics` tool (default `auto`: active when a server resolves for the workspace; `on` also reports at startup when nothing resolved, so a silent session cannot read as a working one)
+- `LSP_SERVERS=<family:command,...>` / `VIBE_CODER_LSP_SERVERS` — override a server command per family (`go`, `python`, `typescript`, `rust`). An override needs no workspace marker; what actually resolved is what `/status` prints, so a typo shows up there
+- `LSP_AFTER_EDIT=true|false` / `VIBE_CODER_LSP_AFTER_EDIT` — check the edited file automatically after `Edit`/`Write` (default `true`)
+- `LSP_TIMEOUT_MS=<n>` / `VIBE_CODER_LSP_TIMEOUT_MS` — milliseconds to wait for the report on the version just sent (default `5000`, clamped to `250..60000`; a timeout is reported as "no answer", never as a clean file)
 
 Per-request harness metrics (model-reported token counts, estimated prompt-section sizes, timings) are appended as JSONL to `<state-dir>/metrics/<session-id>.jsonl`; isolated and temporal sessions record nothing and keep the summary in memory only. Inspect them live with `/stats`.
 
@@ -747,7 +760,7 @@ Slash commands are entered at the `>` prompt during an interactive session.
 - `/redo` — re-print the last assistant response (rendered) to recover the context of what you were working on
 - `/compact` — force a sidecar-summarized compaction
 - `/tokens` — show token usage vs the context window (attached images count too)
-- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, a `Models` section with the provider and model bound to every role, UI, thinking, tools, hidden thinking, assisted state, yes/plan mode, offline mode, mission, context usage). Role labels match the `/setmodel` vocabulary (`Main`, `Sidecar`, `Rabbit/Fast`, `Decision`, `Vision`, `Embedding`) and the vision tag follows the same listing rule as the intro. Provider endpoints are left to `/providers`
+- `/status`, `/info` — show the current configuration in a colored, banner-style summary (session, a `Models` section with the provider and model bound to every role, UI, thinking, tools, hidden thinking, assisted state, yes/plan mode, offline mode, mission, context usage). Role labels match the `/setmodel` vocabulary (`Main`, `Sidecar`, `Rabbit/Fast`, `Decision`, `Vision`, `Embedding`) and the vision tag follows the same listing rule as the intro. Provider endpoints are left to `/providers`. The `Language servers` row reports which language servers resolved for this workspace, or why none did (`off (LSP_ENABLED=off)`, `none for this workspace`), together with whether diagnostics run automatically after an edit and the wait timeout in milliseconds
 - `/stats` — show session harness metrics (requests, provider-reported and estimated tokens, timings) plus the metrics JSONL file path
 - `/context <file.md|file.txt>` — pin a guide file as a persistent session instruction (when files are already pinned, it asks `[A]ppend / [R]eplace / [C]ancel`)
 - `/context add <file...>` — accumulate another guide file
@@ -875,6 +888,15 @@ do not call these directly, but their behavior affects speed and context usage:
 - `Glob` accepts `head_limit` to bound large file listings.
 - `Grep` accepts `head_limit`, `offset`, `glob`, `output_mode`, `multiline`,
   `-i`, `-A`, `-B`, and `-C`.
+- `Diagnostics` reports the language server's errors and warnings for one file
+  as it is on disk: `file_path` is required and `severity`
+  (`error`/`warning`/`info`/`hint`/`all`) filters the report to that level and
+  worse. Read-only, so it works in plan/review mode and never asks permission.
+  A clean file answers in one line, and when the server did not answer for the
+  version just sent the result says so instead of reading as clean. Servers come
+  from the workspace markers plus `PATH` (gopls, typescript-language-server,
+  rust-analyzer, `ruff server`/`pylsp`); when none resolves the tool is not
+  registered at all.
 - `Bash` runs a shell command with cleaned environment and dangerous-pattern
   guards. `InteractiveBash` starts a persistent terminal session for
   multi-step CLI workflows.
