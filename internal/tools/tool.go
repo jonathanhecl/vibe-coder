@@ -22,21 +22,55 @@ const (
 
 func EffectOf(tool Tool) Effect {
 	switch tool.(type) {
-	case *ReadTool, *GlobTool, *GrepTool, *WebFetchTool, *WebSearchTool, *DescribeImageTool, *ScreenshotTool, *SkillTool, *GitStatusTool, *GitDiffTool, *DecideTool,
-		*DiagnosticsTool:
+	case *ReadTool, *ReadManyTool, *GlobTool, *GrepTool, *WebFetchTool, *WebSearchTool, *DescribeImageTool, *ScreenshotTool, *SkillTool, *GitStatusTool, *GitDiffTool, *DecideTool,
+		*DiagnosticsTool, *BackgroundStatusTool, *BackgroundListTool:
 		return EffectRead
 	case *TodoWriteTool, *TaskCreateTool, *TaskListTool, *TaskGetTool, *TaskUpdateTool, *AskUserQuestionTool,
 		*MissionStartTool, *MissionCompleteTool, *MissionBlockedTool:
 		return EffectState
 	case *WriteTool, *EditTool, *NotebookEditTool, *GitUndoTool:
 		return EffectWrite
-	case *BashTool, *InteractiveBashTool, *SendInputTool, *TerminateSessionTool, *HTTPRequestTool:
+	case *BashTool, *InteractiveBashTool, *SendInputTool, *TerminateSessionTool, *HTTPRequestTool,
+		*BackgroundRunTool, *BackgroundKillTool:
 		return EffectExecute
 	case *SubAgentTool, *ParallelAgentsTool:
 		return EffectDelegate
 	default:
 		return EffectUnknown
 	}
+}
+
+// IsAllowedInMode reports whether tool can ever be used under the active mode
+// flags. Tools that are unconditionally blocked in reviewMode, planMode, or
+// offline mode are omitted from wire schemas and XML tool catalogues to save
+// tokens and prevent models from attempting forbidden calls.
+func IsAllowedInMode(tool Tool, planMode, reviewMode, offline bool) bool {
+	if tool == nil {
+		return false
+	}
+	if offline {
+		switch tool.(type) {
+		case *WebFetchTool, *WebSearchTool, *HTTPRequestTool:
+			return false
+		}
+	}
+	effect := EffectOf(tool)
+	safe := effect == EffectRead || effect == EffectState || effect == EffectDelegate
+	if reviewMode {
+		return safe
+	}
+	if planMode {
+		if safe {
+			return true
+		}
+		switch tool.(type) {
+		case *WriteTool, *EditTool:
+			return true
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 type Executor func(context.Context, Tool, map[string]any) (Result, error)

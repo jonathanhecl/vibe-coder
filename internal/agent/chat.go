@@ -458,10 +458,16 @@ func (a *Agent) nativeChatTools() []ollama.ChatTool {
 	if len(schemas) == 0 {
 		return nil
 	}
+	planMode := a.InPlanMode()
+	reviewMode := a.InReviewMode()
+	offline := a.isOffline()
 	out := make([]ollama.ChatTool, 0, len(schemas))
 	for _, s := range schemas {
 		name := strings.TrimSpace(s.Function.Name)
 		if name == "" {
+			continue
+		}
+		if t := a.reg.Get(name); !tools.IsAllowedInMode(t, planMode, reviewMode, offline) {
 			continue
 		}
 		out = append(out, ollama.ChatTool{
@@ -798,7 +804,7 @@ func (a *Agent) rebuildStableSystemPromptBody() string {
 	// Native-mode models get their tool schemas in the request's tools field;
 	// only XML-mode models need the invocation protocol and text catalogue.
 	if a.xmlToolMode() {
-		if protocol := tools.RenderXMLProtocolBlock(a.reg); protocol != "" {
+		if protocol := tools.RenderXMLProtocolBlockForMode(a.reg, a.InPlanMode(), a.InReviewMode(), a.isOffline()); protocol != "" {
 			systemPrompt = systemPrompt + "\n\n" + protocol
 		}
 	}
@@ -813,8 +819,12 @@ func (a *Agent) buildSystemPrompt() string {
 	inReviewMode := a.reviewMode
 	a.mu.RUnlock()
 	offline := a.isOffline()
+	xmlMode := a.xmlToolMode()
 
-	key := stableSystemCacheKey(a.cfg, a.reg, a.contextFingerprint(), a.xmlToolMode(), offline)
+	key := stableSystemCacheKey(a.cfg, a.reg, a.contextFingerprint(), xmlMode, offline)
+	if xmlMode {
+		key += "\x1eplan=" + boolFlag(inPlanMode) + "\x1ereview=" + boolFlag(inReviewMode)
+	}
 	missionKey := a.missionCacheKey()
 
 	a.sysPrompt.mu.Lock()

@@ -123,3 +123,59 @@ func TestDelegatedWriteUsesParentPermissions(t *testing.T) {
 		t.Fatalf("unauthorized file exists: %v", err)
 	}
 }
+
+func TestNativeChatToolsAndXMLPromptFilterByMode(t *testing.T) {
+	ag := newCoverageAgent(t, &coverageClient{reply: "done"}, tui.DecisionAllowOnce, true)
+	ag.cfg.ToolsKnown = true
+	ag.cfg.ToolsSupported = true
+
+	fullCount := len(ag.nativeChatTools())
+	if fullCount == 0 {
+		t.Fatal("expected non-empty native tools in normal mode")
+	}
+
+	ag.EnterReviewMode()
+	reviewTools := ag.nativeChatTools()
+	if len(reviewTools) >= fullCount {
+		t.Fatalf("expected review mode to filter tools: got %d, full %d", len(reviewTools), fullCount)
+	}
+	reviewNames := make(map[string]bool, len(reviewTools))
+	for _, td := range reviewTools {
+		reviewNames[td.Function.Name] = true
+	}
+	for _, allowed := range []string{"Read", "ReadMany", "Glob", "Grep", "BackgroundStatus", "BackgroundList"} {
+		if !reviewNames[allowed] {
+			t.Fatalf("review mode omitted read-only tool %s", allowed)
+		}
+	}
+	for _, forbidden := range []string{"Write", "Edit", "Bash", "BackgroundRun", "BackgroundKill", "GitUndo"} {
+		if reviewNames[forbidden] {
+			t.Fatalf("review mode leaked mutating/exec tool %s", forbidden)
+		}
+	}
+	ag.ExitReviewMode()
+
+	ag.EnterPlanMode()
+	planTools := ag.nativeChatTools()
+	planNames := make(map[string]bool, len(planTools))
+	for _, td := range planTools {
+		planNames[td.Function.Name] = true
+	}
+	if !planNames["Write"] || !planNames["Edit"] {
+		t.Fatal("plan mode should keep Write and Edit tool schemas for plan files")
+	}
+	for _, forbidden := range []string{"NotebookEdit", "Bash", "BackgroundRun", "GitUndo"} {
+		if planNames[forbidden] {
+			t.Fatalf("plan mode leaked forbidden tool %s", forbidden)
+		}
+	}
+	ag.ExitPlanMode()
+
+	ag.perm.SetOfflineMode(true)
+	offlineTools := ag.nativeChatTools()
+	for _, td := range offlineTools {
+		if td.Function.Name == "WebFetch" || td.Function.Name == "WebSearch" {
+			t.Fatalf("offline mode leaked network tool %s", td.Function.Name)
+		}
+	}
+}

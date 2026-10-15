@@ -24,6 +24,12 @@ func RenderGuidelinesBlock(reg *Registry, offline bool) string {
 // agent's parseXMLFallback parses). It returns "" when the registry is nil
 // or empty.
 func RenderXMLProtocolBlock(reg *Registry) string {
+	return RenderXMLProtocolBlockForMode(reg, false, false, false)
+}
+
+// RenderXMLProtocolBlockForMode renders the XML invocation protocol and only
+// the tools permitted under the given mode flags.
+func RenderXMLProtocolBlockForMode(reg *Registry, planMode, reviewMode, offline bool) string {
 	if reg == nil {
 		return ""
 	}
@@ -34,7 +40,7 @@ func RenderXMLProtocolBlock(reg *Registry) string {
 	lines := make([]string, 0, len(names))
 	for _, name := range names {
 		t := reg.Get(name)
-		if t == nil {
+		if !IsAllowedInMode(t, planMode, reviewMode, offline) {
 			continue
 		}
 		desc := strings.TrimSpace(t.Description())
@@ -47,6 +53,9 @@ func RenderXMLProtocolBlock(reg *Registry) string {
 		} else {
 			lines = append(lines, fmt.Sprintf("%s: %s", name, desc))
 		}
+	}
+	if len(lines) == 0 {
+		return ""
 	}
 	return prompt.Render("tool_protocol_xml", struct{ Tools []string }{Tools: lines})
 }
