@@ -195,21 +195,15 @@ func main() {
 	reg.Register(tools.NewScreenshotTool(cfg, client, sidePool).SetVisionRole(visionRole))
 	reg.Register(tools.NewSkillTool(cfg))
 
-	mcpCtx, mcpCancel := mcp.DefaultInitContext()
-	defer mcpCancel()
-	mcpClients, mcpTools, mcpErr := mcp.InitAndWrapAll(mcpCtx, cfg.ConfigDir, cfg.Cwd)
-	if mcpErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to initialize MCP tools: %v\n", mcpErr)
-	}
-	for _, tool := range mcpTools {
+	// MCP servers are best effort and independent: each one is started on its
+	// own budget and its state is reported after the banner instead of a single
+	// failure dropping the servers behind it.
+	mcpMgr := mcp.InitAll(context.Background(), cfg.ConfigDir, cfg.Cwd)
+	for _, tool := range mcpMgr.Tools() {
 		reg.Register(tool)
 		perm.AddAskTool(tool.Name())
 	}
-	defer func() {
-		for _, c := range mcpClients {
-			c.Stop()
-		}
-	}()
+	defer mcpMgr.Stop()
 
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	ag.SetContextStore(ctxStore)
@@ -279,7 +273,7 @@ func main() {
 	bannerPrinted := false
 	if cfg.Prompt != "" {
 		logger.Infof("Running one-shot prompt flow: %q", cfg.Prompt)
-		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui, resumed)
+		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui, resumed, mcpMgr)
 		if err != nil {
 			exitWithError(err)
 		}
@@ -294,6 +288,7 @@ func main() {
 	if !bannerPrinted {
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
 	}
+	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	logger.Infof("Entering interactive REPL loop.")
 	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore)
 	logger.Infof("Exiting interactive REPL loop, finishing execution.")

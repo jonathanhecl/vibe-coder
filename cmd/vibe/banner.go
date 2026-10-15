@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 	"github.com/jonathanhecl/vibe-coder/internal/version"
 )
@@ -82,6 +84,17 @@ func sessionBannerRow(cfg *config.Config, sessionID string, resumed bool) tui.Ro
 	default:
 		return tui.Row{Label: "Session", PlainLabel: "Session started", Plain: sessionID, Render: white}
 	}
+}
+
+// printMCPBlock surfaces the MCP servers this run connected to and the reason
+// every failed one did not, so a server missing from the tool list is visible
+// instead of silent. Nothing is printed when no server is configured.
+func printMCPBlock(out io.Writer, st tui.Style, mgr *mcp.Manager) {
+	rows := mcp.ReportRows(mgr.Reports())
+	if len(rows) == 0 {
+		return
+	}
+	tui.WriteBlock(out, st, "mcp", rows)
 }
 
 // startupBanner renders the startup header. The plain path keeps a line-based

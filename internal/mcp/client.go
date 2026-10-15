@@ -202,3 +202,14 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 	}
 	return strings.Join(parts, "\n"), nil
 }
+
+// asString and asMap read the untyped JSON-RPC payloads the protocol hands back.
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func asMap(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
+}

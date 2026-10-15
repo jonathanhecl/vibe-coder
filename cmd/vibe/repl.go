@@ -9,6 +9,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
+	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -16,10 +17,11 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
-func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Agent, sess *session.Session, ui tui.UI, resumed bool) (bool, error) {
+func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Agent, sess *session.Session, ui tui.UI, resumed bool, mcpMgr *mcp.Manager) (bool, error) {
 	// Keep one-shot output aligned with interactive startup context so users
 	// can always see which model/session/host served the answer.
 	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
+	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	if err := runPrompt(rootCtx, ag, ui, cfg.Prompt); err != nil {
 		return false, err
 	}
