@@ -98,12 +98,12 @@ func ToolTargetPaths(toolName string, params map[string]any, ws string) []string
 				}
 			}
 		}
-	case "bash", "interactivebash":
+	case "bash", "interactivebash", "backgroundrun":
 		var candidates []string
 		for _, key := range []string{"workdir", "cwd", "dir"} {
 			if p, ok := params[key].(string); ok && strings.TrimSpace(p) != "" {
 				wd := strings.TrimSpace(p)
-				if ws == "" || !IsPathInsideDomain(ws, wd) {
+				if ws == "" || (!IsPathInsideDomain(ws, wd) && !isAllowedSystemPath(wd, ws)) {
 					candidates = append(candidates, wd)
 				}
 			}
@@ -131,6 +131,9 @@ func ExtractCommandTargetPaths(command string, ws string) []string {
 				continue
 			}
 			if ws != "" && IsPathInsideDomain(ws, clean) {
+				continue
+			}
+			if isAllowedSystemPath(clean, ws) {
 				continue
 			}
 			if _, ok := seen[clean]; !ok {
@@ -511,6 +514,10 @@ func IsPathInsideDomain(ws, path string) bool {
 		cleanTarget = filepath.Clean(filepath.Join(cleanWS, cleanTarget))
 	}
 
+	if cleanTarget == cleanWS {
+		return true
+	}
+
 	// Lexical check
 	checkWS := cleanWS
 	checkTarget := cleanTarget
@@ -583,6 +590,9 @@ func (m *Manager) UnapprovedOutDomainPaths(toolName string, params map[string]an
 		if m.IsInsideDomain(p) {
 			continue
 		}
+		if isAllowedSystemPath(p, m.WorkspaceDir()) {
+			continue
+		}
 		if readOnly && m.isUnderReadOnlyRoot(p) {
 			continue
 		}
@@ -595,6 +605,92 @@ func (m *Manager) UnapprovedOutDomainPaths(toolName string, params map[string]an
 		unapproved = append(unapproved, p)
 	}
 	return deduplicatePaths(unapproved)
+}
+
+func isAllowedSystemPath(p, ws string) bool {
+	cleanP := filepath.ToSlash(filepath.Clean(p))
+	// If ws is itself in a temporary directory (e.g. during unit tests),
+	// do not treat peer temp directories as allowed system paths.
+	if ws != "" {
+		cleanWS := filepath.ToSlash(filepath.Clean(ws))
+		if isSystemTempDir(cleanWS) {
+			return false
+		}
+	}
+	return isSystemTempDir(cleanP)
+}
+
+func isSystemTempDir(cleanSlash string) bool {
+	tempRoots := []string{"/tmp", "/var/tmp"}
+	if runtime.GOOS == "darwin" {
+		tempRoots = append(tempRoots, "/private/tmp", "/private/var/tmp")
+	}
+	if runtime.GOOS == "windows" {
+		if t := os.TempDir(); t != "" {
+			tempRoots = append(tempRoots, filepath.ToSlash(filepath.Clean(t)))
+		}
+		if t := os.Getenv("TEMP"); t != "" {
+			tempRoots = append(tempRoots, filepath.ToSlash(filepath.Clean(t)))
+		}
+		if t := os.Getenv("TMP"); t != "" {
+			tempRoots = append(tempRoots, filepath.ToSlash(filepath.Clean(t)))
+		}
+	}
+	for _, root := range tempRoots {
+		if cleanSlash == root || strings.HasPrefix(cleanSlash, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsSafeReadOnlyCommand reports whether a shell command is a pure read-only inspection
+// command (such as 'ls', 'dir', 'pwd') within the workspace or system temp, with no
+// redirections, command substitutions, or side effects.
+func IsSafeReadOnlyCommand(command, ws string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+
+	// Any redirection or command substitution makes it non-read-only
+	if strings.ContainsAny(command, "><`$") {
+		return false
+	}
+
+	subcmds := tokenizeCommandSubcommands(command)
+	if len(subcmds) == 0 {
+		return false
+	}
+
+	for _, words := range subcmds {
+		if len(words) == 0 {
+			continue
+		}
+		bin := strings.ToLower(filepath.Base(words[0]))
+		bin = strings.TrimSuffix(bin, ".exe")
+
+		switch bin {
+		case "ls", "dir", "pwd":
+			// Allowed safe read-only binaries
+		default:
+			return false
+		}
+
+		// Check all candidate paths in this subcommand are inside ws or system temp
+		candidates := extractCandidatePathsFromSubcommand(words)
+		for _, c := range candidates {
+			clean := cleanCandidatePath(c, ws)
+			if clean == "" {
+				continue
+			}
+			if !IsPathInsideDomain(ws, clean) && !isAllowedSystemPath(clean, ws) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // IsUserProvidedPath reports whether path matches a file explicitly supplied

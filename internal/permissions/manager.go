@@ -412,6 +412,12 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 				}
 			}
 		}
+
+		// Auto-approve pure read-only inspection commands (such as 'ls', 'pwd', 'dir')
+		// in the workspace so they never prompt the user unnecessarily.
+		if !alwaysConfirm && (tool == "bash" || tool == "interactivebash" || tool == "backgroundrun") && IsSafeReadOnlyCommand(command, m.WorkspaceDir()) {
+			return true
+		}
 	} else {
 		// Out-of-domain target: requires explicit user confirmation.
 		// Never treated as TierSafe or auto-approved by in-domain session tool allow.

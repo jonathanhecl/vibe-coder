@@ -409,3 +409,86 @@ func TestDomain_GitDiff_OutDomain(t *testing.T) {
 		t.Fatalf("GitDiff should succeed with DecisionAllowOnce")
 	}
 }
+
+func TestSystemTempPathAllowed(t *testing.T) {
+	ws := "/home/user/project"
+	m := NewManager(&config.Config{Cwd: ws})
+
+	tempPaths := []string{
+		"/tmp",
+		"/tmp/test.txt",
+		"/tmp/subdir/file.sh",
+		"/var/tmp/download.zip",
+	}
+
+	for _, tp := range tempPaths {
+		if !isAllowedSystemPath(tp, ws) {
+			t.Errorf("expected %s to be allowed system path when workspace is %s", tp, ws)
+		}
+		unapproved := m.UnapprovedOutDomainPaths("Read", map[string]any{"file_path": tp})
+		if len(unapproved) != 0 {
+			t.Errorf("expected 0 unapproved paths for %s, got %v", tp, unapproved)
+		}
+	}
+}
+
+func TestSafeReadOnlyCommand(t *testing.T) {
+	ws := "/home/user/project"
+
+	safeCmds := []string{
+		"ls",
+		"ls -la",
+		"ls -lh internal",
+		"ls .",
+		"ls ./cmd",
+		"ls " + ws,
+		"ls /tmp",
+		"pwd",
+		"dir",
+	}
+
+	for _, cmd := range safeCmds {
+		if !IsSafeReadOnlyCommand(cmd, ws) {
+			t.Errorf("expected %q to be safe read-only command", cmd)
+		}
+	}
+
+	unsafeCmds := []string{
+		"ls /etc",
+		"ls > out.txt",
+		"ls >> out.txt",
+		"ls | rm -rf .",
+		"ls; rm -rf .",
+		"ls $(whoami)",
+		"ls `whoami`",
+		"rm file.txt",
+		"cat file.txt",
+		"go test ./...",
+	}
+
+	for _, cmd := range unsafeCmds {
+		if IsSafeReadOnlyCommand(cmd, ws) {
+			t.Errorf("expected %q NOT to be safe read-only command", cmd)
+		}
+	}
+}
+
+func TestManager_Check_AutoApprovesLSInWorkspace(t *testing.T) {
+	ws := "/home/user/project"
+	m := NewManager(&config.Config{Cwd: ws, YesMode: false})
+
+	// 'ls' in workspace should be auto-approved without UI (returns true)
+	if !m.Check("Bash", map[string]any{"command": "ls"}, nil) {
+		t.Fatalf("expected 'ls' in workspace to be auto-approved without prompt")
+	}
+
+	if !m.Check("Bash", map[string]any{"command": "ls -la internal"}, nil) {
+		t.Fatalf("expected 'ls -la internal' in workspace to be auto-approved without prompt")
+	}
+
+	// Mutating or unknown command must still require permission (returns false without UI)
+	if m.Check("Bash", map[string]any{"command": "rm file.txt"}, nil) {
+		t.Fatalf("expected 'rm file.txt' to NOT be auto-approved")
+	}
+}
+

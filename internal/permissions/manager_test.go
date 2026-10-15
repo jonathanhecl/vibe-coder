@@ -23,8 +23,9 @@ func (f fakeUI) AskPermission(_ string, _ map[string]any) tui.Decision {
 func TestCheckSafeAndAskTools(t *testing.T) {
 	t.Parallel()
 
-	m := NewManager(&config.Config{YesMode: false})
-	inDomain := filepath.Join(m.WorkspaceDir(), "a.txt")
+	ws := t.TempDir()
+	m := NewManager(&config.Config{Cwd: ws, YesMode: false})
+	inDomain := filepath.Join(ws, "a.txt")
 	if !m.Check("Read", map[string]any{"file_path": inDomain}, nil) {
 		t.Fatalf("safe tool should be allowed by default in domain")
 	}
@@ -234,7 +235,7 @@ func TestAssistedExecutionMode(t *testing.T) {
 
 	// 5. Decider error falls through to prompt and deactivates assisted mode
 	decider.err = errors.New("connection refused")
-	if m.Check("Bash", map[string]any{"command": "ls"}, nil) {
+	if m.Check("Bash", map[string]any{"command": "make build"}, nil) {
 		t.Fatal("expected error from safety decider to safely fall through to prompt")
 	}
 	if m.AssistedMode() {
