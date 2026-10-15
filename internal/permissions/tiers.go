@@ -22,11 +22,12 @@ var (
 		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {}, "todowrite": {},
 		"missionstart": {}, "missioncomplete": {}, "missionblocked": {},
 		"describeimage": {}, "screenshot": {}, "skill": {}, "gitstatus": {}, "gitdiff": {}, "decide": {},
-		"backgroundstatus": {}, "backgroundlist": {},
+		"backgroundstatus": {}, "backgroundlist": {}, "backgroundkill": {},
+		"terminatesession": {}, "sendinput": {},
 	}
 	askTools = map[string]struct{}{
 		"bash": {}, "write": {}, "edit": {}, "gitundo": {},
-		"backgroundrun": {}, "backgroundkill": {},
+		"backgroundrun": {},
 	}
 	networkTools = map[string]struct{}{
 		"webfetch": {}, "websearch": {}, "httprequest": {},

@@ -319,3 +319,16 @@ func TestAssistedExecutionModeNetworkTools(t *testing.T) {
 		t.Fatal("expected assisted mode to deactivate on action decider error")
 	}
 }
+
+func TestTerminateSessionAndSendInputAreSafeTier(t *testing.T) {
+	t.Parallel()
+	m := NewManager(&config.Config{YesMode: false})
+
+	safeTools := []string{"TerminateSession", "SendInput", "BackgroundKill", "BackgroundStatus", "BackgroundList"}
+	for _, tool := range safeTools {
+		if !m.Check(tool, map[string]any{"session_id": "term-123", "input": "y", "task_id": "bg-1"}, nil) {
+			t.Fatalf("expected tool %s to be TierSafe and auto-approved without prompt", tool)
+		}
+	}
+}
+
