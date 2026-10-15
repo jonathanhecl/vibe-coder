@@ -25,6 +25,12 @@ const (
 	// outputTrimTarget is the size the buffer is trimmed down to when it
 	// exceeds maxOutputBuf (half of the cap).
 	outputTrimTarget = maxOutputBuf / 2
+	// drainGrace bounds how long waitForExit lets the output readers finish
+	// before the process is reaped. A child that exits closes its write end, so
+	// the readers reach EOF and this costs nothing; the bound only matters for a
+	// child that keeps its stdout open in a background process, where EOF never
+	// arrives and the session must not be wedged waiting for it.
+	drainGrace = time.Second
 )
 
 // Manager holds interactive  sessions and handles lifecycle.
@@ -249,6 +255,22 @@ func (s *Session) copyOutput(r io.Reader) {
 }
 
 func (s *Session) waitForExit() {
+	// Drain the output readers before reaping the process. cmd was created with
+	// StdoutPipe and StderrPipe, and exec's Wait closes those pipe ends, so
+	// calling Wait first discards whatever is still in the kernel buffer: a
+	// command that exits before its readers have been scheduled would be
+	// reported as having printed nothing. The readers finish when the child
+	// closes its stdout, so normally this returns at once.
+	drained := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+	case <-time.After(drainGrace):
+	}
+
 	err := s.cmd.Wait()
 	s.wg.Wait()
 	s.mu.Lock()
