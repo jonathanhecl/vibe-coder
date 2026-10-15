@@ -203,7 +203,10 @@ func TestDiagnosticsNeverReachTheSystemPrompt(t *testing.T) {
 	if !diagnosticsTranscriptHas(ag, "DIAGNOSTICS") {
 		t.Fatal("no diagnostics observation to compare against")
 	}
-	if prompt := ag.buildSystemPrompt(); strings.Contains(prompt, "undefined: thing") || strings.Contains(prompt, "DIAGNOSTICS") {
+	// The observation's name is allowed to appear in tool guidance — the model
+	// cannot act on a report it has never heard of. What must never reach the
+	// prompt is the report itself.
+	if prompt := ag.buildSystemPrompt(); strings.Contains(prompt, "undefined: thing") || strings.Contains(prompt, "main.go:3:15") {
 		t.Error("diagnostics leaked into the system prompt")
 	}
 }
