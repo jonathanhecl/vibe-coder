@@ -202,6 +202,31 @@ func (m *Manager) userProvidedNote(detail string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// gravityNote tells the decision model what the deterministic classifier
+// already concluded, so the model reasons from that floor instead of guessing.
+// Being explicit also stops a model from downgrading a destructive action to a
+// confident "allow" without weighing what the classifier found.
+func gravityNote(g Gravity) string {
+	if g == GravityRead || g == GravityUnknown {
+		return ""
+	}
+	if warn := g.Warn(); warn != "" {
+		return fmt.Sprintf("The deterministic pre-check classified this action as %s: %s.", g.Label(), warn)
+	}
+	return fmt.Sprintf("The deterministic pre-check classified this action as %s.", g.Label())
+}
+
+// joinNotes concatenates non-empty context notes for the decision model.
+func joinNotes(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
 func (m *Manager) SetYesMode(on bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -353,7 +378,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 			m.mu.Unlock()
 			return false
 		}
-		if tool == "bash" || tool == "interactivebash" {
+		if isShellTool(tool) {
 			command, _ := params["command"].(string)
 			if m.isCommandOfflineBlocked(command, safetyDecider) {
 				m.mu.Lock()
@@ -377,10 +402,20 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	}
 
 	command, _ := params["command"].(string)
-	alwaysConfirm := (tool == "bash" || tool == "interactivebash") && needsAlwaysConfirmBash(command)
+	gravity := GravityUnknown
+	if isShellTool(tool) {
+		gravity = CommandGravity(command, m.WorkspaceDir())
+	}
+	alwaysConfirm := gravity == GravityCatastrophic
 
 	if !isOutDomain {
 		if toolTier(tool) == TierSafe {
+			return true
+		}
+		// A command that provably only reads needs no prompt, and no model
+		// review either: paying a decision round trip for `git status` would
+		// make the common case slower for no safety gain.
+		if gravity == GravityRead {
 			return true
 		}
 		if unattended {
@@ -402,8 +437,8 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		// confirmations (always-confirm shell patterns) and safe-tier tools keep
 		// their existing paths.
 		if assistedMode && !alwaysConfirm {
-			if tool == "bash" || tool == "interactivebash" {
-				if m.assistedCommandApproved(ui, safetyDecider, toolName, command) {
+			if isShellTool(tool) {
+				if m.assistedCommandApproved(ui, safetyDecider, toolName, command, gravity) {
 					return true
 				}
 			} else if toolTier(tool) != TierSafe {
@@ -413,11 +448,8 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 			}
 		}
 
-		// Auto-approve pure read-only inspection commands (such as 'ls', 'pwd', 'dir')
-		// in the workspace so they never prompt the user unnecessarily.
-		if !alwaysConfirm && (tool == "bash" || tool == "interactivebash" || tool == "backgroundrun") && IsSafeReadOnlyCommand(command, m.WorkspaceDir()) {
-			return true
-		}
+		// Everything that can write, delete, execute or reach outside the
+		// workspace still goes through the prompt below.
 	} else {
 		// Out-of-domain target: requires explicit user confirmation.
 		// Never treated as TierSafe or auto-approved by in-domain session tool allow.
@@ -443,11 +475,21 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	}
 
 	promptParams := params
-	if isOutDomain {
-		promptParams = make(map[string]any, len(params)+2)
+	if isShellTool(tool) || isOutDomain {
+		promptParams = make(map[string]any, len(params)+4)
 		for k, v := range params {
 			promptParams[k] = v
 		}
+	}
+	// Show the deterministic gravity so the user can weigh the request instead
+	// of reading every command as equally dangerous.
+	if isShellTool(tool) {
+		promptParams["gravity"] = gravity.Label()
+		if warn := gravity.Warn(); warn != "" {
+			promptParams["gravity_warning"] = warn
+		}
+	}
+	if isOutDomain {
 		if len(unapprovedOutDomain) == 1 {
 			promptParams["domain_warning"] = fmt.Sprintf("path is outside workspace domain (%s)", m.WorkspaceDir())
 			promptParams["target_path"] = unapprovedOutDomain[0]
@@ -522,7 +564,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 // mode approved, flagged, or could not review the command. A missing,
 // disabled, or failing decider deactivates assisted mode and falls back to
 // manual approval.
-func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolName, command string) bool {
+func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolName, command string, gravity Gravity) bool {
 	if dec == nil || !dec.Enabled() {
 		m.SetAssistedMode(false)
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUnavailable})
@@ -530,7 +572,7 @@ func (m *Manager) assistedCommandApproved(ui prompter, dec SafetyDecider, toolNa
 	}
 	start := time.Now()
 
-	note := m.userProvidedNote(command)
+	note := joinNotes(gravityNote(gravity), m.userProvidedNote(command))
 	key := verdictKey(toolName, command, note)
 	if v, ok := m.verdicts.get(key); ok {
 		return m.replayVerdict(ui, toolName, v, time.Since(start))
@@ -592,14 +634,17 @@ func (m *Manager) handleSafetyDecision(ui prompter, toolName string, decision *d
 		return false
 	}
 
-	// Auto-allow when action is "allow" and confidence is high enough
-	if decision.Allowed() && decision.Confident() {
+	// Auto-allow when action is "allow" and confidence is high enough. A verdict
+	// that itself reports high risk is never auto-approved, however confident the
+	// model claims to be: a safe decision about a dangerous action is a
+	// contradiction, and the deterministic gravity already flagged it.
+	if decision.Allowed() && decision.Confident() && !decision.HighRisk() {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedApproved, Elapsed: elapsed})
 		return true
 	}
 
-	// "block" or "review" or low confidence: prompt the user
-	if decision.Blocked() {
+	// "block", "review", low confidence, or a high-risk allow: prompt the user.
+	if decision.Blocked() || decision.HighRisk() {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedDangerous, Elapsed: elapsed})
 	} else {
 		notifyAssisted(ui, tui.AssistedNotice{Tool: toolName, Outcome: tui.AssistedUncertain, Elapsed: elapsed})

@@ -136,7 +136,7 @@ TOOL_PERMISSIONS={"write":"allow","bash":"allow","edit":"deny"}
 		t.Fatalf("expected edit denied from persistent rules")
 	}
 	// Bash allow should never persist, so without yes-mode and no UI it remains denied.
-	if m.Check("Bash", map[string]any{"command": "echo ok"}, nil) {
+	if m.Check("Bash", map[string]any{"command": "touch ok.txt"}, nil) {
 		t.Fatalf("expected bash not allowed from persisted rule")
 	}
 
@@ -211,7 +211,7 @@ func TestAssistedExecutionMode(t *testing.T) {
 
 	// 1. Safe command is auto-approved by assisted mode
 	decider.dangerous = false
-	if !m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+	if !m.Check("Bash", map[string]any{"command": "make build"}, nil) {
 		t.Fatal("expected safe command to be auto-approved in assisted mode")
 	}
 
@@ -235,7 +235,7 @@ func TestAssistedExecutionMode(t *testing.T) {
 
 	// 5. Decider error falls through to prompt and deactivates assisted mode
 	decider.err = errors.New("connection refused")
-	if m.Check("Bash", map[string]any{"command": "make build"}, nil) {
+	if m.Check("Bash", map[string]any{"command": "make install"}, nil) {
 		t.Fatal("expected error from safety decider to safely fall through to prompt")
 	}
 	if m.AssistedMode() {
@@ -245,7 +245,7 @@ func TestAssistedExecutionMode(t *testing.T) {
 
 	// 6. When assisted mode is disabled, commands prompt UI
 	decider.dangerous = false
-	if m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+	if m.Check("Bash", map[string]any{"command": "make test"}, nil) {
 		t.Fatal("expected bash command to require prompt when assisted mode is off")
 	}
 
@@ -331,4 +331,3 @@ func TestTerminateSessionAndSendInputAreSafeTier(t *testing.T) {
 		}
 	}
 }
-

@@ -100,6 +100,12 @@ func (d SafetyDecision) NeedsReview() bool { return d.Action == "review" }
 // Confident reports whether the model confidence is high enough to auto-decide.
 func (d SafetyDecision) Confident() bool { return d.Confidence >= autoApproveConfidence }
 
+// HighRisk reports whether the model itself rated the action as high risk.
+// A high-risk verdict is never auto-approved regardless of confidence: a
+// confident "allow" of a dangerous action is a contradiction, and the caller's
+// deterministic pre-check has already flagged it.
+func (d SafetyDecision) HighRisk() bool { return d.RiskScore >= float64(highRiskIndex) }
+
 // Info describes the backend a Check call probed.
 type Info struct {
 	Backend string // "ollama" or "systemone-server"
@@ -880,6 +886,11 @@ func normalizeRelevance(score float64) float64 {
 
 // riskScale is the ordinal scale used for AskSafety risk assessment.
 var riskScale = []string{"none", "low", "medium", "high"}
+
+// highRiskIndex is the ordinal index of the riskiest entry in riskScale. It is
+// derived from the scale so adding a level cannot silently lower the bar for
+// auto-approval.
+var highRiskIndex = len(riskScale) - 1
 
 // safetyActionOptions are the possible actions for AskSafety.
 var safetyActionOptions = []string{"allow", "review", "block"}

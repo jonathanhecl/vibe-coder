@@ -1,7 +1,6 @@
 package permissions
 
 import (
-	"regexp"
 	"strings"
 	"sync"
 )
@@ -32,12 +31,6 @@ var (
 	networkTools = map[string]struct{}{
 		"webfetch": {}, "websearch": {}, "httprequest": {},
 	}
-	alwaysConfirmBash = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)\brm\s+-rf\s+/`),
-		regexp.MustCompile(`(?i)\bsudo\b`),
-		regexp.MustCompile(`(?i)\bmkfs\b`),
-		regexp.MustCompile(`(?i)\bdd\b.*\bof=/dev/`),
-	}
 )
 
 var (
@@ -65,15 +58,6 @@ func (m *Manager) AddAskTool(tool string) {
 	askToolsMu.Lock()
 	defer askToolsMu.Unlock()
 	askTools[normalizeTool(tool)] = struct{}{}
-}
-
-func needsAlwaysConfirmBash(command string) bool {
-	for _, pattern := range alwaysConfirmBash {
-		if pattern.MatchString(command) {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeTool(tool string) string {

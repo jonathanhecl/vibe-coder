@@ -75,3 +75,45 @@ func TestPermissionPromptExplainsSelector(t *testing.T) {
 		t.Fatalf("permission prompt should explain single-key input:\n%s", got)
 	}
 }
+
+// TestPermissionPayloadShowsGravity proves the command weight reaches the card
+// and that the bookkeeping keys stay out of the raw payload dump.
+func TestPermissionPayloadShowsGravity(t *testing.T) {
+	t.Parallel()
+	lines := permissionPayloadLines("Bash", map[string]any{
+		"command":         "cat a.txt > existing.txt",
+		"gravity":         "DESTRUCTIVE",
+		"gravity_warning": "deletes or overwrites data that already exists",
+	})
+	joined := strings.Join(lines, "\n")
+
+	for _, want := range []string{
+		"GRAVITY DESTRUCTIVE",
+		"WHY: deletes or overwrites data that already exists",
+		"cat a.txt > existing.txt",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected the card to contain %q, got:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "gravity:") || strings.Contains(joined, "gravity_warning:") {
+		t.Errorf("gravity bookkeeping keys must not appear as payload entries, got:\n%s", joined)
+	}
+}
+
+// TestPermissionPayloadOmitsGravityWarningForPlainWrites proves an ordinary
+// write is labelled without pretending it is dangerous.
+func TestPermissionPayloadOmitsGravityWarningForPlainWrites(t *testing.T) {
+	t.Parallel()
+	lines := permissionPayloadLines("Bash", map[string]any{
+		"command": "mkdir -p internal",
+		"gravity": "WRITE",
+	})
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "GRAVITY WRITE") {
+		t.Errorf("expected the card to contain the WRITE label, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "WHY:") {
+		t.Errorf("a plain write must carry no reason line, got:\n%s", joined)
+	}
+}

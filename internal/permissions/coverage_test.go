@@ -53,7 +53,7 @@ func TestDecisionBranches(t *testing.T) {
 	}
 
 	m3 := NewManager(&config.Config{})
-	if !m3.Check("Bash", map[string]any{"command": "echo ok"}, decisionUI{decision: tui.DecisionYesMode}) {
+	if !m3.Check("Bash", map[string]any{"command": "touch ok.txt"}, decisionUI{decision: tui.DecisionYesMode}) {
 		t.Fatal("yes-mode decision should allow")
 	}
 	if !m3.Check("Write", map[string]any{"file_path": "a", "contents": "b"}, nil) {

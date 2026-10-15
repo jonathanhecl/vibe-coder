@@ -156,9 +156,17 @@ func permissionPayloadGeneric(tool string, params map[string]any) []string {
 	if dw, _ := params["domain_warning"].(string); dw != "" {
 		out = append(out, "WARNING: "+dw)
 	}
+	// Gravity is the deterministic weight of a shell command. It is shown before
+	// the payload so a destructive request does not read like a harmless one.
+	if g, _ := params["gravity"].(string); g != "" {
+		out = append(out, "GRAVITY "+g)
+	}
+	if gw, _ := params["gravity_warning"].(string); gw != "" {
+		out = append(out, "WHY: "+gw)
+	}
 	keys := make([]string, 0, len(params))
 	for k := range params {
-		if k == "domain_warning" {
+		if k == "domain_warning" || k == "gravity" || k == "gravity_warning" {
 			continue
 		}
 		keys = append(keys, k)

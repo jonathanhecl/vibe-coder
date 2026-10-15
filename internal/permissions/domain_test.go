@@ -318,12 +318,12 @@ func TestDomain_BashCommand_OutDomainDetection(t *testing.T) {
 
 	// 3. Granting session allow to an in-domain Bash command does NOT auto-approve out-of-domain Bash command
 	uiSession := fakeUI{decision: tui.DecisionAllowSession}
-	if !m.Check("Bash", map[string]any{"command": "git status"}, uiSession) {
-		t.Fatalf("expected git status to be allowed with session decision")
+	if !m.Check("Bash", map[string]any{"command": "mkdir -p internal"}, uiSession) {
+		t.Fatalf("expected mkdir -p internal to be allowed with session decision")
 	}
 	// In-domain command now succeeds without UI
-	if !m.Check("Bash", map[string]any{"command": "git status"}, nil) {
-		t.Fatalf("subsequent git status should succeed without UI")
+	if !m.Check("Bash", map[string]any{"command": "mkdir -p internal"}, nil) {
+		t.Fatalf("subsequent mkdir -p internal should succeed without UI")
 	}
 	// But out-of-domain command STILL fails without UI!
 	if m.Check("Bash", map[string]any{"command": "cat " + outsideFile}, nil) {
@@ -445,6 +445,17 @@ func TestSafeReadOnlyCommand(t *testing.T) {
 		"ls /tmp",
 		"pwd",
 		"dir",
+		"cat file.txt",
+		"cat internal/permissions/tiers.go",
+		"head -20 main.go",
+		"wc -l internal/permissions/domain.go",
+		"grep -rn TODO internal",
+		"git status",
+		"git diff --stat",
+		"git log --oneline -5",
+		"cat a.txt | grep x | head -3",
+		"grep x a.txt 2>/dev/null",
+		"find . -name '*.go'",
 	}
 
 	for _, cmd := range safeCmds {
@@ -462,8 +473,17 @@ func TestSafeReadOnlyCommand(t *testing.T) {
 		"ls $(whoami)",
 		"ls `whoami`",
 		"rm file.txt",
-		"cat file.txt",
 		"go test ./...",
+		"git reset --hard",
+		"git push --force origin main",
+		"sudo ls",
+		"bash",
+		"bash -c 'rm -rf /'",
+		"env rm -rf build",
+		"echo hi | sh",
+		"python -c 'import os'",
+		"./script.sh",
+		"awk '{print $1}' file.txt",
 	}
 
 	for _, cmd := range unsafeCmds {
@@ -491,4 +511,3 @@ func TestManager_Check_AutoApprovesLSInWorkspace(t *testing.T) {
 		t.Fatalf("expected 'rm file.txt' to NOT be auto-approved")
 	}
 }
-

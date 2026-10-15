@@ -658,53 +658,12 @@ func isSystemTempDir(cleanSlash string) bool {
 	return false
 }
 
-// IsSafeReadOnlyCommand reports whether a shell command is a pure read-only inspection
-// command (such as 'ls', 'dir', 'pwd') within the workspace or system temp, with no
-// redirections, command substitutions, or side effects.
+// IsSafeReadOnlyCommand reports whether a shell command is a pure read-only
+// inspection command: every pipeline element only reads, no output redirection
+// writes anywhere, and every path it touches is inside the workspace or system
+// temp. Such a command cannot change anything, so it never prompts.
 func IsSafeReadOnlyCommand(command, ws string) bool {
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return false
-	}
-
-	// Any redirection or command substitution makes it non-read-only
-	if strings.ContainsAny(command, "><`$") {
-		return false
-	}
-
-	subcmds := tokenizeCommandSubcommands(command)
-	if len(subcmds) == 0 {
-		return false
-	}
-
-	for _, words := range subcmds {
-		if len(words) == 0 {
-			continue
-		}
-		bin := strings.ToLower(filepath.Base(words[0]))
-		bin = strings.TrimSuffix(bin, ".exe")
-
-		switch bin {
-		case "ls", "dir", "pwd":
-			// Allowed safe read-only binaries
-		default:
-			return false
-		}
-
-		// Check all candidate paths in this subcommand are inside ws or system temp
-		candidates := extractCandidatePathsFromSubcommand(words)
-		for _, c := range candidates {
-			clean := cleanCandidatePath(c, ws)
-			if clean == "" {
-				continue
-			}
-			if !IsPathInsideDomain(ws, clean) && !isAllowedSystemPath(clean, ws) {
-				return false
-			}
-		}
-	}
-
-	return true
+	return CommandGravity(command, ws) == GravityRead
 }
 
 // IsUserProvidedPath reports whether path matches a file explicitly supplied

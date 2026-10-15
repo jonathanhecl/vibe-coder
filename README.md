@@ -119,10 +119,12 @@ shows the current mission, and every turn is appended to the redacted run log at
 ### Safety and permissions
 
 - **Three permission tiers**: Safe (allow unless denied), Ask, and Network (prompt unless approved by a remembered rule or `-y`). Persistent denials apply to safe tools too.
-- **`-y` mode** enables auto-approval except for mandatory confirmation patterns in `Bash` and `InteractiveBash`. Remembered approvals cannot bypass those confirmations.
+- **Command gravity** — every shell command is classified before it runs, so the permission card shows its weight instead of reading every command alike. `READ` commands only inspect (a pipeline made of readers whose paths all resolve inside the workspace, with `2>/dev/null` allowed and no output redirection), so they run without a prompt and without spending a decision-model round trip. `WRITE` creates or updates files. `DESTRUCTIVE` deletes or overwrites data that already exists, including `cat a > b` over a file that already holds content, `cp a b`/`mv a b` onto an existing file, `>` truncation versus `>>` append, and history-rewriting git commands. `CATASTROPHIC` cannot be undone. The card prints `GRAVITY <level>` plus a one-line reason, and the level is handed to the decision model as runtime context; a model verdict that itself reports `high` risk is never auto-approved, however confident it claims to be.
+- **`-y` mode** enables auto-approval except for catastrophic commands in `Bash`, `InteractiveBash` and `BackgroundRun`. Remembered approvals, an approved session rule, and unattended missions cannot bypass them either (a mission denies them instead of hanging on a prompt).
 - **In-session memory** — `/yes` and `/no` toggle at runtime; decisions are remembered for the current session.
 - **Persistent permissions** — saved as `TOOL_PERMISSIONS` in `vibe-coder.env` (skips `Bash:allow`; legacy `permissions.json` is migrated).
-- **Dangerous-command blocklist** (`rm -rf /`, `> /dev/sda`, etc.) and **protected-path guard** (`/proc`, `/sys`, `~/.ssh/id_*`, `~/.aws/credentials`, etc.).
+- **Catastrophic commands are always confirmed**: `rm -rf /`, `rm -rf ~`/`$HOME`/`*`/`.`/`..`, a recursive delete of a system root or of the workspace itself, `sudo`/`doas`/`su`, `mkfs*`, `fdisk`, `dd of=/dev/*`, `shutdown`/`reboot`/`halt`, a fork bomb, `curl … | sh`, `> /dev/sd*`, recursive `chmod`/`chown` on a system root, `git push --force`, `git filter-branch`, and `npm`/`cargo publish`. Wrappers cannot launder them: `nice sudo rm -rf /`, `bash -c 'rm -rf /'` and `xargs rm` are judged by the command they run, never by the wrapper name.
+- **Dangerous-command blocklist** (`rm -rf /`, `> /dev/sda`, etc.) and **protected-path guard** (`/proc`, `/sys`, `~/.ssh/id_*`, `~/.aws/credentials`, etc.). This is a second, independent layer applied at execution time: the permission gate decides whether to ask, the blocklist refuses outright what an agent has no legitimate reason to run.
 - **Environment scrubbing** — shell tools and auto-tests run with `safety.CleanEnv()` to strip secrets.
 - **Plan mode** — `/plan` permits read-only tools and session task management; `Write`/`Edit` are restricted to `<cwd>/.vibe-coder/plans/`, without symlink paths. Shell commands, auto-tests, `NotebookEdit`, `GitUndo`, and unknown/MCP tool effects are blocked until act mode resumes.
 - **Review mode** — `/review <prompt>` permits read-only tools and session task management, with no file mutations or shell commands. Unknown/MCP tool effects are blocked by default.
@@ -1030,7 +1032,7 @@ internal/
   mcp/                   # MCP stdio JSON-RPC client
   ollama/                # Ollama HTTP client (streaming NDJSON)
   onboarding/            # First-run interactive setup
-  permissions/           # Permission tiers + in-session memory + persistence
+  permissions/           # Permission tiers, command gravity, in-session memory, persistence
   prompt/                # System prompt builder + instruction-file walk
   rag/                   # Optional SQLite RAG engine (build tag: rag)
   safety/                # Dangerous-command blocklist + env scrub

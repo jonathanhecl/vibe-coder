@@ -69,7 +69,7 @@ func TestAssistedVerdictCache_HitSkipsDecider(t *testing.T) {
 	m := newAssistedManager(dec)
 
 	for i := 0; i < 3; i++ {
-		if !m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+		if !m.Check("Bash", map[string]any{"command": "make build"}, nil) {
 			t.Fatalf("call %d: expected the command to be auto-approved", i)
 		}
 	}
@@ -85,7 +85,7 @@ func TestAssistedVerdictCache_BlockedVerdictReplayed(t *testing.T) {
 	m := newAssistedManager(dec)
 
 	for i := 0; i < 3; i++ {
-		if m.Check("Bash", map[string]any{"command": "echo hello"}, nil) {
+		if m.Check("Bash", map[string]any{"command": "make install"}, nil) {
 			t.Fatalf("call %d: a blocked verdict must never auto-approve", i)
 		}
 	}
@@ -100,10 +100,10 @@ func TestAssistedVerdictCache_DifferentInputMisses(t *testing.T) {
 	dec := &countingSafetyDecider{enabled: true, action: "allow", confidence: 0.95}
 	m := newAssistedManager(dec)
 
-	if !m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+	if !m.Check("Bash", map[string]any{"command": "make build"}, nil) {
 		t.Fatal("expected the first command to be auto-approved")
 	}
-	if !m.Check("Bash", map[string]any{"command": "ls -la"}, nil) {
+	if !m.Check("Bash", map[string]any{"command": "make test"}, nil) {
 		t.Fatal("expected the second command to be auto-approved")
 	}
 	if dec.calls != 2 {
@@ -118,7 +118,7 @@ func TestAssistedVerdictCache_ErrorNotCached(t *testing.T) {
 	m := newAssistedManager(dec)
 
 	dec.err = errors.New("connection refused")
-	if m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+	if m.Check("Bash", map[string]any{"command": "make build"}, nil) {
 		t.Fatal("expected the failing decider to fall through to a prompt")
 	}
 	if m.AssistedMode() {
@@ -127,7 +127,7 @@ func TestAssistedVerdictCache_ErrorNotCached(t *testing.T) {
 
 	dec.err = nil
 	m.SetAssistedMode(true)
-	if !m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+	if !m.Check("Bash", map[string]any{"command": "make build"}, nil) {
 		t.Fatal("expected approval once the decider recovers")
 	}
 	if dec.calls != 2 {
@@ -142,7 +142,7 @@ func TestAssistedVerdictCache_UnavailableNotCached(t *testing.T) {
 	m := newAssistedManager(dec)
 
 	for i := 0; i < 2; i++ {
-		if m.Check("Bash", map[string]any{"command": "git status"}, nil) {
+		if m.Check("Bash", map[string]any{"command": "make build"}, nil) {
 			t.Fatalf("call %d: a nil verdict must not auto-approve", i)
 		}
 	}
