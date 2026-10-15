@@ -240,8 +240,8 @@ func (u *PlainUI) closeThinkingLocked(withElapsed bool) {
 	if withElapsed {
 		elapsed := formatElapsed(time.Since(u.thinkingStart))
 		fmt.Fprintf(u.out, "\n%s %s\n",
-			u.style.DimGray(iconRule),
-			u.style.DimGray("thought for "+elapsed),
+			u.style.Gray(iconRule),
+			u.style.Gray("thought for "+elapsed),
 		)
 	} else {
 		fmt.Fprintln(u.out)
@@ -255,13 +255,13 @@ func (u *PlainUI) streamThinkingChunkLocked(text string) {
 		return
 	}
 	if !u.thinkingActive {
-		fmt.Fprintf(u.out, "%s ", u.style.DimGray(iconBar))
+		fmt.Fprintf(u.out, "%s ", u.style.Gray(iconBar))
 		u.thinkingActive = true
 		u.thinkingStart = time.Now()
 		u.thinkingPendingNewline = false
 	}
 	if u.thinkingPendingNewline {
-		fmt.Fprintf(u.out, "\n%s ", u.style.DimGray(iconBar))
+		fmt.Fprintf(u.out, "\n%s ", u.style.Gray(iconBar))
 		u.thinkingPendingNewline = false
 	}
 
@@ -272,7 +272,7 @@ func (u *PlainUI) streamThinkingChunkLocked(text string) {
 	}
 	if text != "" {
 		indented := strings.ReplaceAll(text, "\n", "\n"+iconBar+" ")
-		fmt.Fprint(u.out, u.style.DimGray(indented))
+		fmt.Fprint(u.out, u.style.Gray(indented))
 	}
 	if numTrailing > 0 {
 		u.thinkingPendingNewline = true

@@ -34,7 +34,7 @@ Release archives and generated notes are available on the
 
 ### Changed
 
-- Thinking output now renders in a darker dim gray (`\x1b[2;90m`) in TUI streaming output, clearly distinguishing the model's reasoning blocks from visible assistant text across terminal themes.
+- Thinking output now renders in gray (`\x1b[90m`) in TUI streaming output, clearly distinguishing the model's reasoning blocks from visible assistant text while preserving readability across dark backgrounds.
 - Skills are no longer inlined into the system prompt: only the catalog (name + description) is included, and the full content loads through the `Skill` tool when the agent needs it — large skill collections no longer inflate every request.
 - `DescribeImage` now answers focused questions. A specific `question` ("Is the Save button visible?") switches the vision model to an answer-only mode instead of describing the whole image; omitting it keeps the thorough general description. The same applies to `Screenshot`, which shares the refactored vision routing.
 
