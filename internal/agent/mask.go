@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -17,6 +18,8 @@ const (
 	maskMinOutputLen = 400
 	// maskFirstLineRunes bounds the "first line" hint inside the stub.
 	maskFirstLineRunes = 120
+	// maskTargetRunes bounds the target identifier (path/command/query) in the stub.
+	maskTargetRunes = 80
 	// maskHysteresis slack: masking only recomputes once more than K+4 tool
 	// turns are unmasked, so maskBefore does not crawl forward one turn per
 	// request.
@@ -80,29 +83,178 @@ func maskBeforeForTurns(starts []int, k int) int {
 	return starts[len(starts)-k]
 }
 
+type toolResultMeta struct {
+	name           string
+	target         string
+	filePath       string
+	rangeKey       string
+	isError        bool
+	supersededRead bool
+}
+
+// indexToolResultCalls pairs each tool result in hist with the arguments of
+// the preceding assistant tool call (native or XML) and marks Read results
+// whose file_path was later re-read or modified by Write/Edit.
+func indexToolResultCalls(hist []session.Message) []toolResultMeta {
+	meta := make([]toolResultMeta, len(hist))
+	var pending []ToolCall
+	for i, m := range hist {
+		if m.Role == "assistant" && !strings.HasPrefix(m.Content, "[runtime]") {
+			if len(m.ToolCalls) > 0 {
+				pending = nativeCallsToToolCalls(m.ToolCalls)
+			} else {
+				pending = parseXMLFallbackAll(m.Content, MaxToolsPerReply)
+			}
+			continue
+		}
+		if !isToolResult(m) {
+			continue
+		}
+		name := m.ToolName
+		body := m.Content
+		if m.Role != "tool" {
+			envName, inner := parseToolResultEnvelope(m.Content)
+			if envName != "" {
+				name = envName
+			}
+			if inner != "" {
+				body = inner
+			}
+		}
+		var params map[string]any
+		if len(pending) > 0 {
+			matchIdx := 0
+			if name != "" {
+				for idx, c := range pending {
+					if c.Name == name {
+						matchIdx = idx
+						break
+					}
+				}
+			}
+			if name == "" {
+				name = pending[matchIdx].Name
+			}
+			params = pending[matchIdx].Params
+			pending = append(pending[:matchIdx], pending[matchIdx+1:]...)
+		}
+		trimmedBody := strings.TrimSpace(body)
+		isErr := strings.HasPrefix(trimmedBody, "Error:") ||
+			strings.HasPrefix(trimmedBody, "PATH ERROR:") ||
+			strings.Contains(trimmedBody, "blocked in ")
+		fp := ""
+		if rawFP := strings.TrimSpace(asString(params["file_path"])); rawFP != "" {
+			fp = filepath.Clean(rawFP)
+		}
+		meta[i] = toolResultMeta{
+			name:     name,
+			target:   extractToolCallTarget(params),
+			filePath: fp,
+			rangeKey: fmt.Sprintf("%v:%v", params["start_line"], params["end_line"]),
+			isError:  isErr,
+		}
+	}
+
+	seenFullOrEdit := make(map[string]bool)
+	seenRange := make(map[string]bool)
+	for i := len(hist) - 1; i >= 0; i-- {
+		m := hist[i]
+		if m.Role == "assistant" {
+			text := strings.TrimSpace(m.Content)
+			for _, prefix := range []string{"[runtime] File written:", "[runtime] File updated:"} {
+				if strings.HasPrefix(text, prefix) {
+					p := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, prefix), "."))
+					if p != "" {
+						seenFullOrEdit[filepath.Clean(p)] = true
+					}
+				}
+			}
+			continue
+		}
+		info := meta[i]
+		if info.filePath == "" || info.isError {
+			continue
+		}
+		switch info.name {
+		case "Write", "Edit":
+			seenFullOrEdit[info.filePath] = true
+		case "Read":
+			rKey := info.filePath + "#" + info.rangeKey
+			if seenFullOrEdit[info.filePath] || seenRange[rKey] {
+				meta[i].supersededRead = true
+			} else {
+				seenRange[rKey] = true
+				if info.rangeKey == "<nil>:<nil>" {
+					seenFullOrEdit[info.filePath] = true
+				}
+			}
+		}
+	}
+	return meta
+}
+
+func extractToolCallTarget(params map[string]any) string {
+	if len(params) == 0 {
+		return ""
+	}
+	for _, key := range []string{"file_path", "notebook_path", "path", "pattern", "command", "query", "url", "task_id"} {
+		if val := strings.TrimSpace(asString(params[key])); val != "" {
+			runes := []rune(val)
+			if len(runes) > maskTargetRunes {
+				return string(runes[:maskTargetRunes]) + "…"
+			}
+			return val
+		}
+	}
+	return ""
+}
+
 // maskToolResults returns a copy of hist with tool results at indexes below
-// maskBefore replaced by stubs (outputs of maskMinOutputLen bytes or less are
-// kept). The input slice's messages are never mutated.
+// maskBefore (or superseded Read outputs anywhere in hist) replaced by stubs
+// when their output exceeds maskMinOutputLen bytes. The input slice is never mutated.
 func maskToolResults(hist []session.Message, maskBefore int) ([]session.Message, int) {
-	if maskBefore <= 0 {
+	if len(hist) == 0 {
+		return hist, 0
+	}
+	meta := indexToolResultCalls(hist)
+	needCopy := maskBefore > 0
+	if !needCopy {
+		for _, info := range meta {
+			if info.supersededRead {
+				needCopy = true
+				break
+			}
+		}
+	}
+	if !needCopy {
 		return hist, 0
 	}
 	out := make([]session.Message, len(hist))
 	copy(out, hist)
 	masked := 0
-	for i := 0; i < maskBefore && i < len(out); i++ {
+	for i := 0; i < len(out); i++ {
+		if !(maskBefore > 0 && i < maskBefore) && !meta[i].supersededRead {
+			continue
+		}
 		m := out[i]
 		if !isToolResult(m) || len(m.Content) <= maskMinOutputLen {
 			continue
 		}
+		target := meta[i].target
 		if m.Role == "tool" {
 			name := m.ToolName
 			if name == "" {
+				name = meta[i].name
+			}
+			if name == "" {
 				name = "unknown"
 			}
-			m.Content = elidedToolBody(name, m.Content)
+			m.Content = elidedToolBodyWithTarget(name, target, m.Content)
 		} else {
 			name, inner := parseToolResultEnvelope(m.Content)
+			if name == "" {
+				name = meta[i].name
+			}
 			if name == "" {
 				name = "unknown"
 			}
@@ -110,7 +262,7 @@ func maskToolResults(hist []session.Message, maskBefore int) ([]session.Message,
 			if body == "" {
 				body = m.Content
 			}
-			m.Content = session.ToolObservationUserContent(name, elidedToolBody(name, body))
+			m.Content = session.ToolObservationUserContent(name, elidedToolBodyWithTarget(name, target, body))
 		}
 		out[i] = m
 		masked++
@@ -134,6 +286,10 @@ func parseToolResultEnvelope(content string) (name, inner string) {
 
 // elidedToolBody builds the stub text that replaces a masked output.
 func elidedToolBody(name, original string) string {
+	return elidedToolBodyWithTarget(name, "", original)
+}
+
+func elidedToolBodyWithTarget(name, target, original string) string {
 	first := ""
 	for _, line := range strings.Split(original, "\n") {
 		if t := strings.TrimSpace(line); t != "" {
@@ -144,8 +300,12 @@ func elidedToolBody(name, original string) string {
 	if r := []rune(first); len(r) > maskFirstLineRunes {
 		first = string(r[:maskFirstLineRunes])
 	}
+	label := name
+	if strings.TrimSpace(target) != "" {
+		label = fmt.Sprintf("%s (%s)", name, strings.TrimSpace(target))
+	}
 	return fmt.Sprintf("[elided] %s output (%d chars) from an earlier step. First line: %s",
-		name, len(original), first)
+		label, len(original), first)
 }
 
 // keepToolResults returns the configured number of recent tool turns to keep

@@ -63,7 +63,7 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	a.wireMu.Unlock()
 	stats.WindowStart = start
 	stats.MessagesDropped = start
-	for i := start; i < maskBefore && i < len(masked); i++ {
+	for i := start; i < len(masked); i++ {
 		if masked[i].Content != hist[i].Content {
 			stats.ToolResultsMasked++
 		}

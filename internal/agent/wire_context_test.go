@@ -404,3 +404,68 @@ func TestCalibratedTokensAffectComputeBudgetAndWindow(t *testing.T) {
 		t.Fatalf("expected calibrated window to trim earlier: before=%d after=%d", statsBefore.WindowStart, statsAfter.WindowStart)
 	}
 }
+
+func TestMaskStubIncludesToolTargetArgument(t *testing.T) {
+	t.Parallel()
+	out := "1| package main\n" + strings.Repeat("x", 600)
+	hist := []session.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []ollama.MessageToolCall{{
+				Function: ollama.MessageToolCallFunction{
+					Name:      "Read",
+					Arguments: map[string]any{"file_path": "internal/agent/chat.go"},
+				},
+			}},
+		},
+		{Role: "tool", ToolName: "Read", Content: out},
+	}
+	masked, n := maskToolResults(hist, 2)
+	if n != 1 {
+		t.Fatalf("expected 1 masked result, got %d", n)
+	}
+	if !strings.Contains(masked[1].Content, "Read (internal/agent/chat.go) output") {
+		t.Fatalf("expected target file_path in stub, got %q", masked[1].Content)
+	}
+}
+
+func TestMaskElidesSupersededReadImmediately(t *testing.T) {
+	t.Parallel()
+	oldRead := "1| package main\n" + strings.Repeat("a", 600)
+	newRead := "1| package main\n" + strings.Repeat("b", 600)
+	hist := []session.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []ollama.MessageToolCall{{
+				Function: ollama.MessageToolCallFunction{
+					Name:      "Read",
+					Arguments: map[string]any{"file_path": "src/app.go"},
+				},
+			}},
+		},
+		{Role: "tool", ToolName: "Read", Content: oldRead},
+		{Role: "assistant", Content: "[runtime] File updated: src/app.go."},
+		{
+			Role: "assistant",
+			ToolCalls: []ollama.MessageToolCall{{
+				Function: ollama.MessageToolCallFunction{
+					Name:      "Read",
+					Arguments: map[string]any{"file_path": "src/app.go"},
+				},
+			}},
+		},
+		{Role: "tool", ToolName: "Read", Content: newRead},
+	}
+	// maskBefore=-1 means all turns are within the recent K window, yet the
+	// earlier Read of src/app.go is superseded by the Edit + second Read.
+	masked, n := maskToolResults(hist, -1)
+	if n != 1 {
+		t.Fatalf("expected 1 superseded Read masked even with maskBefore=-1, got %d", n)
+	}
+	if !strings.HasPrefix(masked[1].Content, "[elided] Read (src/app.go) output") {
+		t.Fatalf("expected first Read to be elided with path, got %q", masked[1].Content)
+	}
+	if masked[4].Content != newRead {
+		t.Fatalf("expected latest Read to remain verbatim, got %q", masked[4].Content)
+	}
+}
