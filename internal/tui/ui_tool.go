@@ -55,6 +55,9 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 	if isError {
 		icon = u.style.BoldRed(iconErr)
 		tag = u.style.Red("error")
+	} else if (name == "BackgroundRun" || name == "BackgroundStatus") && strings.Contains(output, "STILL RUNNING") {
+		icon = u.style.Yellow("⏳")
+		tag = u.style.Yellow("running in background (not finished)")
 	}
 
 	header := u.pendingHeader
@@ -70,6 +73,9 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 	arrow := u.style.DimGreen("→ ")
 	if isError {
 		fmt.Fprintf(u.out, "%s %s %s %s%s\n", icon, header, tag, arrow, u.style.Red(summary))
+	} else if (name == "BackgroundRun" || name == "BackgroundStatus") && strings.Contains(output, "STILL RUNNING") {
+		arrow = u.style.DimYellow("→ ")
+		fmt.Fprintf(u.out, "%s %s %s %s%s\n", icon, header, tag, arrow, u.style.Yellow(summary))
 	} else {
 		fmt.Fprintf(u.out, "%s %s %s %s%s\n", icon, header, tag, arrow, summary)
 	}

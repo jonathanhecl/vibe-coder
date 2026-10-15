@@ -53,6 +53,7 @@ const (
 	cBrightBlue  = "\x1b[94m"
 	cBrightWhite = "\x1b[97m"
 	cDimGreen    = "\x1b[2;32m"
+	cDimYellow   = "\x1b[2;33m"
 	cDimBlue     = "\x1b[2;34m"
 
 	// Sequence to clear from cursor to end of line; used when redrawing a
@@ -81,6 +82,7 @@ func (s Style) Magenta(text string) string     { return s.wrap(cMagenta, text) }
 func (s Style) Cyan(text string) string        { return s.wrap(cCyan, text) }
 func (s Style) Gray(text string) string        { return s.wrap(cGray, text) }
 func (s Style) DimGreen(text string) string    { return s.wrap(cDimGreen, text) }
+func (s Style) DimYellow(text string) string   { return s.wrap(cDimYellow, text) }
 func (s Style) DimBlue(text string) string     { return s.wrap(cDimBlue, text) }
 func (s Style) BoldGreen(text string) string   { return s.wrap(cBold+cGreen, text) }
 func (s Style) BoldBlue(text string) string    { return s.wrap(cBold+cBlue, text) }

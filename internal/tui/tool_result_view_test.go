@@ -76,3 +76,22 @@ func TestShowToolResultOmitsFullBashCommandWhenShort(t *testing.T) {
 		}
 	}
 }
+
+func TestShowToolResultBackgroundStillRunning(t *testing.T) {
+	var b strings.Builder
+	u := &PlainUI{out: &b, style: Style{}}
+	output := "[task_id: bg-1]\n[status: STILL RUNNING - execution in background]\n[pid: 1234]\n[elapsed: 500ms]\n"
+	u.ShowToolCall("BackgroundRun", map[string]any{"command": "sleep 10"})
+	u.ShowToolResult("BackgroundRun", output, false, map[string]any{"command": "sleep 10"})
+
+	res := b.String()
+	if !strings.Contains(res, "running in background (not finished)") {
+		t.Fatalf("expected running in background tag, got: %s", res)
+	}
+	if !strings.Contains(res, "bg-1: still executing in background") {
+		t.Fatalf("expected task id in summary, got: %s", res)
+	}
+	if strings.Contains(res, "done") {
+		t.Fatalf("must not say 'done' for running task, got: %s", res)
+	}
+}

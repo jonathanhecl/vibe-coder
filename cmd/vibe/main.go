@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
+	"github.com/jonathanhecl/vibe-coder/internal/background"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	"github.com/jonathanhecl/vibe-coder/internal/decision"
@@ -65,6 +66,7 @@ func main() {
 	} else if closer != nil {
 		defer closer.Close()
 	}
+	defer background.DefaultManager().KillAll()
 
 	logger.Infof("vibe %s starting", version.Value)
 	// Args are redacted: --env values and other secrets must never land in the log.
@@ -137,6 +139,25 @@ func main() {
 	if err != nil {
 		exitWithError(err)
 	}
+	st := tui.NewStyle(os.Stdout)
+	background.DefaultManager().OnTaskFinished(func(task *background.Task) {
+		status := "completed"
+		if task.Status == background.StatusFailed {
+			status = fmt.Sprintf("failed (exit %d)", task.ExitCode)
+		} else if task.Status == background.StatusKilled {
+			status = "killed"
+		} else {
+			status = fmt.Sprintf("completed (exit %d)", task.ExitCode)
+		}
+		logger.Infof("Background task %s (%s) %s (elapsed: %s)", task.ID, task.Command, status, task.Elapsed())
+		fmt.Fprintf(os.Stdout, "\n%s %s: task %s (%s) %s\n",
+			st.BoldCyan("[background]"),
+			st.Dim(task.Elapsed().Round(100*time.Millisecond).String()),
+			st.Bold(task.ID),
+			task.Command,
+			status,
+		)
+	})
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()
 	sub := tools.NewSubAgentTool(cfg, client)

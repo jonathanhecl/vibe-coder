@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/background"
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 )
 
@@ -62,6 +64,28 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 		if changes := w.PendingChanges(); len(changes) > 0 {
 			a.sess.AddUser(w.Format(changes))
 		}
+	}
+
+	a.injectCompletedBackgroundTasks()
+}
+
+func (a *Agent) injectCompletedBackgroundTasks() {
+	if a == nil || a.sess == nil {
+		return
+	}
+	for _, task := range background.DefaultManager().DrainUnnotifiedCompleted() {
+		status := "completed successfully"
+		if task.Status == background.StatusFailed {
+			status = fmt.Sprintf("failed with exit code %d", task.ExitCode)
+		} else if task.Status == background.StatusKilled {
+			status = "was terminated/killed"
+		} else {
+			status = fmt.Sprintf("completed with exit code %d", task.ExitCode)
+		}
+		a.sess.AddRuntimeReminder(fmt.Sprintf(
+			"Background task %s (%q) %s (elapsed: %s). Use BackgroundStatus(task_id: %q) to inspect full output.",
+			task.ID, task.Command, status, task.Elapsed().Round(100*time.Millisecond), task.ID,
+		))
 	}
 }
 

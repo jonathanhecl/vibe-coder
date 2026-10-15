@@ -37,6 +37,7 @@ func printHelp(c *Ctx) {
 			{"/context list", "show pinned context files"},
 			{"/skills", "list discovered skills (name, source, description)"},
 			{"/skills set", "choose extra skill folders (SKILLS_DIRS) interactively"},
+			{"/tasks, /bg", "list background tasks (/tasks kill <id> to stop)"},
 		}},
 		{"Model", [][2]string{
 			{"/models [PROVIDER]", "list a provider's models, numbered and tagged"},

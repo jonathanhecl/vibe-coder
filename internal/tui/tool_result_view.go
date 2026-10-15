@@ -13,6 +13,9 @@ func toolResultSummary(st Style, name, output string, isError bool, toolParams m
 	if isError {
 		return summarizeOutput(output)
 	}
+	if (name == "BackgroundRun" || name == "BackgroundStatus") && strings.Contains(output, "STILL RUNNING") {
+		return backgroundTaskSummary(output)
+	}
 	chip := cursorEditWriteChip(st, name, toolParams)
 	base := strings.TrimSpace(summarizeOutput(output))
 	if chip != "" {
@@ -22,6 +25,33 @@ func toolResultSummary(st Style, name, output string, isError bool, toolParams m
 		return chip + st.Dim(" · ") + base
 	}
 	return summarizeOutput(output)
+}
+
+func backgroundTaskSummary(output string) string {
+	taskID := ""
+	elapsed := ""
+	pid := ""
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[task_id:") {
+			taskID = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "[task_id:"), "]"))
+		} else if strings.HasPrefix(trimmed, "[elapsed:") {
+			elapsed = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "[elapsed:"), "]"))
+		} else if strings.HasPrefix(trimmed, "[pid:") {
+			pid = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "[pid:"), "]"))
+		}
+	}
+	if taskID != "" {
+		res := taskID + ": still executing in background"
+		if elapsed != "" {
+			res += " (elapsed " + elapsed + ")"
+		}
+		if pid != "" {
+			res += " [pid " + pid + "]"
+		}
+		return res
+	}
+	return "task is running in background (not finished yet)"
 }
 
 func boringToolSuccessMessage(s string) bool {

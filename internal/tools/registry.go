@@ -101,4 +101,8 @@ func (r *Registry) RegisterDefaults() {
 	r.Register(NewGitStatusTool())
 	r.Register(NewGitDiffTool())
 	r.Register(NewGitUndoTool())
+	r.Register(NewBackgroundRunTool())
+	r.Register(NewBackgroundStatusTool())
+	r.Register(NewBackgroundListTool())
+	r.Register(NewBackgroundKillTool())
 }

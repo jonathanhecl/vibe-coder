@@ -81,6 +81,8 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			continue
 		}
 
+		a.injectCompletedBackgroundTasks()
+
 		reply, nativeCalls, err := a.chatOnce(ctx)
 		if err != nil {
 			if IsThinkingLoopLimitErr(err) {
