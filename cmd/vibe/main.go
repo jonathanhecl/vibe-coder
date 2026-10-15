@@ -15,6 +15,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 	"github.com/jonathanhecl/vibe-coder/internal/decision"
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
+	"github.com/jonathanhecl/vibe-coder/internal/lsp"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/onboarding"
@@ -194,6 +195,16 @@ func main() {
 	reg.Register(tools.NewDescribeImageTool(cfg, client, sidePool).SetVisionRole(visionRole))
 	reg.Register(tools.NewScreenshotTool(cfg, client, sidePool).SetVisionRole(visionRole))
 	reg.Register(tools.NewSkillTool(cfg))
+
+	// Language servers are resolved once per session from the workspace markers
+	// and PATH. The tool is registered only when this workspace has a server to
+	// ask, so the model never sees a diagnostics tool that cannot answer.
+	lspMgr := lsp.NewManager(lsp.Config{Root: cfg.Cwd})
+	defer lspMgr.Close()
+	if lspMgr.Available() {
+		reg.Register(tools.NewDiagnosticsTool(lspMgr))
+		logger.Infof("Language servers: %v", lspMgr.Resolved())
+	}
 
 	// MCP servers are best effort and independent: each one is started on its
 	// own budget and its state is reported after the banner instead of a single
