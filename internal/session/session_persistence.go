@@ -50,6 +50,7 @@ func (s *Session) Clear() {
 	s.id = newSessionID()
 	s.messages = s.messages[:0]
 	s.tokenEstimate = 0
+	s.mem = newSessionMemory(s.cfg, s.client)
 	s.revision++
 	s.generation++
 	if s.cfg != nil && s.cfg.Cwd != "" {
@@ -64,9 +65,11 @@ func (s *Session) Save() error {
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
 	workState := append([]byte(nil), s.workState...)
+	mem := s.mem
 	rev := s.revision
 	savedRev := s.lastSavedRevision
 	s.mu.RUnlock()
+	memTexts := mem.texts()
 	if cfg == nil {
 		return fmt.Errorf("session config is nil")
 	}
@@ -126,6 +129,9 @@ func (s *Session) Save() error {
 		return err
 	}
 	if err := s.writeWorkStateFor(id, workState); err != nil {
+		return err
+	}
+	if err := s.writeMemoryFor(id, memTexts); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -191,6 +197,7 @@ func (s *Session) Load(id string) error {
 	s.mu.RUnlock()
 	pinned := loadPinnedContextsFor(sessionsDir, sanitized)
 	workState := loadWorkStateFor(sessionsDir, sanitized)
+	loadedMemory := loadMemoryFor(sessionsDir, sanitized)
 	loadedProject := loadProjectPathFor(sessionsDir, sanitized)
 
 	s.mu.Lock()
@@ -198,6 +205,10 @@ func (s *Session) Load(id string) error {
 	s.messages = loaded
 	s.pinnedContexts = pinned
 	s.workState = workState
+	if s.mem == nil {
+		s.mem = newSessionMemory(s.cfg, s.client)
+	}
+	mem := s.mem
 	if loadedProject != "" {
 		s.projectPath = loadedProject
 	} else if s.cfg != nil && s.cfg.Cwd != "" {
@@ -210,6 +221,7 @@ func (s *Session) Load(id string) error {
 	// Save with no changes is a no-op.
 	s.lastSavedRevision = s.revision
 	s.mu.Unlock()
+	mem.setPersistedTexts(loadedMemory)
 	return nil
 }
 
@@ -282,6 +294,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	var loadedID string
 	var pinned []string
 	var loadedWorkState []byte
+	var loadedMemory []string
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionLineBytes)
 	for scanner.Scan() {
@@ -292,9 +305,10 @@ func (s *Session) LoadIsolated() (bool, error) {
 		if strings.HasPrefix(line, `{"_meta":`) {
 			var wrapper struct {
 				Meta struct {
-					SessionID string          `json:"session_id"`
-					Pinned    []string        `json:"pinned_contexts"`
-					WorkState json.RawMessage `json:"work_state"`
+					SessionID   string          `json:"session_id"`
+					Pinned      []string        `json:"pinned_contexts"`
+					WorkState   json.RawMessage `json:"work_state"`
+					MemoryTexts []string        `json:"memory_texts"`
 				} `json:"_meta"`
 			}
 			if err := json.Unmarshal([]byte(line), &wrapper); err == nil {
@@ -305,6 +319,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 				if len(wrapper.Meta.WorkState) > 0 {
 					loadedWorkState = append([]byte(nil), wrapper.Meta.WorkState...)
 				}
+				loadedMemory = wrapper.Meta.MemoryTexts
 			}
 			continue
 		}
@@ -328,12 +343,17 @@ func (s *Session) LoadIsolated() (bool, error) {
 	s.messages = loaded
 	s.pinnedContexts = pinned
 	s.workState = loadedWorkState
+	if s.mem == nil {
+		s.mem = newSessionMemory(s.cfg, s.client)
+	}
+	mem := s.mem
 	s.projectPath = cwd
 	s.recomputeTokenEstimate()
 	s.revision++
 	s.generation++
 	s.lastSavedRevision = s.revision
 	s.mu.Unlock()
+	mem.setPersistedTexts(loadedMemory)
 	return true, nil
 }
 
@@ -391,9 +411,11 @@ func (s *Session) saveIsolated() error {
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
 	workState := append([]byte(nil), s.workState...)
+	mem := s.mem
 	rev := s.revision
 	savedRev := s.lastSavedRevision
 	s.mu.RUnlock()
+	memTexts := mem.texts()
 
 	if cfg == nil || cfg.Cwd == "" {
 		return fmt.Errorf("isolated session cwd is empty")
@@ -416,6 +438,9 @@ func (s *Session) saveIsolated() error {
 		}
 		if len(workState) > 0 {
 			metaMap["work_state"] = json.RawMessage(workState)
+		}
+		if len(memTexts) > 0 {
+			metaMap["memory_texts"] = memTexts
 		}
 		meta := map[string]any{
 			"_meta": metaMap,
@@ -820,6 +845,67 @@ func loadWorkStateFor(sessionsDir, id string) []byte {
 		return nil
 	}
 	return append([]byte(nil), decoded.WorkState...)
+}
+
+func memoryPath(sessionsDir, id string) (string, error) {
+	sanitized := sanitizeSessionID(id)
+	if sanitized == "" {
+		return "", fmt.Errorf("invalid session id: %q", id)
+	}
+	sessionsDirAbs, err := absPath(sessionsDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve sessions dir: %w", err)
+	}
+	path := filepath.Join(sessionsDir, sanitized+".mem.json")
+	pathAbs, err := absPath(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve memory sidecar path: %w", err)
+	}
+	if !strings.HasPrefix(pathAbs, sessionsDirAbs+string(filepath.Separator)) && pathAbs != sessionsDirAbs {
+		return "", fmt.Errorf("invalid memory sidecar path outside sessions dir")
+	}
+	return path, nil
+}
+
+type memorySidecar struct {
+	MemoryTexts []string `json:"memory_texts"`
+}
+
+func (s *Session) writeMemoryFor(id string, texts []string) error {
+	target, err := memoryPath(s.cfg.SessionsDir, id)
+	if err != nil {
+		return err
+	}
+	if len(texts) == 0 {
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove memory sidecar: %w", err)
+		}
+		return nil
+	}
+	payload, err := json.Marshal(memorySidecar{MemoryTexts: texts})
+	if err != nil {
+		return fmt.Errorf("encode memory sidecar: %w", err)
+	}
+	if err := writeAtomicBytes(s.cfg.SessionsDir, "*.mem.tmp", target, 0o600, payload); err != nil {
+		return fmt.Errorf("replace memory sidecar file: %w", err)
+	}
+	return nil
+}
+
+func loadMemoryFor(sessionsDir, id string) []string {
+	target, err := memoryPath(sessionsDir, id)
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil
+	}
+	var decoded memorySidecar
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil
+	}
+	return deduplicateMemoryTexts(decoded.MemoryTexts, nil)
 }
 
 func newSessionID() string {

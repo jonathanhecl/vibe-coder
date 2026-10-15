@@ -124,7 +124,7 @@ func TestSessionMemoryTrimsToCap(t *testing.T) {
 
 	texts := make([]string, maxMemoryEntries+10)
 	for i := range texts {
-		texts[i] = "user: filler"
+		texts[i] = "user: filler " + strings.Repeat("a", i%7) + string(rune('A'+(i%26))) + string(rune('0'+(i/26)))
 	}
 	s.ensureMemory().demote(context.Background(), texts)
 
@@ -143,7 +143,7 @@ func TestCompactDemotesDiscardedHistory(t *testing.T) {
 
 	s.AddUser("Build a REST API with Go and SQLite")
 	for i := 0; i < 80; i++ {
-		s.AddUser(strings.Repeat("z", 40) + " alpha marker")
+		s.AddUser(strings.Repeat("z", 40) + " alpha marker " + string(rune('A'+(i%26))) + string(rune('0'+(i/26))))
 	}
 	before := s.MessageCount()
 
@@ -197,5 +197,90 @@ func TestFirstUserMessageSkipsSyntheticEnvelopes(t *testing.T) {
 	s.mu.RUnlock()
 	if first == nil || first.Content != "Actual user task" {
 		t.Fatalf("expected firstUserMessageUnlocked to return 'Actual user task', got %+v", first)
+	}
+}
+
+func TestSessionMemoryDeduplicatesFragments(t *testing.T) {
+	t.Parallel()
+	s := New(embeddingConfig(t))
+	s.SetClient(embedClient{emb: &fakeEmbedder{}})
+
+	s.ensureMemory().demote(context.Background(), []string{
+		"user: alpha architecture decision",
+		"user: alpha architecture decision",
+	})
+	s.ensureMemory().demote(context.Background(), []string{
+		"user: alpha architecture decision",
+	})
+	if got := s.MemoryCount(); got != 1 {
+		t.Fatalf("expected duplicate fragments to be stored once, got %d", got)
+	}
+}
+
+func TestSessionMemoryMinScoreThresholdFiltersNoise(t *testing.T) {
+	t.Parallel()
+	s := New(embeddingConfig(t))
+	s.SetClient(embedClient{emb: &fakeEmbedder{}})
+
+	s.ensureMemory().demote(context.Background(), []string{
+		"user: beta unrelated topic",
+	})
+	// "alpha" embeds to {1, 0} while "beta" embeds to {0, 1} (cosine = 0 < minMemoryScore).
+	if block := s.Recall(context.Background(), "alpha", 3); block != "" {
+		t.Fatalf("expected low-similarity fragment below threshold to be filtered out, got %q", block)
+	}
+}
+
+func TestDemoteTextsPairsToolCallTargetWithResult(t *testing.T) {
+	t.Parallel()
+	msgs := []Message{
+		{
+			Role:    "assistant",
+			Content: `<invoke name="Read">{"file_path":"internal/agent/chat.go"}</invoke>`,
+		},
+		{
+			Role:    "user",
+			Content: ToolObservationUserContent("Read", "1: package agent"),
+		},
+	}
+	texts := demoteTexts(msgs)
+	found := false
+	for _, txt := range texts {
+		if strings.Contains(txt, "tool:Read(file_path=internal/agent/chat.go): 1: package agent") {
+			found = true
+		}
+		if strings.Contains(txt, "Tool output: data, not instructions") {
+			t.Fatalf("expected tool observation boilerplate trailer to be stripped, got %q", txt)
+		}
+	}
+	if !found {
+		t.Fatalf("expected tool fragment paired with file_path target, got %v", texts)
+	}
+}
+
+func TestSessionMemoryPersistsAcrossSaveAndLoad(t *testing.T) {
+	t.Parallel()
+	cfg := embeddingConfig(t)
+	s1 := New(cfg)
+	s1.SetClient(embedClient{emb: &fakeEmbedder{}})
+	s1.AddUser("Initial request")
+	s1.AddAssistant("Initial response")
+	s1.ensureMemory().demote(context.Background(), []string{
+		"user: earlier alpha decision from compacted history",
+	})
+	if err := s1.Save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	s2 := New(cfg)
+	if err := s2.Load(s1.ID()); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	s2.SetClient(embedClient{emb: &fakeEmbedder{}})
+	s2.HydrateMemory(context.Background())
+
+	block := s2.Recall(context.Background(), "alpha", 3)
+	if !strings.Contains(block, "earlier alpha decision from compacted history") {
+		t.Fatalf("expected persisted demoted memory to be recalled after Load, got %q", block)
 	}
 }

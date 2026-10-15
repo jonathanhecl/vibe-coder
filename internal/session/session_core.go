@@ -113,9 +113,17 @@ func (s *Session) MessageCount() int {
 
 func (s *Session) SetClient(client ollama.Client) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.client = client
-	s.mem = newSessionMemory(s.cfg, client)
+	mem := s.mem
+	cfg := s.cfg
+	if mem == nil {
+		mem = newSessionMemory(cfg, client)
+		s.mem = mem
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	mem.bind(cfg, client)
 }
 
 // ensureMemory returns the demotion store, building it from the current client

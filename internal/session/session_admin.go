@@ -67,6 +67,11 @@ func DeleteSession(cfg *config.Config, id string) error {
 			return fmt.Errorf("remove work state sidecar: %w", err)
 		}
 	}
+	if sidecar, err := memoryPath(dir, sanitized); err == nil {
+		if err := os.Remove(sidecar); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove memory sidecar: %w", err)
+		}
+	}
 	// Pasted images live in the session media dir and are referenced by
 	// absolute path from the transcript, so they go away with the session.
 	if err := RemoveMediaDir(dir, sanitized); err != nil {
@@ -113,12 +118,13 @@ func DeleteAllSessions(cfg *config.Config) (int, error) {
 			continue
 		}
 		name := entry.Name()
-		if strings.HasSuffix(name, ".ctx.json") || strings.HasSuffix(name, ".work.json") {
+		if strings.HasSuffix(name, ".ctx.json") || strings.HasSuffix(name, ".work.json") || strings.HasSuffix(name, ".mem.json") {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
 				return removed, fmt.Errorf("remove %s: %w", name, err)
 			}
 			continue
 		}
+
 		if !strings.HasSuffix(name, ".jsonl") {
 			continue
 		}
