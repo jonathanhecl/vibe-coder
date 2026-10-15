@@ -77,6 +77,11 @@ func (c *Client) Start() error {
 	c.cmd = cmd
 	c.stdin = bufio.NewWriter(stdin)
 	c.stdout = bufio.NewReader(stdout)
+	// Starting is also restarting: Stop retires the done channel, so a fresh
+	// one is armed here, otherwise every later call would fail immediately
+	// with "mcp client stopped".
+	c.done = make(chan struct{})
+	c.pending = make(map[int64]chan rpcResult)
 	c.stopped = false
 	go c.readLoop()
 	return nil
@@ -93,7 +98,13 @@ func (c *Client) Stop() {
 	c.cmd = nil
 	c.stdin = nil
 	c.stdout = nil
-	close(c.done)
+	// Retire the done channel so a later Start can arm a fresh one. Closing a
+	// nil channel would panic, which is reachable when Start failed after a
+	// previous Stop.
+	if c.done != nil {
+		close(c.done)
+		c.done = nil
+	}
 	pending := c.pending
 	c.pending = make(map[int64]chan rpcResult)
 	c.mu.Unlock()

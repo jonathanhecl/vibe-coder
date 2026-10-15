@@ -140,7 +140,7 @@ func (t *InteractiveBashTool) Execute(ctx context.Context, params map[string]any
 		}
 		exitCode := sess.ExitCode()
 		_ = t.mgr.Terminate(sess.ID)
-		final = headTailTruncate(final, t.outputLimit())
+		final = TruncateOutput(final, t.outputLimit())
 		final = strings.TrimRight(final, "\n")
 		if exitCode != 0 {
 			final = fmt.Sprintf("%s\n\n[exit_code: %d]", final, exitCode)
@@ -153,7 +153,7 @@ func (t *InteractiveBashTool) Execute(ctx context.Context, params map[string]any
 	if output == "" {
 		output = "(waiting for input)"
 	}
-	output = headTailTruncate(output, t.outputLimit())
+	output = TruncateOutput(output, t.outputLimit())
 
 	return Result{
 		Output: fmt.Sprintf("%s\n\n[session_id: %s]\n[status: running -- use SendInput to respond]", strings.TrimRight(output, "\n"), sess.ID),
@@ -269,7 +269,7 @@ func (t *SendInputTool) Execute(ctx context.Context, params map[string]any) Resu
 		}
 		exitCode := sess.ExitCode()
 		_ = t.mgr.Terminate(sessionID)
-		output = headTailTruncate(output, t.outputLimit())
+		output = TruncateOutput(output, t.outputLimit())
 		output = strings.TrimRight(output, "\n")
 		output = fmt.Sprintf("%s\n\n[exit_code: %d]", output, exitCode)
 		return Result{Output: output}
@@ -278,7 +278,7 @@ func (t *SendInputTool) Execute(ctx context.Context, params map[string]any) Resu
 	if output == "" {
 		output = "(waiting for more input)"
 	}
-	output = headTailTruncate(output, t.outputLimit())
+	output = TruncateOutput(output, t.outputLimit())
 
 	return Result{
 		Output: fmt.Sprintf("%s\n\n[session_id: %s]\n[status: running -- use SendInput to continue or TerminateSession to kill]", strings.TrimRight(output, "\n"), sessionID),

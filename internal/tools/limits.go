@@ -31,10 +31,14 @@ func OutputLimitBytes(cfg *config.Config) int {
 	return tokens * 4
 }
 
-// headTailTruncate keeps the first and last halves of s within maxBytes so
+// TruncateOutput keeps the first and last halves of s within maxBytes so
 // both the beginning (often the error headline) and the end (the actual
 // failure) survive. maxBytes <= 0 disables truncation.
-func headTailTruncate(s string, maxBytes int) string {
+//
+// It is exported because tools implemented outside this package reuse it: the
+// MCP wrapper receives the same cap through Registry.SetOutputLimit, so one
+// truncation behavior serves every tool.
+func TruncateOutput(s string, maxBytes int) string {
 	if maxBytes <= 0 || len(s) <= maxBytes {
 		return s
 	}

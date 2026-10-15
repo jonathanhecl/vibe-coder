@@ -128,7 +128,7 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) Result {
 	if output == "" && err == nil {
 		output = "(no output)"
 	}
-	output = headTailTruncate(output, t.outputLimit())
+	output = TruncateOutput(output, t.outputLimit())
 	if err != nil {
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			seconds := time.Duration(timeoutMS) * time.Millisecond

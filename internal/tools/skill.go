@@ -103,7 +103,7 @@ func (t *SkillTool) Execute(ctx context.Context, params map[string]any) Result {
 	}
 	out := strings.TrimRight(b.String(), "\n")
 	if t.maxOutput > 0 && len(out) > t.maxOutput {
-		out = headTailTruncate(out, t.maxOutput) + "\n[skill output truncated to the tool output cap]"
+		out = TruncateOutput(out, t.maxOutput) + "\n[skill output truncated to the tool output cap]"
 	}
 	return Result{Output: out}
 }
