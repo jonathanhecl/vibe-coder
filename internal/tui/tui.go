@@ -78,12 +78,12 @@ type PlainUI struct {
 	thinkingActive         bool
 	thinkingPendingNewline bool
 	thinkingStart          time.Time
-	assistantReplyStart time.Time
-	turnStart           time.Time
-	assistantHadVisible bool
-	assistantLines      int
-	streamBuffer        strings.Builder
-	markdown            *MarkdownRenderer
+	assistantReplyStart    time.Time
+	turnStart              time.Time
+	assistantHadVisible    bool
+	assistantLines         int
+	streamBuffer           strings.Builder
+	markdown               *MarkdownRenderer
 
 	// spinner state. spinnerMu guards spinner only (a small lock that does
 	// NOT cover stdout writes); the running goroutine takes mu to paint

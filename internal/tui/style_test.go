@@ -263,4 +263,3 @@ func TestStreamThinkingUsesGrayColor(t *testing.T) {
 		t.Fatalf("expected thought for footer in gray, got:\n%q", out)
 	}
 }
-

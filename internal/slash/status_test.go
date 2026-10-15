@@ -133,12 +133,12 @@ func TestStatusAssistedFallsBackToConfigWithoutManager(t *testing.T) {
 func TestStatusShowsDecisionEndpoint(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{
-		Model:              "llama3.2:3b",
+		Model:            "llama3.2:3b",
 		DecisionEndpoint: "http://mac-mini.local:8765",
-		AssistedYes:        true,
-		ContextWindow:      32768,
-		Cwd:                tmp,
-		SessionsDir:        tmp,
+		AssistedYes:      true,
+		ContextWindow:    32768,
+		Cwd:              tmp,
+		SessionsDir:      tmp,
 	}
 	s := session.New(cfg)
 	out := &bytes.Buffer{}

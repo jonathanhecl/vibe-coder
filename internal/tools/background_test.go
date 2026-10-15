@@ -148,4 +148,3 @@ func TestBackgroundStatusStripsANSI(t *testing.T) {
 		t.Fatalf("expected text content present in statusRes, got: %q", statusRes.Output)
 	}
 }
-
