@@ -161,3 +161,41 @@ func TestCompactDemotesDiscardedHistory(t *testing.T) {
 		t.Fatalf("expected to recall the discarded alpha fragment, got %q", block)
 	}
 }
+
+func TestDemoteTextsSkipsSyntheticEnvelopes(t *testing.T) {
+	t.Parallel()
+	msgs := []Message{
+		{Role: "user", Content: "[Earlier conversation summary]\nold summary"},
+		{Role: "user", Content: "[RAG Context]\n// a.go:1\npackage a"},
+		{Role: "user", Content: "[Session memory]\n- user: prior memory"},
+		{Role: "user", Content: RuntimeReminderPrefix + "\nkeep working\n[/runtime_reminder]"},
+		{Role: "assistant", Content: "[runtime] File updated: a.go."},
+		{Role: "user", Content: "Implement feature alpha"},
+		{Role: "assistant", Content: "Implemented alpha handler"},
+	}
+	texts := demoteTexts(msgs)
+	if len(texts) != 2 {
+		t.Fatalf("expected only 2 substantive fragments, got %d: %v", len(texts), texts)
+	}
+	for _, txt := range texts {
+		if strings.Contains(txt, "Session memory") || strings.Contains(txt, "RAG Context") || strings.Contains(txt, "runtime") {
+			t.Fatalf("synthetic block leaked into demoteTexts: %q", txt)
+		}
+	}
+}
+
+func TestFirstUserMessageSkipsSyntheticEnvelopes(t *testing.T) {
+	t.Parallel()
+	s := New(embeddingConfig(t))
+	s.AddUser("[RAG Context]\nchunk")
+	s.AddUser("[Session memory]\n- item")
+	s.AddRuntimeReminder("keep going")
+	s.AddUser("Actual user task")
+
+	s.mu.RLock()
+	first := s.firstUserMessageUnlocked()
+	s.mu.RUnlock()
+	if first == nil || first.Content != "Actual user task" {
+		t.Fatalf("expected firstUserMessageUnlocked to return 'Actual user task', got %+v", first)
+	}
+}

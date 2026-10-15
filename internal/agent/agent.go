@@ -52,12 +52,13 @@ type Agent struct {
 	// visionRole is the model explicitly bound to the vision role
 	// (/setmodel vision). When set it describes images before the main
 	// model and the sidecar are consulted.
-	visionRole  *visionrole.Describer
-	decider     decision.Decider
-	currentGoal string // verbatim text of the user's request for this Run()
-	ctxStore    *contextfiles.Store
-	imgCache    *vision.Cache
-	lastImage   string // newest user-attached image path; guarded by mu
+	visionRole       *visionrole.Describer
+	decider          decision.Decider
+	currentGoal      string   // verbatim text of the user's request for this Run()
+	runContextBlocks []string // ephemeral RAG/memory blocks for the active Run(); guarded by mu
+	ctxStore         *contextfiles.Store
+	imgCache         *vision.Cache
+	lastImage        string // newest user-attached image path; guarded by mu
 	// mission is the agent-declared long-running goal. While active, the
 	// runtime keeps starting turns until the agent completes or blocks it.
 	mission *tools.MissionStore

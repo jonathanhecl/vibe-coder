@@ -411,6 +411,17 @@ func (s *Session) firstUserMessageUnlocked() *Message {
 	return nil
 }
 
+// isSyntheticContextEnvelope reports whether a message body is an injected
+// runtime or retrieval block rather than a substantive user turn.
+func isSyntheticContextEnvelope(content string) bool {
+	c := strings.TrimSpace(content)
+	return strings.HasPrefix(c, "[Earlier conversation summary]") ||
+		strings.HasPrefix(c, RuntimeReminderPrefix) ||
+		strings.HasPrefix(c, "[RAG Context]") ||
+		strings.HasPrefix(c, "[Session memory]") ||
+		strings.HasPrefix(c, "[System Note]")
+}
+
 // firstUserMessageIndexLocked returns the index of the first user-role
 // message that is not a tool observation envelope or a runtime note, or -1.
 // Caller must hold s.mu.
@@ -420,13 +431,7 @@ func (s *Session) firstUserMessageIndexLocked() int {
 		if m.Role != "user" {
 			continue
 		}
-		if strings.HasPrefix(m.Content, "[tool_result") {
-			continue
-		}
-		if strings.HasPrefix(m.Content, "[Earlier conversation summary]") {
-			continue
-		}
-		if strings.HasPrefix(m.Content, RuntimeReminderPrefix) {
+		if strings.HasPrefix(m.Content, "[tool_result") || isSyntheticContextEnvelope(m.Content) {
 			continue
 		}
 		return i

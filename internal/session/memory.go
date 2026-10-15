@@ -190,7 +190,7 @@ func (s *Session) HydrateMemory(ctx context.Context) {
 	cut := len(s.messages)
 	sum := 0
 	for i := len(s.messages) - 1; i >= 0; i-- {
-		cost := estimateMessageTokens(s.messages[i].Content)
+		cost := s.calibrator.Adjust(estimateMessageTokens(s.messages[i].Content))
 		if sum+cost > keepTailTokens && len(s.messages)-cut >= 4 {
 			break
 		}
@@ -208,12 +208,17 @@ func (s *Session) HydrateMemory(ctx context.Context) {
 }
 
 // demoteTexts renders the discarded messages to bounded fragments ready to be
-// embedded. Tool results are labeled so recall reads naturally.
+// embedded. Synthetic blocks (prior recalls, RAG dumps, compaction summaries,
+// runtime reminders) are skipped so the store never embeds memories of
+// memories. Tool results are labeled so recall reads naturally.
 func demoteTexts(messages []Message) []string {
 	texts := make([]string, 0, len(messages))
 	for _, msg := range messages {
 		content := strings.TrimSpace(msg.Content)
-		if content == "" {
+		if content == "" || isSyntheticContextEnvelope(content) {
+			continue
+		}
+		if msg.Role == "assistant" && strings.HasPrefix(content, "[runtime]") {
 			continue
 		}
 		label := msg.Role

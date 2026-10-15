@@ -43,6 +43,9 @@ func shouldSkipForGoalExtraction(c string) bool {
 	if strings.HasPrefix(c, "[RAG Context]") {
 		return true
 	}
+	if strings.HasPrefix(c, "[Session memory]") {
+		return true
+	}
 	if strings.HasPrefix(c, "[System Note]") {
 		return true
 	}

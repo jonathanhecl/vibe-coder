@@ -79,6 +79,14 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	// only here, at send time. The transcript keeps the cheap text form.
 	a.setLastImage(out)
 	out = scrubPastedImagePaths(a.resolveOutgoingImages(ctx, out))
+	// Additive per-run context (RAG and recalled session memory) rides on the
+	// wire for the active Run without polluting the stored session transcript.
+	if ctxNote := a.runContextNote(); ctxNote != "" {
+		out = append(out, ollama.Message{
+			Role:    "user",
+			Content: ctxNote,
+		})
+	}
 	// The ephemeral runtime-state note rides at the tail of the window so it
 	// is always fresh: durable progress and mission turn counts change every
 	// iteration, and pinning them inside the system prompt would bust the
@@ -219,7 +227,9 @@ func transcriptUserAnchor(hist []session.Message) string {
 		}
 		if strings.HasPrefix(c, "[tool_result") ||
 			strings.HasPrefix(c, session.RuntimeReminderPrefix) ||
-			strings.HasPrefix(c, "[Earlier conversation summary]") {
+			strings.HasPrefix(c, "[Earlier conversation summary]") ||
+			strings.HasPrefix(c, "[RAG Context]") ||
+			strings.HasPrefix(c, "[Session memory]") {
 			continue
 		}
 		return clipAnchor(c)

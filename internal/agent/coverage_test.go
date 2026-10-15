@@ -232,9 +232,20 @@ func TestRunAddsRAGContextAndHandlesUnknownXMLTool(t *testing.T) {
 	if err := ag.Run(context.Background(), "just chat"); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
-	// user input + rag context + assistant output
-	if ag.sess.MessageCount() < 3 {
-		t.Fatalf("expected rag-enriched session, got %d messages", ag.sess.MessageCount())
+	// Stored session keeps only user input + assistant output; RAG rides ephemerally on the wire.
+	if ag.sess.MessageCount() != 2 {
+		t.Fatalf("expected 2 stored messages (user + assistant), got %d", ag.sess.MessageCount())
+	}
+	wireMsgs, _ := ag.buildOllamaMessages(context.Background(), "SYS")
+	foundRAG := false
+	for _, m := range wireMsgs {
+		if strings.Contains(m.Content, "[RAG Context]") {
+			foundRAG = true
+			break
+		}
+	}
+	if !foundRAG {
+		t.Fatal("expected [RAG Context] on the wire during the run")
 	}
 }
 

@@ -236,6 +236,9 @@ func renderMessagesForSummary(messages []Message) string {
 	size := 0
 	for i := len(messages) - 1; i >= start; i-- {
 		m := messages[i]
+		if isSyntheticContextEnvelope(m.Content) {
+			continue
+		}
 		entry := m.Role
 		if m.ToolName != "" {
 			entry += "(" + m.ToolName + ")"

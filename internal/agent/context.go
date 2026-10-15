@@ -14,6 +14,7 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 	goal := resolveGoalForRun(a.sess, userInput)
 	a.mu.Lock()
 	a.currentGoal = goal
+	a.runContextBlocks = nil
 	a.mu.Unlock()
 	a.sess.AddUser(userInput)
 
@@ -23,6 +24,7 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 		a.sess.HydrateMemory(ctx)
 	}
 
+	var ephemeral []string
 	if rag := a.getRAG(); rag != nil && a.cfg.RAG {
 		k := a.cfg.RAGTopK
 		if k <= 0 {
@@ -38,10 +40,11 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 				query = rewritten
 			}
 		}
-		// RAG is additive context. If retrieval fails, the run can still
-		// proceed with the user's request and normal tool access.
+		// RAG is additive context for the active run. Keep it ephemeral on the
+		// wire rather than appending to the permanent transcript so multi-turn
+		// sessions do not accumulate stale retrieval blocks.
 		if ctxText, err := a.retrieveContext(ctx, rag, query, k); err == nil && strings.TrimSpace(ctxText) != "" {
-			a.sess.AddUser(ctxText)
+			ephemeral = append(ephemeral, strings.TrimSpace(ctxText))
 		}
 	}
 
@@ -56,8 +59,14 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 			k = 3
 		}
 		if block := a.sess.Recall(ctx, goal, k); strings.TrimSpace(block) != "" {
-			a.sess.AddUser(block)
+			ephemeral = append(ephemeral, strings.TrimSpace(block))
 		}
+	}
+
+	if len(ephemeral) > 0 {
+		a.mu.Lock()
+		a.runContextBlocks = ephemeral
+		a.mu.Unlock()
 	}
 
 	if w := a.getWatcher(); w != nil {
@@ -67,6 +76,19 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 	}
 
 	a.injectCompletedBackgroundTasks()
+}
+
+func (a *Agent) runContextNote() string {
+	if a == nil {
+		return ""
+	}
+	a.mu.RLock()
+	blocks := append([]string(nil), a.runContextBlocks...)
+	a.mu.RUnlock()
+	if len(blocks) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(blocks, "\n\n"))
 }
 
 func (a *Agent) injectCompletedBackgroundTasks() {
