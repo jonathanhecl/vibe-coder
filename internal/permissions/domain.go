@@ -518,62 +518,73 @@ func IsPathInsideDomain(ws, path string) bool {
 		return true
 	}
 
-	// Lexical check
-	checkWS := cleanWS
-	checkTarget := cleanTarget
+	// Compare physical locations. Resolving both sides makes aliases of the
+	// workspace (a symlinked or bind-mounted path such as /media/x vs /mnt/x,
+	// or the resolved path reported by `pwd -P` / git) count as inside, while a
+	// symlink inside the workspace that points elsewhere is still rejected.
+	return pathWithin(resolvePhysicalPath(cleanWS), resolvePhysicalPath(cleanTarget))
+}
+
+// pathWithin reports whether target equals parent or lies beneath it.
+func pathWithin(parent, target string) bool {
 	if runtime.GOOS == "windows" {
-		checkWS = strings.ToLower(cleanWS)
-		checkTarget = strings.ToLower(cleanTarget)
+		parent = strings.ToLower(parent)
+		target = strings.ToLower(target)
 	}
-	rel, err := filepath.Rel(checkWS, checkTarget)
+	if parent == target {
+		return true
+	}
+	rel, err := filepath.Rel(parent, target)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
-
-	// Symlink check: ensure neither the target nor its parent resolves outside cleanWS
-	evalWS, errWS := filepath.EvalSymlinks(cleanWS)
-	if errWS != nil {
-		evalWS = cleanWS
-	}
-	evalTarget, errTarget := filepath.EvalSymlinks(cleanTarget)
-	if errTarget == nil {
-		checkEvalWS := evalWS
-		checkEvalTarget := evalTarget
-		if runtime.GOOS == "windows" {
-			checkEvalWS = strings.ToLower(evalWS)
-			checkEvalTarget = strings.ToLower(evalTarget)
-		}
-		relEval, err := filepath.Rel(checkEvalWS, checkEvalTarget)
-		if err != nil || relEval == ".." || strings.HasPrefix(relEval, ".."+string(filepath.Separator)) {
-			return false
-		}
-	} else {
-		ancestor := cleanTarget
-		for {
-			parent := filepath.Dir(ancestor)
-			if parent == ancestor || parent == "." {
-				break
-			}
-			ancestor = parent
-			if info, err := os.Stat(ancestor); err == nil && info.IsDir() {
-				if evalAncestor, err := filepath.EvalSymlinks(ancestor); err == nil {
-					checkEvalWS := evalWS
-					checkEvalAncestor := evalAncestor
-					if runtime.GOOS == "windows" {
-						checkEvalWS = strings.ToLower(evalWS)
-						checkEvalAncestor = strings.ToLower(evalAncestor)
-					}
-					relEval, err := filepath.Rel(checkEvalWS, checkEvalAncestor)
-					if err != nil || relEval == ".." || strings.HasPrefix(relEval, ".."+string(filepath.Separator)) {
-						return false
-					}
-				}
-				break
-			}
-		}
-	}
-
 	return true
+}
+
+// resolvePhysicalPath resolves symlinks in the deepest existing ancestor of
+// an absolute, cleaned path and re-appends the not-yet-existing tail, so paths
+// to files that will be created still map to their physical location.
+func resolvePhysicalPath(p string) string {
+	cur := p
+	var tail []string
+	for {
+		if resolved, err := filepath.EvalSymlinks(cur); err == nil {
+			for i := len(tail) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, tail[i])
+			}
+			return filepath.Clean(resolved)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		tail = append(tail, filepath.Base(cur))
+		cur = parent
+	}
+}
+
+// isUnreachableRootPath reports whether an absolute path starts with a
+// top-level directory that does not exist (for example "/props" or
+// "/v1/models", which are URL routes rather than files). Such a path cannot
+// read or touch anything outside the workspace, so prompting for it is noise.
+func isUnreachableRootPath(p string) bool {
+	if !filepath.IsAbs(p) {
+		return false
+	}
+	vol := filepath.VolumeName(p)
+	rest := strings.TrimLeft(strings.TrimPrefix(p, vol), `/\`)
+	if rest == "" {
+		return false
+	}
+	first := rest
+	if i := strings.IndexAny(rest, `/\`); i >= 0 {
+		first = rest[:i]
+	}
+	if first == "" || first == "." || first == ".." {
+		return false
+	}
+	_, err := os.Lstat(vol + string(filepath.Separator) + first)
+	return os.IsNotExist(err)
 }
 
 // UnapprovedOutDomainPaths returns any paths targeted by the tool that are
@@ -588,6 +599,9 @@ func (m *Manager) UnapprovedOutDomainPaths(toolName string, params map[string]an
 	var unapproved []string
 	for _, p := range allPaths {
 		if m.IsInsideDomain(p) {
+			continue
+		}
+		if isUnreachableRootPath(m.canonicalAbsPath(p)) {
 			continue
 		}
 		if isAllowedSystemPath(p, m.WorkspaceDir()) {
