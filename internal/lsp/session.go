@@ -29,6 +29,11 @@ const (
 	stderrTailBytes = 4096
 	// stderrDetailBytes caps the stderr excerpt carried in an error message.
 	stderrDetailBytes = 512
+	// maxOpenDocuments bounds how many documents stay open in a server. A server
+	// keeps a parse of every document it was told about, and a session touches
+	// far more files than one task needs; the least recently edited ones are the
+	// ones to let go, because those are the files an agent comes back to.
+	maxOpenDocuments = 32
 )
 
 // session is one running language server plus the documents synced to it.
@@ -49,6 +54,7 @@ type session struct {
 
 	mu   sync.Mutex
 	docs map[string]int // document URI → last version sent
+	open []string       // open document URIs, least recently edited first
 }
 
 // startSession spawns a language server and completes the handshake.
@@ -145,15 +151,71 @@ func (s *session) diagnostics(ctx context.Context, path, text string) ([]Diagnos
 		return nil, false, fmt.Errorf("lsp: %s: %w", s.language, err)
 	}
 	s.docs[uri] = version
+	// The window of documents kept open is bounded: one that falls out of it is
+	// reopened from scratch on the next edit, which costs a parse and keeps a
+	// long session from making the server hold every file it ever touched.
+	s.touch(uri)
+	s.evict()
 
 	diagnostics, fresh := s.client.WaitDiagnostics(ctx, uri, version, s.timeout)
 	return diagnostics, fresh, nil
+}
+
+// touch marks a document as the most recently edited one. The window is a few
+// dozen entries at most, so a linear scan is cheaper than a list type.
+//
+// The caller holds s.mu.
+func (s *session) touch(uri string) {
+	for i, open := range s.open {
+		if open != uri {
+			continue
+		}
+		copy(s.open[i:], s.open[i+1:])
+		s.open[len(s.open)-1] = uri
+		return
+	}
+	s.open = append(s.open, uri)
+}
+
+// evict closes the documents past the open window, oldest first. A notification
+// that fails is not actionable: the document is forgotten here either way, and
+// the next edit to it opens it again.
+//
+// The caller holds s.mu.
+func (s *session) evict() {
+	for len(s.open) > maxOpenDocuments {
+		oldest := s.open[0]
+		s.open = s.open[1:]
+		delete(s.docs, oldest)
+		if s.client == nil {
+			continue
+		}
+		_ = s.client.DidClose(oldest)
+	}
+}
+
+// clearOpen forgets every open document and hands back its URI, so a caller can
+// release them while the server is still there to be told.
+func (s *session) clearOpen() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	open := s.open
+	s.open = nil
+	s.docs = make(map[string]int)
+	return open
 }
 
 // close tears the server down: shutdown, exit, a bounded wait for it to leave on
 // its own, then a kill. It is safe to call more than once.
 func (s *session) close() {
 	if s.client != nil {
+		// Documents are released before the shutdown: a server told about a
+		// closed document can drop the parse and the watchers it kept for it,
+		// and the notification only lands while the process is still reading.
+		for _, uri := range s.clearOpen() {
+			_ = s.client.DidClose(uri)
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		_ = s.client.Call(ctx, "shutdown", nil, nil)
 		cancel()
