@@ -229,3 +229,38 @@ func TestAssistantFooterOmitsTokenSpeedWithoutTimings(t *testing.T) {
 	}
 }
 
+func TestStyleDimGray(t *testing.T) {
+	t.Parallel()
+
+	sEnabled := NewStyleForTest(true)
+	if got := sEnabled.DimGray("reasoning"); got != "\x1b[2;90mreasoning\x1b[0m" {
+		t.Fatalf("expected dim gray ANSI codes, got %q", got)
+	}
+
+	sDisabled := NewStyleForTest(false)
+	if got := sDisabled.DimGray("reasoning"); got != "reasoning" {
+		t.Fatalf("expected plain text when disabled, got %q", got)
+	}
+}
+
+func TestStreamThinkingUsesDarkerDimGrayColor(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	u := &PlainUI{out: &buf, style: NewStyleForTest(true)}
+	u.StreamThinking("pondering line")
+	u.EndThinking()
+
+	out := buf.String()
+	// Thinking bar prefix and content must use the darker dim gray escape code (\x1b[2;90m)
+	if !strings.Contains(out, "\x1b[2;90m💭\x1b[0m") {
+		t.Fatalf("expected thinking bar to be styled in dim gray, got:\n%q", out)
+	}
+	if !strings.Contains(out, "\x1b[2;90mpondering line\x1b[0m") {
+		t.Fatalf("expected thinking content to be styled in dim gray, got:\n%q", out)
+	}
+	if !strings.Contains(out, "\x1b[2;90mthought for ") {
+		t.Fatalf("expected thought for footer in dim gray, got:\n%q", out)
+	}
+}
+
