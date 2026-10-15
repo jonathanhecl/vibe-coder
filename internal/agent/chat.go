@@ -54,10 +54,10 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	masked, _ := maskToolResults(hist, maskBefore)
 	start := -1
 	if sameGen && prevStart >= 0 && prevStart < len(masked) &&
-		transcriptCost(masked[prevStart:]) <= budget.Transcript {
+		a.calibratedTranscriptCost(masked[prevStart:]) <= budget.Transcript {
 		start = prevStart
 	} else {
-		start = windowStartForBudget(masked, budget.Transcript)
+		start = a.windowStartForBudget(masked, budget.Transcript)
 	}
 	a.wire.start = start
 	a.wireMu.Unlock()
@@ -104,6 +104,28 @@ func transcriptCost(msgs []session.Message) int {
 		total += session.MessageTokenCost(m.Content)
 	}
 	return total
+}
+
+func (a *Agent) calibratedTranscriptCost(msgs []session.Message) int {
+	return a.calibrateTokens(transcriptCost(msgs))
+}
+
+func (a *Agent) windowStartForBudget(hist []session.Message, budget int) int {
+	limit := budget * 60 / 100
+	start := len(hist) - 1
+	sum := 0
+	for i := len(hist) - 1; i >= 0; i-- {
+		cost := a.calibrateTokens(session.MessageTokenCost(hist[i].Content))
+		if i < len(hist)-1 && sum+cost > limit {
+			break
+		}
+		sum += cost
+		start = i
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
 }
 
 // windowStartForBudget walks backward from the newest message accumulating
@@ -413,6 +435,11 @@ func (a *Agent) trySidecarAsMain(rootCtx context.Context) (string, []ToolCall, e
 func (a *Agent) nativeChatTools() []ollama.ChatTool {
 	if a.cfg != nil && a.cfg.ToolsKnown && !a.cfg.ToolsSupported {
 		return nil
+	}
+	if a.cfg != nil && a.client != nil {
+		if u, ok := a.client.(interface{ ToolsUnsupported(model string) bool }); ok && u.ToolsUnsupported(a.cfg.Model) {
+			return nil
+		}
 	}
 	if a.reg == nil {
 		return nil

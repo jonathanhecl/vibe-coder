@@ -62,7 +62,7 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	cut := len(s.messages)
 	sum := 0
 	for i := len(s.messages) - 1; i >= 0; i-- {
-		cost := estimateMessageTokens(s.messages[i].Content)
+		cost := s.calibrator.Adjust(estimateMessageTokens(s.messages[i].Content))
 		if sum+cost > keepTailTokens && len(s.messages)-cut >= 4 {
 			break
 		}

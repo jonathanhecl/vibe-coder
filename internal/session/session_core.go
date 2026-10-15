@@ -293,6 +293,19 @@ func (s *Session) TokenEstimate() int {
 	return s.calibrator.Adjust(s.tokenEstimate)
 }
 
+// CalibrateTokens scales a raw heuristic token estimate by the session's
+// learned provider token ratio. When no provider usage has been observed yet
+// (or s is nil), raw is returned unchanged.
+func (s *Session) CalibrateTokens(raw int) int {
+	if s == nil {
+		return raw
+	}
+	s.mu.RLock()
+	cal := s.calibrator
+	s.mu.RUnlock()
+	return cal.Adjust(raw)
+}
+
 // ObservePromptUsage folds one real prompt-token measurement into the session
 // calibration so later estimates track the provider's own count. estimated is
 // the harness estimate for the same request; pairs where either side is not

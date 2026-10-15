@@ -86,8 +86,10 @@ func (a *Agent) recordChatAttempt(systemPrompt string, wstats windowStats, start
 		e.PromptEvalMS = u.PromptEvalDuration.Milliseconds()
 		e.EvalMS = u.EvalDuration.Milliseconds()
 		// Feed the real prompt count back so the session's coarse estimate is
-		// corrected by what the provider actually counted.
-		a.sess.ObservePromptUsage(e.SystemTokensEst+e.TranscriptTokensEst, u.PromptTokens)
+		// corrected by what the provider actually counted. ToolSchemaTokensEst
+		// is included because providers bill native tool definitions in
+		// PromptTokens.
+		a.sess.ObservePromptUsage(e.SystemTokensEst+e.ToolSchemaTokensEst+e.TranscriptTokensEst, u.PromptTokens)
 	}
 	if callErr != nil {
 		// Error text can carry secrets embedded in provider or tool error

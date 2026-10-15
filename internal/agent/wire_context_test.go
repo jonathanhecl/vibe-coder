@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -343,5 +344,63 @@ func TestCompactBestEffortFiresWhenMaskedTooBig(t *testing.T) {
 	}
 	if !ag.compactedPending.Load() {
 		t.Fatal("compactedPending not set for next metrics entry")
+	}
+}
+
+func TestRecordChatAttemptIncludesToolSchemaInCalibration(t *testing.T) {
+	t.Parallel()
+	ag, sess := newWireTestAgent(t, 32768, 6)
+	ag.cfg.ToolsKnown = true
+	ag.cfg.ToolsSupported = true
+	ag.reg.RegisterDefaults()
+	sess.AddUser("short prompt")
+
+	sys := ag.buildSystemPrompt()
+	_, wstats := ag.buildOllamaMessages(context.Background(), sys)
+	sysEst := session.EstimateTokens(sys)
+	schemaEst := ag.toolSchemaTokens()
+	if schemaEst <= 0 {
+		t.Fatal("expected positive toolSchemaTokens with default tools registered")
+	}
+	// Provider reports exact 1:1 token usage including system + tool schemas + transcript.
+	ag.lastUsage = &ollama.Usage{
+		PromptTokens:     sysEst + schemaEst + wstats.TranscriptTokensEst,
+		CompletionTokens: 16,
+	}
+	ag.recordChatAttempt(sys, wstats, time.Now(), 0, nil)
+
+	if got := sess.CalibrateTokens(1000); got != 1000 {
+		t.Fatalf("CalibrateTokens(1000)=%d, want 1000 when provider PromptTokens matches system+schema+transcript", got)
+	}
+}
+
+func TestCalibratedTokensAffectComputeBudgetAndWindow(t *testing.T) {
+	t.Parallel()
+	ag, sess := newWireTestAgent(t, 16384, 6)
+	ag.reg.RegisterDefaults()
+
+	uncalibrated := ag.computeBudget("SYS")
+	for i := 0; i < 20; i++ {
+		addNativeToolTurn(sess, strings.Repeat("a", 1200))
+	}
+	_, statsBefore := ag.buildOllamaMessages(context.Background(), "SYS")
+
+	// Teach the session that the provider counts 2x as many tokens as the heuristic.
+	sess.ObservePromptUsage(100, 200)
+	calibrated := ag.computeBudget("SYS")
+	if calibrated.SchemaTokens <= uncalibrated.SchemaTokens {
+		t.Fatalf("calibrated SchemaTokens=%d should exceed uncalibrated %d", calibrated.SchemaTokens, uncalibrated.SchemaTokens)
+	}
+	if calibrated.Transcript >= uncalibrated.Transcript {
+		t.Fatalf("calibrated Transcript=%d should be smaller than uncalibrated %d", calibrated.Transcript, uncalibrated.Transcript)
+	}
+
+	// Force window recompute under the 2x calibration.
+	ag.wireMu.Lock()
+	ag.wire.set = false
+	ag.wireMu.Unlock()
+	_, statsAfter := ag.buildOllamaMessages(context.Background(), "SYS")
+	if statsAfter.WindowStart <= statsBefore.WindowStart {
+		t.Fatalf("expected calibrated window to trim earlier: before=%d after=%d", statsBefore.WindowStart, statsAfter.WindowStart)
 	}
 }

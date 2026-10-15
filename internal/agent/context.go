@@ -160,7 +160,7 @@ func (a *Agent) compactBestEffort(ctx context.Context) {
 	if a.cfg != nil && a.cfg.SessionHistoryRAGEnabled() {
 		histLimit = 120
 	}
-	if transcriptCost(masked) <= budget.Transcript*pct/100 && len(hist) <= histLimit {
+	if a.calibratedTranscriptCost(masked) <= budget.Transcript*pct/100 && len(hist) <= histLimit {
 		return
 	}
 	keepTailTokens := budget.Transcript * 40 / 100

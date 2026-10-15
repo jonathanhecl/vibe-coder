@@ -33,8 +33,8 @@ func (a *Agent) computeBudget(systemPrompt string) contextBudget {
 	if b.Window > 0 && b.OutputReserve > b.Window/4 {
 		b.OutputReserve = b.Window / 4
 	}
-	b.SystemTokens = session.EstimateTokens(systemPrompt)
-	b.SchemaTokens = a.toolSchemaTokens()
+	b.SystemTokens = a.calibrateTokens(session.EstimateTokens(systemPrompt))
+	b.SchemaTokens = a.calibrateTokens(a.toolSchemaTokens())
 	margin := b.Window * 5 / 100
 	b.Transcript = b.Window - b.OutputReserve - b.SystemTokens - b.SchemaTokens - margin
 	floor := 2048
@@ -47,21 +47,36 @@ func (a *Agent) computeBudget(systemPrompt string) contextBudget {
 	return b
 }
 
+func (a *Agent) calibrateTokens(raw int) int {
+	if a == nil || a.sess == nil {
+		return raw
+	}
+	return a.sess.CalibrateTokens(raw)
+}
+
 // toolSchemaTokens estimates the native tool schema's token cost. The schema
-// changes only when the registered tool set does, so the marshal + estimate
-// is memoized per tool-name list.
+// changes only when the registered tool set or native-tool eligibility does,
+// so the marshal + estimate is memoized per tool-name list.
 func (a *Agent) toolSchemaTokens() int {
 	if a == nil || a.reg == nil {
 		return 0
 	}
-	key := strings.Join(a.reg.Names(), "\x1f")
+	tools := a.nativeChatTools()
+	if len(tools) == 0 {
+		return 0
+	}
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
+		names = append(names, t.Function.Name)
+	}
+	key := strings.Join(names, "\x1f")
 	a.sysPrompt.mu.Lock()
 	defer a.sysPrompt.mu.Unlock()
 	if a.sysPrompt.schemaKey == key {
 		return a.sysPrompt.schemaTokens
 	}
 	n := 0
-	if raw, err := json.Marshal(a.nativeChatTools()); err == nil {
+	if raw, err := json.Marshal(tools); err == nil {
 		n = session.EstimateTokens(string(raw))
 	}
 	a.sysPrompt.schemaKey = key
