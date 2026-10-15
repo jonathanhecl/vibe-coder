@@ -799,11 +799,9 @@ func (a *Agent) rebuildStableSystemPromptBody() string {
 }
 func (a *Agent) buildSystemPrompt() string {
 	a.mu.RLock()
-	goalRaw := a.currentGoal
 	inPlanMode := a.planMode
 	inReviewMode := a.reviewMode
 	a.mu.RUnlock()
-	goal := strings.TrimSpace(goalRaw)
 	offline := a.isOffline()
 
 	key := stableSystemCacheKey(a.cfg, a.reg, a.contextFingerprint(), a.xmlToolMode(), offline)
@@ -818,14 +816,14 @@ func (a *Agent) buildSystemPrompt() string {
 		a.sysPrompt.stableBody = a.rebuildStableSystemPromptBody()
 	}
 
-	if !stableChanged && a.sysPrompt.cacheGoal == goal && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.cacheMission == missionKey && a.sysPrompt.cacheOffline == offline && a.sysPrompt.full != "" {
+	if !stableChanged && a.sysPrompt.cachePlan == inPlanMode && a.sysPrompt.cacheReview == inReviewMode && a.sysPrompt.cacheMission == missionKey && a.sysPrompt.cacheOffline == offline && a.sysPrompt.full != "" {
 		return a.sysPrompt.full
 	}
 
 	// Order is KV-cache friendly: the stable body first (byte-identical
-	// across turns), then the mode toggles, then the mission, and the goal
-	// last so the model reads its current instruction closest to the
-	// conversation.
+	// across turns), then the mode toggles, and the mission last. The per-turn
+	// user goal rides in the ephemeral tail (runtimeStateNote) on multi-step
+	// turns so changing user prompts never invalidates message 0 in the KV cache.
 	systemPrompt := a.sysPrompt.stableBody
 	if inPlanMode {
 		systemPrompt = systemPrompt + "\n\n" + prompt.Render("plan_mode", nil)
@@ -839,10 +837,6 @@ func (a *Agent) buildSystemPrompt() string {
 	if missionBlock := a.missionPromptBlock(); missionBlock != "" {
 		systemPrompt = systemPrompt + "\n\n" + missionBlock
 	}
-	if goal != "" {
-		systemPrompt = systemPrompt + "\n\n" + prompt.Render("goal", struct{ Goal string }{Goal: goal})
-	}
-	a.sysPrompt.cacheGoal = goal
 	a.sysPrompt.cachePlan = inPlanMode
 	a.sysPrompt.cacheReview = inReviewMode
 	a.sysPrompt.cacheMission = missionKey

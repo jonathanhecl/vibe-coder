@@ -91,14 +91,42 @@ func TestGoalBlockHasNoInvokeSyntax(t *testing.T) {
 	}
 }
 
-func TestSystemPromptGoalComesLast(t *testing.T) {
+func TestSystemPromptStableAcrossGoalChanges(t *testing.T) {
 	t.Parallel()
 	ag := newPromptBudgetAgent(t, true, true)
-	p := ag.buildSystemPrompt()
-	goalIdx := strings.Index(p, "<<<USER_GOAL>>>")
-	stableIdx := strings.Index(p, "# Tool use")
-	if goalIdx < 0 || stableIdx < 0 || goalIdx < stableIdx {
-		t.Fatal("goal block must be the last section of the system prompt")
+	ag.currentGoal = "first user request"
+	p1 := ag.buildSystemPrompt()
+	ag.currentGoal = "second user request"
+	p2 := ag.buildSystemPrompt()
+	if p1 != p2 {
+		t.Fatal("system prompt must stay byte-identical across user goal changes to preserve prefix KV cache")
+	}
+	if strings.Contains(p1, "<<<USER_GOAL>>>") {
+		t.Fatal("system prompt must not embed the per-turn goal")
+	}
+}
+
+func TestGoalAnchoredInRuntimeStateNoteOnMultiStepTurn(t *testing.T) {
+	t.Parallel()
+	ag := newPromptBudgetAgent(t, true, true)
+	ag.currentGoal = "fix the failing test"
+
+	// Single-shot turn before any tool call: no duplicate goal reminder.
+	if note := ag.runtimeStateNote(); note != "" {
+		t.Fatalf("expected empty runtimeStateNote on fresh single-shot turn, got %q", note)
+	}
+	// Continuation prompt ("continua"): goal anchor appears immediately so the
+	// resolved earlier ask is visible even before the first tool call.
+	ag.sess.AddUser("continua")
+	if note := ag.runtimeStateNote(); !strings.Contains(note, "fix the failing test") {
+		t.Fatalf("expected goal anchor on continuation prompt, got %q", note)
+	}
+	ag.sess.Clear()
+	// Multi-step turn (after a tool call executes): goal is anchored at the tail.
+	ag.noteToolExecuted()
+	note := ag.runtimeStateNote()
+	if !strings.Contains(note, "<<<USER_GOAL>>>") || !strings.Contains(note, "fix the failing test") {
+		t.Fatalf("expected goal anchor in runtimeStateNote after tool execution, got %q", note)
 	}
 }
 

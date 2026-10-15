@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
@@ -70,10 +71,35 @@ func (a *Agent) progressPromptBlock() string {
 	return strings.TrimSpace(b.String())
 }
 
+// shouldAnchorGoal reports whether the current request should carry the active
+// goal reminder at the tail of the wire window: once tools have executed this
+// turn, while TODOs or a mission are active, or after compaction summarized the
+// earlier transcript. Single-shot user turns omit it because the user's own
+// message is already at the end of the wire window.
+func (a *Agent) shouldAnchorGoal() bool {
+	if a == nil {
+		return false
+	}
+	if a.ToolCallsThisTurn() > 0 || a.hasPendingTodos() || a.MissionActive() {
+		return true
+	}
+	if a.sess != nil {
+		msgs := a.sess.MessagesReadOnly()
+		if len(msgs) > 0 && strings.HasPrefix(msgs[0].Content, "[Earlier conversation summary]") {
+			return true
+		}
+		if len(msgs) > 0 && msgs[len(msgs)-1].Role == "user" && isContinuationMessage(msgs[len(msgs)-1].Content) {
+			return true
+		}
+	}
+	return false
+}
+
 // runtimeStateNote assembles the ephemeral state appended after the
-// transcript window on every request: the durable work progress plus the
-// mission continuation turn count. Keeping it out of both the system prompt
-// and the stored transcript means it is always current and never accumulates.
+// transcript window on every request: the durable work progress, the mission
+// continuation turn count, and the active goal anchor on multi-step turns.
+// Keeping it out of both the system prompt and the stored transcript means it
+// is always current, never accumulates, and never invalidates the prefix KV cache.
 func (a *Agent) runtimeStateNote() string {
 	var b strings.Builder
 	if block := a.progressPromptBlock(); block != "" {
@@ -84,6 +110,17 @@ func (a *Agent) runtimeStateNote() string {
 			b.WriteString("\n")
 		}
 		fmt.Fprintf(&b, "Mission continuation turns so far: %d", m.Turns)
+	}
+	if a.shouldAnchorGoal() {
+		a.mu.RLock()
+		goal := strings.TrimSpace(a.currentGoal)
+		a.mu.RUnlock()
+		if goal != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(prompt.Render("goal", struct{ Goal string }{Goal: goal}))
+		}
 	}
 	return strings.TrimSpace(b.String())
 }

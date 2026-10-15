@@ -98,7 +98,6 @@ type promptCache struct {
 	mu           sync.Mutex
 	stableKey    string
 	stableBody   string
-	cacheGoal    string
 	cachePlan    bool
 	cacheReview  bool
 	cacheMission string
