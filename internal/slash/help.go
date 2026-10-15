@@ -87,6 +87,7 @@ func printHelp(c *Ctx) {
 			{"/image <prompt>", "alias for /paste (same behavior)"},
 		}},
 		{"Misc", [][2]string{
+			{"/mcp [tools]", "show MCP server status (add 'tools' for the wrapped tool names)"},
 			{"/help, /commands", "show this help"},
 			{"/exit, /quit, /q, bye", "save and exit (Ctrl+D also exits)"},
 			{"ESC ESC (double-tap)", "stop the running agent and return to prompt"},

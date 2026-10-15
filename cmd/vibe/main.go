@@ -290,7 +290,7 @@ func main() {
 	}
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	logger.Infof("Entering interactive REPL loop.")
-	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore)
+	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore, mcpMgr)
 	logger.Infof("Exiting interactive REPL loop, finishing execution.")
 }
 

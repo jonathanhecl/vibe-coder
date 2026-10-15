@@ -144,7 +144,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 ### Integrations
 
 - **RAG** (optional, `-tags rag`) — SQLite-backed indexing with incremental (content-hash) re-indexing and hybrid retrieval: lexical token overlap fused with embedding cosine similarity (reciprocal rank fusion) when the `embedding` role is bound, lexical-only otherwise. Build with `--rag-index`, query with `--rag`.
-- **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`.
+- **MCP** — stdio JSON-RPC client that discovers external tools and wraps them as `mcp_<server>_<name>`. Servers start independently and best effort: a broken one is reported and costs only itself. `/mcp` (or the startup block) shows each server's scope, state and tool count, `/mcp tools` lists the wrapped tool names, calls are bounded by a per-call timeout, and output respects the shared tool output cap.
 - **Agent Skills on demand** — discovers `SKILL.md` skill folders and flat `.md` files under project, user, and `SKILLS_DIRS` roots; the prompt carries a name+description catalog and the `Skill` tool loads the full content, with read-only access to bundled files.
 - **File checkpoint + auto-test** — pre-Edit/Write copies leave the working tree, index, and stashes untouched. A successful changed file becomes a completed checkpoint; failed or unchanged edits do not replace usable undo history. Related tests request shell execution permission, and failures or denied execution are re-injected as `[AUTO-TEST]` observations.
 - **File watcher** — external file changes appear as `[System Note] N file change(s) detected` on the next iteration.
@@ -653,6 +653,23 @@ Manage stdio-based JSON-RPC MCP servers in global or project-local configuration
   vibe mcp remove --global logger-server
   ```
 
+**Inside the session**, `/mcp` prints the same status block the startup banner
+prints — every configured server with its scope (`project` overrides `global`),
+its state, and its tool count, or the reason it failed:
+
+```
+> /mcp
+project
+  - weather-server: connected · 3 tools
+global
+  - logger-server: failed · start mcp server logger-server: exec: "python": executable file not found in $PATH
+```
+
+`/mcp tools` lists the model-facing tool names each server exposes
+(`mcp_<server>_<tool>`). Servers are started independently and best effort, so a
+broken one never takes the others down; every model-facing call is bounded by a
+per-call timeout and its output is capped like any built-in tool.
+
 ### Skills
 
 Skills are task-specific playbooks the agent loads on demand. Two formats are
@@ -824,6 +841,8 @@ Requires platform clipboard tools: `pngpaste` on macOS (`brew install pngpaste`)
 
 ### Misc
 
+- `/mcp` — show the MCP servers this session connected to, grouped by the scope their config came from (`project` overwrites `global`), each with its state and tool count or the reason it failed
+- `/mcp tools` — list the wrapped tool names (`mcp_<server>_<tool>`) every connected server exposes
 - `/help` — show the command reference
 - `/exit`, `/quit`, `/q`, `/bye` — save and exit (Ctrl+D also exits)
 - Double-tap **ESC** — stop the running agent and return to the prompt
@@ -1062,7 +1081,8 @@ packages:
    exceeds 70 % of the context window or message count exceeds 300.
 4. **Tools** (`internal/tools`) register themselves into a central
    registry. The agent exposes their schemas to the model through the system
-   prompt. MCP tools are discovered at startup and injected dynamically.
+   prompt. MCP tools are discovered at startup — each server independently,
+   best effort — and injected dynamically.
 5. **TUI** (`internal/tui`) abstracts rendering behind a `UI` interface.
    `PlainUI` is the default; `RichUI` (Bubble Tea + Lipgloss) is selected
    with `--ui rich`.

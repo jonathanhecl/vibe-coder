@@ -37,7 +37,7 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	), nil
 }
 
-func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI, ctxStore *contextfiles.Store) {
+func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI, ctxStore *contextfiles.Store, mcpMgr *mcp.Manager) {
 	// Model listing (/models) should come from the default provider, not from
 	// the main model's chat client, so capabilities match the provider's API.
 	// The main client stays available for live capability probes.
@@ -56,6 +56,7 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 		Out:           os.Stdout,
 		Contexts:      ctxStore,
 		Prompter:      ui,
+		MCP:           mcpMgr,
 	}
 
 	for {

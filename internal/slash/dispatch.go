@@ -8,6 +8,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
+	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -33,6 +34,15 @@ type Ctx struct {
 	// /context). It is optional: when nil, commands print the
 	// non-interactive guidance instead. tui.UI satisfies it.
 	Prompter InputPrompter
+	// MCP is the session's MCP runtime, reported by /mcp. Optional: when nil,
+	// the command reports that no server is configured.
+	MCP MCPReporter
+}
+
+// MCPReporter exposes the state of the configured MCP servers. *mcp.Manager
+// satisfies it.
+type MCPReporter interface {
+	Reports() []mcp.ServerReport
 }
 
 // ModelLister lists the installed models. ollama.Client satisfies it.
@@ -158,6 +168,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/skills":
 		return true, false, runSkillsCommand(c, fields[1:])
+	case "/mcp":
+		return true, false, runMCPCommand(c, fields[1:])
 	case "/sidecar":
 		return true, false, runSidecarCommand(c, fields[1:])
 	case "/decision":
