@@ -119,3 +119,33 @@ func TestBackgroundStatusWaitCompletion(t *testing.T) {
 		t.Fatalf("expected delayed output in status: %s", statusRes.Output)
 	}
 }
+
+func TestBackgroundStatusStripsANSI(t *testing.T) {
+	background.ResetDefaultManager()
+
+	runTool := NewBackgroundRunTool()
+	statusTool := NewBackgroundStatusTool()
+	ctx := context.Background()
+
+	runRes := runTool.Execute(ctx, map[string]any{
+		"command":         `printf "\033[32mcolorized success\033[0m"`,
+		"initial_wait_ms": 2000,
+	})
+	if strings.Contains(runRes.Output, "\033[32m") {
+		t.Fatalf("expected ANSI codes to be stripped in runRes, got: %q", runRes.Output)
+	}
+	if !strings.Contains(runRes.Output, "colorized success") {
+		t.Fatalf("expected text content present in runRes, got: %q", runRes.Output)
+	}
+
+	statusRes := statusTool.Execute(ctx, map[string]any{
+		"task_id": "bg-1",
+	})
+	if strings.Contains(statusRes.Output, "\033[32m") {
+		t.Fatalf("expected ANSI codes to be stripped in statusRes, got: %q", statusRes.Output)
+	}
+	if !strings.Contains(statusRes.Output, "colorized success") {
+		t.Fatalf("expected text content present in statusRes, got: %q", statusRes.Output)
+	}
+}
+

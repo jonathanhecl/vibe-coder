@@ -84,7 +84,7 @@ func (t *BackgroundRunTool) Execute(ctx context.Context, params map[string]any) 
 	}
 
 	if task.IsRunning() {
-		output := task.TailOutput(30)
+		output := stripANSI(task.TailOutput(30))
 		if output == "" {
 			output = "(no initial output yet)"
 		}
@@ -101,7 +101,7 @@ func (t *BackgroundRunTool) Execute(ctx context.Context, params map[string]any) 
 	}
 
 	// Finished during initial wait
-	output := task.Output()
+	output := stripANSI(task.Output())
 	if output == "" {
 		output = "(no output)"
 	}
@@ -203,7 +203,7 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 	}
 
 	if task.IsRunning() {
-		output := task.TailOutput(tailLines)
+		output := stripANSI(task.TailOutput(tailLines))
 		if output == "" {
 			output = "(no output recorded yet)"
 		}
@@ -219,7 +219,7 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 		return Result{Output: res}
 	}
 
-	output := task.TailOutput(tailLines)
+	output := stripANSI(task.TailOutput(tailLines))
 	if output == "" {
 		output = "(no output)"
 	}
