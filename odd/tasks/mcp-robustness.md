@@ -22,9 +22,9 @@ Test runner: `go test ./...`
 
 ## Tasks
 
-- [ ] T1 mcp: restartable client, per-call timeout, shared output cap, sanitized + deduped tool names, stdio stub-server tests — S5, S6, S7, S8, S11 — route: inline — commit: pending
-- [ ] T2 mcp: `Manager` with per-server status, deterministic order, per-server init timeout, best-effort startup; replaces `InitAndWrapAll` — S1, S2, S3, S4 — route: inline — commit: pending
-- [ ] T3 cli/slash: startup `mcp` block, `/mcp` and `/mcp tools`, help entry, README + CHANGELOG — S9, S10 — route: inline — commit: pending
+- [x] T1 mcp: restartable client, per-call timeout, shared output cap, sanitized + deduped tool names, stdio stub-server tests — S5, S6, S7, S8, S11 — route: inline — commit: `5253dba`
+- [x] T2 mcp: `Manager` with per-server status, deterministic order, per-server init timeout, best-effort startup, replaces `InitAndWrapAll`, plus the startup `mcp` block — S1, S2, S3, S4, S9 — route: inline — commit: `3e67228`
+- [x] T3 cli/slash: `/mcp` and `/mcp tools`, help entry, README + CHANGELOG — S10 — route: inline — commit: `f9d00fb`
 
 ## Log
 
@@ -38,3 +38,6 @@ Test runner: `go test ./...`
 - D5 (decision): `headTailTruncate` is exported as `tools.TruncateOutput` and reused by the MCP wrapper instead of duplicating the helper, so one truncation behavior serves every tool.
 - D6 (decision): the startup report is a separate `mcp` block printed after the banner rather than rows folded into `startupBanner`. The banner is a pure function of `config.Config` with its own test suite; threading a runtime object through it would churn those tests for no user-visible gain.
 - D7 (decision): `InitAndWrapAll` is deleted rather than kept as a wrapper around the Manager. It had one caller, and leaving a second entry point that silently reintroduces the abort-on-first-failure behavior would be a trap.
+- D8 (decision, deviation from the task split as first written): the startup `mcp` block (S9) landed with T2 instead of T3. T2 deletes the `warning: failed to initialize MCP tools` line, which was the only failure signal in the product; a commit that removes a signal while adding nothing observable does not stand on its own as a work unit.
+- D9 (observed): the interactive `/mcp` had to be verified over a real pty, not a redirected stdin. `PlainUI` does read a non-TTY reader, but the styled startup emits a cursor-position probe (`ESC[ 6n`) whose reply is read back from stdin, so a `printf … | vibe` or `< file` pipe is consumed by that probe and the REPL exits at the first prompt without running anything. A pty driver that answers the probe drives `/mcp` and `/mcp tools` normally. The pre-existing piped-stdin behavior was left alone as out of scope.
+- D10 (observed): T1–T3 are roughly 1200 authored lines, over the 400-line review budget. They are three independent work units (client/tool hardening, the Manager plus the startup block, `/mcp` plus docs), so the slice is each commit and the overage is reported rather than absorbed by merging them, matching D8 in `odd/tasks/lsp-diagnostics.md`.
