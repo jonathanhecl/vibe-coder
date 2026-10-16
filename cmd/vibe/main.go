@@ -142,20 +142,21 @@ func main() {
 	}
 	st := tui.NewStyle(os.Stdout)
 	background.DefaultManager().OnTaskFinished(func(task *background.Task) {
+		snap := task.Snapshot()
 		status := "completed"
-		if task.Status == background.StatusFailed {
-			status = fmt.Sprintf("failed (exit %d)", task.ExitCode)
-		} else if task.Status == background.StatusKilled {
+		if snap.Status == background.StatusFailed {
+			status = fmt.Sprintf("failed (exit %d)", snap.ExitCode)
+		} else if snap.Status == background.StatusKilled {
 			status = "killed"
 		} else {
-			status = fmt.Sprintf("completed (exit %d)", task.ExitCode)
+			status = fmt.Sprintf("completed (exit %d)", snap.ExitCode)
 		}
-		logger.Infof("Background task %s (%s) %s (elapsed: %s)", task.ID, task.Command, status, task.Elapsed())
+		logger.Infof("Background task %s (%s) %s (elapsed: %s)", snap.ID, snap.Command, status, snap.Elapsed)
 		fmt.Fprintf(os.Stdout, "\n%s %s: task %s (%s) %s\n",
 			st.BoldCyan("[background]"),
-			st.Dim(task.Elapsed().Round(100*time.Millisecond).String()),
-			st.Bold(task.ID),
-			task.Command,
+			st.Dim(snap.Elapsed),
+			st.Bold(snap.ID),
+			snap.Command,
 			status,
 		)
 	})

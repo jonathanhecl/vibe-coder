@@ -358,10 +358,10 @@ func (t *TerminateSessionTool) Execute(ctx context.Context, params map[string]an
 	}
 	remaining = stripANSI(remaining)
 
-	exitCode := sess.ExitCode()
 	if err := t.mgr.Terminate(sessionID); err != nil {
 		return errResult(fmt.Sprintf("failed to terminate session: %v", err))
 	}
+	exitCode := sess.ExitCode()
 
 	if remaining == "" {
 		remaining = "(session terminated)"

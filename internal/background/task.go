@@ -54,6 +54,10 @@ func (t *Task) IsRunning() bool {
 func (t *Task) Elapsed() time.Duration {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	return t.elapsedLocked()
+}
+
+func (t *Task) elapsedLocked() time.Duration {
 	if !t.EndTime.IsZero() {
 		return t.EndTime.Sub(t.StartTime)
 	}
@@ -114,7 +118,7 @@ type TaskSnapshot struct {
 func (t *Task) Snapshot() TaskSnapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	elapsed := t.Elapsed()
+	elapsed := t.elapsedLocked()
 	return TaskSnapshot{
 		ID:        t.ID,
 		Command:   t.Command,
@@ -171,7 +175,7 @@ func (t *Task) markFinished(exitCode int, status Status) {
 func (t *Task) FormatStatusBanner() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	elapsed := t.Elapsed().Round(100 * time.Millisecond)
+	elapsed := t.elapsedLocked().Round(100 * time.Millisecond)
 	switch t.Status {
 	case StatusRunning:
 		return fmt.Sprintf("[status: STILL RUNNING - execution in background (elapsed %s, pid %d)]", elapsed, t.PID)

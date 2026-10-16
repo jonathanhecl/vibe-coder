@@ -20,8 +20,9 @@ import (
 const (
 	defaultHTTPTimeout = 0 // Context deadlines govern streaming timeouts
 	maxStreamBuffer    = 1024 * 1024
-	streamStallTimeout = 5 * time.Minute
 )
+
+var streamStallTimeout = 5 * time.Minute
 
 // Option configures the Client.
 type Option func(*Client)
@@ -224,8 +225,26 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 		stopWatch := context.AfterFunc(ctx, func() { _ = body.Close() })
 		defer stopWatch()
 
-		scanner := bufio.NewScanner(body)
-		scanner.Buffer(make([]byte, 0, 4096), maxStreamBuffer)
+		// Read lines on a separate goroutine so the consumer can enforce
+		// a stall timeout and react to cancellation while Scan blocks.
+		lines := make(chan string, 16)
+		scanDone := make(chan error, 1)
+		go func() {
+			defer close(lines)
+			scanner := bufio.NewScanner(body)
+			scanner.Buffer(make([]byte, 0, 4096), maxStreamBuffer)
+			for scanner.Scan() {
+				select {
+				case lines <- scanner.Text():
+				case <-ctx.Done():
+					return
+				}
+			}
+			select {
+			case scanDone <- scanner.Err():
+			case <-ctx.Done():
+			}
+		}()
 
 		accumulator := newStreamAccumulator()
 		var usage *ollama.Usage
@@ -244,8 +263,7 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 
 		stall := time.NewTimer(streamStallTimeout)
 		defer stall.Stop()
-
-		for scanner.Scan() {
+		resetStall := func() {
 			if !stall.Stop() {
 				select {
 				case <-stall.C:
@@ -253,72 +271,105 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 				}
 			}
 			stall.Reset(streamStallTimeout)
+		}
 
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" || strings.HasPrefix(line, ":") {
-				continue
-			}
-
-			if !strings.HasPrefix(line, "data:") {
-				continue
-			}
-
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if data == "[DONE]" {
-				emitDone()
+		for {
+			select {
+			case <-ctx.Done():
+				ch <- ollama.Chunk{Err: ctx.Err(), Done: true}
 				return
-			}
-
-			var chunk chatCompletionChunk
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				continue
-			}
-
-			if chunk.Error != nil && chunk.Error.Message != "" {
+			case <-stall.C:
+				logger.Errorf("OpenAI chat stream stalled: no data for %s", streamStallTimeout)
+				_ = body.Close()
 				ch <- ollama.Chunk{
-					Err:  errors.New(chunk.Error.Message),
+					Err:  fmt.Errorf("stream stalled: no data for %s", streamStallTimeout),
 					Done: true,
 				}
 				return
-			}
+			case line, ok := <-lines:
+				if !ok {
+					var scanErr error
+					select {
+					case scanErr = <-scanDone:
+					default:
+					}
+					if scanErr != nil {
+						ch <- ollama.Chunk{
+							Err:  fmt.Errorf("read chat stream: %w", scanErr),
+							Done: true,
+						}
+						return
+					}
+					emitDone()
+					return
+				}
 
-			// Usage can arrive on a trailing chunk with empty choices
-			// (stream_options include_usage), so read it before the
-			// choices check.
-			if chunk.Usage != nil {
-				usage = chunk.Usage.toUsage()
-			}
+				resetStall()
 
-			if len(chunk.Choices) == 0 {
-				continue
-			}
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, ":") {
+					continue
+				}
 
-			choice := chunk.Choices[0]
-			delta := choice.Delta
-			accumulator.accumulate(delta)
+				if !strings.HasPrefix(line, "data:") {
+					continue
+				}
 
-			thinking := delta.ReasoningContent
-			if thinking == "" {
-				thinking = delta.Reasoning
-			}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				if data == "[DONE]" {
+					emitDone()
+					return
+				}
 
-			// finish_reason does not end the turn anymore: emit this
-			// chunk's delta as a regular (non-done) chunk and keep a
-			// single terminal chunk for stream end, which carries the
-			// accumulated tool calls and the usage report.
-			outChunk := ollama.Chunk{
-				Delta:    delta.Content,
-				Thinking: thinking,
-			}
+				var chunk chatCompletionChunk
+				if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+					continue
+				}
 
-			select {
-			case ch <- outChunk:
-			case <-ctx.Done():
-				return
+				if chunk.Error != nil && chunk.Error.Message != "" {
+					ch <- ollama.Chunk{
+						Err:  errors.New(chunk.Error.Message),
+						Done: true,
+					}
+					return
+				}
+
+				// Usage can arrive on a trailing chunk with empty choices
+				// (stream_options include_usage), so read it before the
+				// choices check.
+				if chunk.Usage != nil {
+					usage = chunk.Usage.toUsage()
+				}
+
+				if len(chunk.Choices) == 0 {
+					continue
+				}
+
+				choice := chunk.Choices[0]
+				delta := choice.Delta
+				accumulator.accumulate(delta)
+
+				thinking := delta.ReasoningContent
+				if thinking == "" {
+					thinking = delta.Reasoning
+				}
+
+				// finish_reason does not end the turn anymore: emit this
+				// chunk's delta as a regular (non-done) chunk and keep a
+				// single terminal chunk for stream end, which carries the
+				// accumulated tool calls and the usage report.
+				outChunk := ollama.Chunk{
+					Delta:    delta.Content,
+					Thinking: thinking,
+				}
+
+				select {
+				case ch <- outChunk:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
-
-		emitDone()
 	}()
 
 	return ch

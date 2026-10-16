@@ -101,12 +101,13 @@ func (t *BackgroundRunTool) Execute(ctx context.Context, params map[string]any) 
 	}
 
 	// Finished during initial wait
+	snap := task.Snapshot()
 	output := stripANSI(task.Output())
 	if output == "" {
 		output = "(no output)"
 	}
 	statusStr := "COMPLETED"
-	if task.Status == background.StatusFailed {
+	if snap.Status == background.StatusFailed {
 		statusStr = "FAILED"
 	}
 	res := fmt.Sprintf(
@@ -115,9 +116,9 @@ func (t *BackgroundRunTool) Execute(ctx context.Context, params map[string]any) 
 			"[exit_code: %d]\n"+
 			"[elapsed: %s]\n\n"+
 			"Output:\n%s",
-		task.ID, statusStr, task.ExitCode, task.Elapsed().Round(100*time.Millisecond), strings.TrimRight(output, "\n"),
+		snap.ID, statusStr, snap.ExitCode, snap.Elapsed, strings.TrimRight(output, "\n"),
 	)
-	return Result{Output: res, IsError: task.ExitCode != 0}
+	return Result{Output: res, IsError: snap.ExitCode != 0}
 }
 
 // BackgroundStatusTool checks status and output of a background task.
@@ -202,7 +203,8 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 		return errResult(err.Error())
 	}
 
-	if task.IsRunning() {
+	snap := task.Snapshot()
+	if snap.Status == background.StatusRunning {
 		output := stripANSI(task.TailOutput(tailLines))
 		if output == "" {
 			output = "(no output recorded yet)"
@@ -214,7 +216,7 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 				"[elapsed: %s]\n"+
 				"[note: The task is currently running in the background. You can check again later or wait with wait_ms.]\n\n"+
 				"Recent output:\n%s",
-			task.ID, task.PID, task.Elapsed().Round(100*time.Millisecond), strings.TrimRight(output, "\n"),
+			snap.ID, snap.PID, snap.Elapsed, strings.TrimRight(output, "\n"),
 		)
 		return Result{Output: res}
 	}
@@ -224,7 +226,7 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 		output = "(no output)"
 	}
 
-	switch task.Status {
+	switch snap.Status {
 	case background.StatusCompleted:
 		res := fmt.Sprintf(
 			"[task_id: %s]\n"+
@@ -232,7 +234,7 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 				"[exit_code: %d]\n"+
 				"[total_duration: %s]\n\n"+
 				"Output:\n%s",
-			task.ID, task.ExitCode, task.Elapsed().Round(100*time.Millisecond), strings.TrimRight(output, "\n"),
+			snap.ID, snap.ExitCode, snap.Elapsed, strings.TrimRight(output, "\n"),
 		)
 		return Result{Output: res}
 	case background.StatusFailed:
@@ -242,7 +244,7 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 				"[exit_code: %d]\n"+
 				"[total_duration: %s]\n\n"+
 				"Output:\n%s",
-			task.ID, task.ExitCode, task.Elapsed().Round(100*time.Millisecond), strings.TrimRight(output, "\n"),
+			snap.ID, snap.ExitCode, snap.Elapsed, strings.TrimRight(output, "\n"),
 		)
 		return Result{Output: res, IsError: true}
 	case background.StatusKilled:
@@ -251,11 +253,11 @@ func (t *BackgroundStatusTool) Execute(ctx context.Context, params map[string]an
 				"[status: KILLED]\n"+
 				"[total_duration: %s]\n\n"+
 				"Output:\n%s",
-			task.ID, task.Elapsed().Round(100*time.Millisecond), strings.TrimRight(output, "\n"),
+			snap.ID, snap.Elapsed, strings.TrimRight(output, "\n"),
 		)
 		return Result{Output: res}
 	default:
-		return Result{Output: fmt.Sprintf("[task_id: %s] [status: %s]", task.ID, task.Status)}
+		return Result{Output: fmt.Sprintf("[task_id: %s] [status: %s]", snap.ID, snap.Status)}
 	}
 }
 
@@ -376,8 +378,9 @@ func (t *BackgroundKillTool) Execute(_ context.Context, params map[string]any) R
 		return errResult(fmt.Sprintf("background task not found: %s", taskID))
 	}
 
-	if !task.IsRunning() {
-		return Result{Output: fmt.Sprintf("Task %s is not running (status: %s).", taskID, task.Status)}
+	snap := task.Snapshot()
+	if snap.Status != background.StatusRunning {
+		return Result{Output: fmt.Sprintf("Task %s is not running (status: %s).", taskID, snap.Status)}
 	}
 
 	if err := t.mgr.Kill(taskID); err != nil {

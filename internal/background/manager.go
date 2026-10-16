@@ -129,6 +129,16 @@ func (m *Manager) Start(command, workdir string, initialWait time.Duration) (*Ta
 	go m.copyStream(task, stderr, &wg)
 
 	go func() {
+		drained := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(drained)
+		}()
+		select {
+		case <-drained:
+		case <-time.After(1 * time.Second):
+		}
+
 		err := cmd.Wait()
 		wg.Wait()
 

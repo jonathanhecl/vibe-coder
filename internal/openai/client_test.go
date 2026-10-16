@@ -472,3 +472,43 @@ func TestToDataURL(t *testing.T) {
 		t.Errorf("expected webp mime, got %q", got)
 	}
 }
+
+func TestChatStreamingStall(t *testing.T) {
+	old := streamStallTimeout
+	streamStallTimeout = 100 * time.Millisecond
+	defer func() { streamStallTimeout = old }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// Hold connection open with no data to simulate stalled stream.
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, WithHTTPClient(srv.Client()))
+	ch, err := client.Chat(context.Background(), ollama.ChatRequest{
+		Model:    "stall-model",
+		Messages: []ollama.Message{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat returned unexpected error: %v", err)
+	}
+
+	var stallErr error
+	for chunk := range ch {
+		if chunk.Err != nil {
+			stallErr = chunk.Err
+		}
+	}
+
+	if stallErr == nil {
+		t.Fatal("expected stall error, got nil")
+	}
+	if !strings.Contains(stallErr.Error(), "stalled") {
+		t.Fatalf("expected stall error message, got %v", stallErr)
+	}
+}
