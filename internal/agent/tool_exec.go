@@ -20,7 +20,13 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if blockMsg := a.toolModeBlock(tool, toolParams); blockMsg != "" {
 		logger.Errorf("%s", blockMsg)
 		a.ui.ShowToolResult(toolName, blockMsg, true, toolParams)
-		a.sess.AddSystemNote(blockMsg)
+		if !mode.skipSessionRecord {
+			if mode.structured {
+				a.sess.AddToolResult(toolName, blockMsg)
+			} else {
+				a.sess.AddSystemNote(blockMsg)
+			}
+		}
 		return tools.Result{Output: blockMsg, IsError: true}, false, nil
 	}
 	// While a mission is active the run is unattended: auto-approve Ask/Network
@@ -34,7 +40,13 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		if mode.showPermissionDeniedResult {
 			a.ui.ShowToolResult(toolName, deny, true, toolParams)
 		}
-		a.sess.AddSystemNote(deny)
+		if !mode.skipSessionRecord {
+			if mode.structured {
+				a.sess.AddToolResult(toolName, deny)
+			} else {
+				a.sess.AddSystemNote(deny)
+			}
+		}
 		if mode.endAssistantOnDenied {
 			a.ui.EndAssistant(a.turnUsage())
 		}
@@ -98,10 +110,23 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
 		a.maybeShowTodos(toolName)
 	}
-	a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
-	if !result.IsError {
+	if !mode.skipSessionRecord {
+		a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
+	}
+
+	queueOrRun := func(fn func()) {
+		if mode.auxiliaryNotes != nil {
+			*mode.auxiliaryNotes = append(*mode.auxiliaryNotes, fn)
+		} else {
+			fn()
+		}
+	}
+
+	if !mode.skipSessionRecord && !result.IsError {
 		if note := fileEditCompletionNote(toolName, toolParams); note != "" {
-			a.sess.AddSystemNote(note)
+			queueOrRun(func() {
+				a.sess.AddSystemNote(note)
+			})
 		}
 	}
 	if !result.IsError && (toolName == "Write" || toolName == "Edit") {
@@ -114,19 +139,24 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 			// fresh error is a verdict the test suite cannot improve on, so it
 			// skips the suite for this edit instead of paying a minute for the
 			// same answer.
-			if !a.observeEditDiagnostics(ctx, edited) {
-				approve := func(args []string) bool {
-					quoted := make([]string, len(args))
-					for i, arg := range args {
-						quoted[i] = fmt.Sprintf("%q", arg)
+			postCheck := func() {
+				if !a.observeEditDiagnostics(ctx, edited, mode.skipSessionRecord) {
+					approve := func(args []string) bool {
+						quoted := make([]string, len(args))
+						for i, arg := range args {
+							quoted[i] = fmt.Sprintf("%q", arg)
+						}
+						return a.perm.Check("Bash", map[string]any{"command": strings.Join(quoted, " "), "workdir": a.cfg.Cwd}, a.ui)
 					}
-					return a.perm.Check("Bash", map[string]any{"command": strings.Join(quoted, " "), "workdir": a.cfg.Cwd}, a.ui)
-				}
-				if auto := a.autoTest.RunAfterEdit(ctx, edited, approve); strings.TrimSpace(auto) != "" {
-					a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
-					a.recordToolObservation(ctx, "AUTO-TEST", auto, "", false)
+					if auto := a.autoTest.RunAfterEdit(ctx, edited, approve); strings.TrimSpace(auto) != "" {
+						a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
+						if !mode.skipSessionRecord {
+							a.recordToolObservation(ctx, "AUTO-TEST", auto, "", false)
+						}
+					}
 				}
 			}
+			queueOrRun(postCheck)
 		}
 	}
 	if _, loop := a.noProgress.observe(toolCallSignature(toolName, toolParams), toolOutputSignature(result)); loop {

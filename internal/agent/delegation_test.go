@@ -119,3 +119,32 @@ func TestAutoTestUsesExecutionPermission(t *testing.T) {
 		t.Fatal("missing skipped auto-test observation")
 	}
 }
+
+func TestDelegatedToolExecutionDoesNotPolluteParentSession(t *testing.T) {
+	ag := newCoverageAgent(t, fakeClient{}, tui.DecisionAllowOnce, true)
+	testFile := filepath.Join(ag.cfg.Cwd, "test.txt")
+	if err := os.WriteFile(testFile, []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := &sequenceClient{replies: []string{
+		`<invoke name="Read">{"file_path":"` + filepath.ToSlash(testFile) + `"}</invoke>`,
+		"Summary: read completed",
+	}}
+	sub := tools.NewSubAgentTool(ag.cfg, client)
+	initialMsgCount := len(ag.sess.Messages())
+
+	result, _, err := ag.executeTool(context.Background(), sub, sub.Name(), map[string]any{"prompt": "read test.txt"}, toolExecutionMode{structured: true})
+	if err != nil || result.IsError {
+		t.Fatalf("subagent failed: %+v, %v", result, err)
+	}
+
+	// In the parent session, the subagent's internal Read tool execution must NOT
+	// be recorded as an observation. Only the SubAgent tool result itself should be recorded.
+	msgs := ag.sess.Messages()
+	for _, m := range msgs[initialMsgCount:] {
+		if m.ToolName == "Read" || strings.Contains(m.Content, "Tool Result: Read") {
+			t.Fatalf("parent session polluted with inner subagent Read observation: %#v", m)
+		}
+	}
+}
+

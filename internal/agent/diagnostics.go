@@ -42,7 +42,7 @@ func (a *Agent) getDiagnostics() diagnosticsSource {
 // (S10): no server for this file type, a server that crashed, a wait that timed
 // out. A language server never degrades a run, and the transcript only ever
 // receives an answer that is evidence about this edit.
-func (a *Agent) observeEditDiagnostics(ctx context.Context, filePath string) bool {
+func (a *Agent) observeEditDiagnostics(ctx context.Context, filePath string, skipRecord ...bool) bool {
 	path := strings.TrimSpace(filePath)
 	src := a.getDiagnostics()
 	if src == nil || path == "" || !src.Supports(path) {
@@ -68,6 +68,8 @@ func (a *Agent) observeEditDiagnostics(ctx context.Context, filePath string) boo
 		output += "\n(auto-test skipped: clear these errors first)"
 	}
 	a.ui.ShowToolResult("DIAGNOSTICS", output, errorsFound, nil)
-	a.recordToolObservation(ctx, "DIAGNOSTICS", output, "", false)
+	if len(skipRecord) == 0 || !skipRecord[0] {
+		a.recordToolObservation(ctx, "DIAGNOSTICS", output, "", false)
+	}
 	return errorsFound
 }

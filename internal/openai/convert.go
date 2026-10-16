@@ -55,7 +55,8 @@ func buildChatRequest(req ollama.ChatRequest) (chatCompletionRequest, error) {
 				for i, tc := range m.ToolCalls {
 					name := strings.TrimSpace(tc.Function.Name)
 					id := fmt.Sprintf("call_%s_%d", name, i)
-					callIDQueues[name] = append(callIDQueues[name], id)
+					nameLower := strings.ToLower(name)
+					callIDQueues[nameLower] = append(callIDQueues[nameLower], id)
 
 					argBytes, err := json.Marshal(tc.Function.Arguments)
 					argStr := "{}"
@@ -81,10 +82,11 @@ func buildChatRequest(req ollama.ChatRequest) (chatCompletionRequest, error) {
 
 		case "tool":
 			name := strings.TrimSpace(m.ToolName)
+			nameLower := strings.ToLower(name)
 			id := fmt.Sprintf("call_%s", name)
-			if q := callIDQueues[name]; len(q) > 0 {
+			if q := callIDQueues[nameLower]; len(q) > 0 {
 				id = q[0]
-				callIDQueues[name] = q[1:]
+				callIDQueues[nameLower] = q[1:]
 			}
 			out.Messages = append(out.Messages, chatMessage{
 				Role:       "tool",

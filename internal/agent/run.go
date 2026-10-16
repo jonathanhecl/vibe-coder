@@ -17,6 +17,12 @@ type toolExecutionMode struct {
 	// structured marks native tool-call turns: their results persist as
 	// role "tool" messages instead of the XML-fallback user envelope.
 	structured bool
+	// skipSessionRecord prevents delegated/child executions from polluting
+	// the parent session's transcript.
+	skipSessionRecord bool
+	// auxiliaryNotes defers post-edit notes, diagnostics, and auto-tests
+	// until all native tool results in a batch are recorded.
+	auxiliaryNotes *[]func()
 }
 
 // toolCallsToWire converts internal tool calls back to Ollama's wire shape
@@ -125,22 +131,52 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				// next turn replays Ollama's native history shape instead of
 				// a text-only approximation that loses arguments.
 				a.sess.AddAssistantToolCalls(reply, toolCallsToWire(nativeCalls))
-				for _, c := range nativeCalls {
+				var auxNotes []func()
+				var batchErr error
+				batchHalted := false
+				for i, c := range nativeCalls {
 					tool := a.reg.Get(c.Name)
+					if tool == nil {
+						msg := fmt.Sprintf("Error: tool %q is not available.", c.Name)
+						a.ui.ShowToolResult(c.Name, msg, true, c.Params)
+						a.sess.AddToolResult(c.Name, msg)
+						continue
+					}
 					_, executed, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
 						showPermissionDeniedResult: true,
 						structured:                 true,
+						auxiliaryNotes:             &auxNotes,
 					})
 					if err != nil {
-						return err
+						batchErr = err
+						for j := i + 1; j < len(nativeCalls); j++ {
+							a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch failed.")
+						}
+						break
 					}
 					if !executed {
-						return nil
+						batchHalted = true
+						for j := i + 1; j < len(nativeCalls); j++ {
+							a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch was denied or blocked.")
+						}
+						break
 					}
 					a.persistMissionProgress()
 					if isMissionEndTool(c.Name) {
+						for _, fn := range auxNotes {
+							fn()
+						}
 						return nil
 					}
+				}
+				for _, fn := range auxNotes {
+					fn()
+				}
+				if batchErr != nil {
+					return batchErr
+				}
+				if batchHalted {
+					return nil
 				}
 				a.compactBestEffort(ctx)
 				continue
