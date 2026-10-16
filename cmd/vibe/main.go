@@ -250,7 +250,10 @@ func main() {
 	installSignalHandler(ui, sess, globalInterrupter)
 
 	logger.Infof("Configuring RAG...")
-	ragHandled, ragMsg, ragErr := configureRAG(rootCtx, cfg, embeddingClientFor(cfg, client, sideClient), ag)
+	ragHandled, ragMsg, ragClose, ragErr := configureRAG(rootCtx, cfg, embeddingClientFor(cfg, client, sideClient), ag)
+	if ragClose != nil {
+		defer ragClose()
+	}
 	if ragErr != nil {
 		exitWithError(ragErr)
 	}

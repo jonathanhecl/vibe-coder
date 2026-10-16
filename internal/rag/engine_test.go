@@ -50,3 +50,57 @@ func TestIndexQueryAndFormatContext(t *testing.T) {
 		t.Fatalf("expected formatted rag context, got %q", ctxText)
 	}
 }
+
+func TestProjectIsolatedRAGDatabasePath(t *testing.T) {
+	stateDir := t.TempDir()
+	cwd1 := filepath.Join(t.TempDir(), "project-alpha")
+	cwd2 := filepath.Join(t.TempDir(), "project-beta")
+	_ = os.MkdirAll(cwd1, 0o755)
+	_ = os.MkdirAll(cwd2, 0o755)
+
+	cfg1 := &config.Config{
+		Cwd:      cwd1,
+		StateDir: stateDir,
+	}
+	e1, err := NewEngine(cfg1, nil)
+	if err != nil {
+		t.Fatalf("new engine 1: %v", err)
+	}
+	defer e1.Close()
+
+	cfg2 := &config.Config{
+		Cwd:      cwd2,
+		StateDir: stateDir,
+	}
+	e2, err := NewEngine(cfg2, nil)
+	if err != nil {
+		t.Fatalf("new engine 2: %v", err)
+	}
+	defer e2.Close()
+
+	path1 := e1.Path()
+	path2 := e2.Path()
+
+	if path1 == "" || path2 == "" {
+		t.Fatalf("expected non-empty db paths, got %q and %q", path1, path2)
+	}
+	if path1 == path2 {
+		t.Fatalf("expected distinct project db paths for distinct cwds, got %q", path1)
+	}
+
+	key1, err1 := projectKey(cwd1)
+	key2, err2 := projectKey(cwd2)
+	if err1 != nil || err2 != nil {
+		t.Fatalf("projectKey error: %v, %v", err1, err2)
+	}
+
+	expected1 := filepath.Join(stateDir, "rag", key1+".db")
+	expected2 := filepath.Join(stateDir, "rag", key2+".db")
+
+	if path1 != expected1 {
+		t.Errorf("e1.Path() = %q, want %q", path1, expected1)
+	}
+	if path2 != expected2 {
+		t.Errorf("e2.Path() = %q, want %q", path2, expected2)
+	}
+}

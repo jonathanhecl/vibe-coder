@@ -11,9 +11,9 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
-func configureRAG(_ context.Context, cfg *config.Config, _ ollama.Client, _ *agent.Agent) (bool, string, error) {
+func configureRAG(_ context.Context, cfg *config.Config, _ ollama.Client, _ *agent.Agent) (bool, string, func(), error) {
 	if cfg.RAG || cfg.RAGIndex != "" {
-		return true, "", fmt.Errorf("RAG requires build tag `rag`")
+		return true, "", nil, fmt.Errorf("RAG requires build tag `rag`")
 	}
-	return false, "", nil
+	return false, "", nil, nil
 }

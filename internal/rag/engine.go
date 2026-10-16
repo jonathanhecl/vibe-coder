@@ -80,7 +80,13 @@ func NewEngine(cfg *config.Config, cli ollama.Client) (*Engine, error) {
 			dbPath = ":memory:"
 			inMemory = true
 		default:
-			dbPath = filepath.Join(cfg.StateDir, "rag.db")
+			projKey := "default"
+			if strings.TrimSpace(cfg.Cwd) != "" {
+				if key, err := projectKey(cfg.Cwd); err == nil && key != "" {
+					projKey = key
+				}
+			}
+			dbPath = filepath.Join(cfg.StateDir, "rag", projKey+".db")
 		}
 	}
 	if !inMemory {
@@ -522,6 +528,28 @@ func (e *Engine) Close() error {
 		return nil
 	}
 	return e.db.Close()
+}
+
+// Path returns the SQLite database file path used by this Engine.
+func (e *Engine) Path() string {
+	if e == nil {
+		return ""
+	}
+	return e.path
+}
+
+// projectKey computes a 16-character SHA-256 digest of the workspace directory,
+// matching the session persistence project-hash convention.
+func projectKey(cwd string) (string, error) {
+	if strings.ContainsRune(cwd, 0) {
+		return "", fmt.Errorf("path contains NUL byte")
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve cwd for rag index: %w", err)
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return hex.EncodeToString(sum[:])[:16], nil
 }
 
 func hashText(text string) string {

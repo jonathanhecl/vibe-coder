@@ -13,13 +13,13 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/rag"
 )
 
-func configureRAG(ctx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent) (bool, string, error) {
+func configureRAG(ctx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent) (bool, string, func(), error) {
 	if !cfg.RAG && strings.TrimSpace(cfg.RAGIndex) == "" {
-		return false, "", nil
+		return false, "", nil, nil
 	}
 	engine, err := rag.NewEngine(cfg, client)
 	if err != nil {
-		return true, "", err
+		return true, "", nil, err
 	}
 	if strings.TrimSpace(cfg.RAGIndex) != "" {
 		root := cfg.RAGIndex
@@ -28,13 +28,13 @@ func configureRAG(ctx context.Context, cfg *config.Config, client ollama.Client,
 		}
 		if err := engine.IndexPath(ctx, root); err != nil {
 			_ = engine.Close()
-			return true, "", err
+			return true, "", nil, err
 		}
 		stats := engine.Stats()
 		_ = engine.Close()
 		msg := fmt.Sprintf("RAG index complete: files=%d chunks=%d db=%.1f KiB", stats.Files, stats.Chunks, stats.DBSizeKiB)
-		return true, msg, nil
+		return true, msg, nil, nil
 	}
 	ag.SetRAG(engine)
-	return false, "", nil
+	return false, "", func() { _ = engine.Close() }, nil
 }
