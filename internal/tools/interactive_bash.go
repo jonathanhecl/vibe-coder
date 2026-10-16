@@ -217,6 +217,16 @@ func (t *SendInputTool) Execute(ctx context.Context, params map[string]any) Resu
 		return errResult("input is required")
 	}
 
+	if safety.IsBackgroundCommand(input) {
+		return errResult("background commands are blocked")
+	}
+	if blocked, reason := safety.IsDangerousCommand(input); blocked {
+		return errResult("dangerous command blocked: " + reason)
+	}
+	if safety.IsProtectedWrite(input) {
+		return errResult("protected config writes are blocked")
+	}
+
 	sess := t.mgr.Get(sessionID)
 	if sess == nil {
 		return errResult("session not found: " + sessionID)

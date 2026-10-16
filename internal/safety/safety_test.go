@@ -82,6 +82,11 @@ func TestIsProtectedPath(t *testing.T) {
 	}{
 		{"/home/user/.ssh/id_rsa", true},
 		{"~/.ssh/id_rsa", true},
+		{"/home/user/.ssh/authorized_keys", true},
+		{"/home/user/.ssh/config", true},
+		{"/home/user/project/vibe-coder.env", true},
+		{"/home/user/project/.git/hooks/pre-commit", true},
+		{"/home/user/project/.git/config", true},
 		{"C:/Users/test/.ssh/id_rsa", true},
 		{"/home/user/.aws/credentials", true},
 		{"C:/Users/test/.aws/credentials", true},
@@ -97,6 +102,26 @@ func TestIsProtectedPath(t *testing.T) {
 	for _, tc := range cases {
 		if got := IsProtectedPath(tc.path); got != tc.want {
 			t.Errorf("IsProtectedPath(%q) = %t, want %t", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestIsProtectedWrite(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"echo foo > vibe-coder.env", true},
+		{"echo foo > .vibe-coder.json", true},
+		{"cat bar > config.json", true},
+		{"cat bar > permissions.json", true},
+		{"cat bar > permissions.txt", false},
+		{"echo hello > regular.env", false},
+	}
+	for _, tc := range cases {
+		if got := IsProtectedWrite(tc.cmd); got != tc.want {
+			t.Errorf("IsProtectedWrite(%q) = %t, want %t", tc.cmd, got, tc.want)
 		}
 	}
 }

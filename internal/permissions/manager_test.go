@@ -320,14 +320,34 @@ func TestAssistedExecutionModeNetworkTools(t *testing.T) {
 	}
 }
 
-func TestTerminateSessionAndSendInputAreSafeTier(t *testing.T) {
+func TestTerminateSessionIsSafeTierAndSendInputIsAskTier(t *testing.T) {
 	t.Parallel()
 	m := NewManager(&config.Config{YesMode: false})
 
-	safeTools := []string{"TerminateSession", "SendInput", "BackgroundKill", "BackgroundStatus", "BackgroundList"}
+	safeTools := []string{"TerminateSession", "BackgroundKill", "BackgroundStatus", "BackgroundList"}
 	for _, tool := range safeTools {
-		if !m.Check(tool, map[string]any{"session_id": "term-123", "input": "y", "task_id": "bg-1"}, nil) {
+		if !m.Check(tool, map[string]any{"session_id": "term-123", "task_id": "bg-1"}, nil) {
 			t.Fatalf("expected tool %s to be TierSafe and auto-approved without prompt", tool)
+		}
+	}
+
+	if toolTier("sendinput") != TierAsk {
+		t.Fatalf("expected SendInput to be TierAsk, got %v", toolTier("sendinput"))
+	}
+	if toolTier("interactivebash") != TierAsk {
+		t.Fatalf("expected InteractiveBash to be TierAsk, got %v", toolTier("interactivebash"))
+	}
+
+	// SendInput with no UI and not yesMode should be denied / require prompt
+	if m.Check("SendInput", map[string]any{"session_id": "term-123", "input": "echo hello"}, nil) {
+		t.Fatal("expected SendInput to require approval when ui is nil")
+	}
+
+	// Persistent allow must be blocked for arbitrary command tools
+	for _, arbitraryTool := range []string{"bash", "interactivebash", "sendinput", "backgroundrun"} {
+		m.AllowAll(arbitraryTool)
+		if m.persistent[arbitraryTool] == "allow" {
+			t.Fatalf("expected tool %s to NOT be persisted with allow", arbitraryTool)
 		}
 	}
 }

@@ -131,7 +131,7 @@ func IsDangerousCommand(cmd string) (bool, string) {
 
 func IsProtectedWrite(cmd string) bool {
 	lower := strings.ToLower(cmd)
-	if !(strings.Contains(lower, "permissions.json") || strings.Contains(lower, ".vibe-coder.json") || strings.Contains(lower, "config.json")) {
+	if !(strings.Contains(lower, "permissions.json") || strings.Contains(lower, ".vibe-coder.json") || strings.Contains(lower, "config.json") || strings.Contains(lower, "vibe-coder.env")) {
 		return false
 	}
 	for _, indicator := range protectedWriteIndicators {
@@ -169,7 +169,13 @@ func IsProtectedPath(path string) bool {
 		return true
 	}
 
-	if strings.Contains(lower, ".ssh/id_") {
+	if strings.Contains(lower, ".ssh/id_") || strings.Contains(lower, ".ssh/authorized_keys") || strings.Contains(lower, ".ssh/config") {
+		return true
+	}
+	if strings.Contains(lower, "vibe-coder.env") {
+		return true
+	}
+	if strings.Contains(lower, ".git/hooks") || strings.Contains(lower, ".git/config") {
 		return true
 	}
 	if strings.Contains(lower, ".aws/credentials") {

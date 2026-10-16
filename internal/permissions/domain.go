@@ -98,7 +98,7 @@ func ToolTargetPaths(toolName string, params map[string]any, ws string) []string
 				}
 			}
 		}
-	case "bash", "interactivebash", "backgroundrun":
+	case "bash", "interactivebash", "backgroundrun", "sendinput":
 		var candidates []string
 		for _, key := range []string{"workdir", "cwd", "dir"} {
 			if p, ok := params[key].(string); ok && strings.TrimSpace(p) != "" {
@@ -108,7 +108,11 @@ func ToolTargetPaths(toolName string, params map[string]any, ws string) []string
 				}
 			}
 		}
-		if cmd, ok := params["command"].(string); ok && strings.TrimSpace(cmd) != "" {
+		cmd, _ := params["command"].(string)
+		if strings.TrimSpace(cmd) == "" && tool == "sendinput" {
+			cmd, _ = params["input"].(string)
+		}
+		if strings.TrimSpace(cmd) != "" {
 			cmdCandidates := ExtractCommandTargetPaths(cmd, ws)
 			candidates = append(candidates, cmdCandidates...)
 		}

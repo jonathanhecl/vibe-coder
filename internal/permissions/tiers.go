@@ -22,10 +22,10 @@ var (
 		"missionstart": {}, "missioncomplete": {}, "missionblocked": {},
 		"describeimage": {}, "screenshot": {}, "skill": {}, "gitstatus": {}, "gitdiff": {}, "decide": {},
 		"backgroundstatus": {}, "backgroundlist": {}, "backgroundkill": {},
-		"terminatesession": {}, "sendinput": {},
+		"terminatesession": {},
 	}
 	askTools = map[string]struct{}{
-		"bash": {}, "write": {}, "edit": {}, "gitundo": {},
+		"bash": {}, "interactivebash": {}, "sendinput": {}, "write": {}, "edit": {}, "gitundo": {},
 		"backgroundrun": {},
 	}
 	networkTools = map[string]struct{}{
@@ -66,4 +66,14 @@ func normalizeTool(tool string) string {
 		return "out_domain:" + strings.TrimPrefix(trimmed, "out_domain:")
 	}
 	return strings.ToLower(trimmed)
+}
+
+// isArbitraryCommandTool reports whether a tool can execute arbitrary shell commands
+// and therefore must never be granted persistent "allow" permissions.
+func isArbitraryCommandTool(tool string) bool {
+	switch normalizeTool(tool) {
+	case "bash", "interactivebash", "sendinput", "backgroundrun":
+		return true
+	}
+	return false
 }

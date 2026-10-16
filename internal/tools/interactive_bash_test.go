@@ -138,6 +138,51 @@ func TestInteractiveBash_BackgroundBlocked(t *testing.T) {
 	}
 }
 
+func TestSendInput_DangerousBlocked(t *testing.T) {
+	t.Parallel()
+	tool := NewSendInputTool()
+	res := tool.Execute(context.Background(), map[string]any{
+		"session_id": "term-123",
+		"input":      "rm -rf /",
+	})
+	if !res.IsError {
+		t.Fatal("expected error for dangerous input")
+	}
+	if !strings.Contains(res.Output, "dangerous command blocked") {
+		t.Fatalf("expected dangerous command error, got: %s", res.Output)
+	}
+}
+
+func TestSendInput_ProtectedWriteBlocked(t *testing.T) {
+	t.Parallel()
+	tool := NewSendInputTool()
+	res := tool.Execute(context.Background(), map[string]any{
+		"session_id": "term-123",
+		"input":      "echo evil > vibe-coder.env",
+	})
+	if !res.IsError {
+		t.Fatal("expected error for protected write input")
+	}
+	if !strings.Contains(res.Output, "protected config writes are blocked") {
+		t.Fatalf("expected protected config write error, got: %s", res.Output)
+	}
+}
+
+func TestSendInput_BackgroundBlocked(t *testing.T) {
+	t.Parallel()
+	tool := NewSendInputTool()
+	res := tool.Execute(context.Background(), map[string]any{
+		"session_id": "term-123",
+		"input":      "sleep 10 &",
+	})
+	if !res.IsError {
+		t.Fatal("expected error for background input")
+	}
+	if !strings.Contains(res.Output, "background commands are blocked") {
+		t.Fatalf("expected background command error, got: %s", res.Output)
+	}
+}
+
 func extractSessionID(output string) string {
 	const prefix = "[session_id: "
 	idx := strings.Index(output, prefix)

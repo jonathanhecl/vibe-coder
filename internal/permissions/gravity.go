@@ -68,7 +68,7 @@ func (g Gravity) Warn() string {
 // carry the command in the "command" parameter and must share one policy.
 func isShellTool(tool string) bool {
 	switch tool {
-	case "bash", "interactivebash", "backgroundrun":
+	case "bash", "interactivebash", "backgroundrun", "sendinput":
 		return true
 	}
 	return false

@@ -53,7 +53,7 @@ func (m *Manager) mergePersistentMap(raw map[string]string) {
 	for k, v := range raw {
 		k = normalizeTool(k)
 		v = strings.ToLower(strings.TrimSpace(v))
-		if k == "bash" && v == "allow" {
+		if isArbitraryCommandTool(k) && v == "allow" {
 			continue
 		}
 		if v != "allow" && v != "deny" {
@@ -108,7 +108,7 @@ func (m *Manager) savePersistentLocked() error {
 	}
 	out := map[string]string{}
 	for k, v := range m.persistent {
-		if k == "bash" && v == "allow" {
+		if isArbitraryCommandTool(k) && v == "allow" {
 			continue
 		}
 		out[k] = v

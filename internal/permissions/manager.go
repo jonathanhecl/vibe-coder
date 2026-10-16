@@ -314,7 +314,7 @@ func (m *Manager) AllowAll(tool string) {
 	norm := normalizeTool(tool)
 	delete(m.deny, norm)
 	m.allow[norm] = struct{}{}
-	if norm != "bash" {
+	if !isArbitraryCommandTool(norm) {
 		m.persistent[norm] = "allow"
 		_ = m.savePersistentLocked()
 	}
@@ -379,7 +379,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 			return false
 		}
 		if isShellTool(tool) {
-			command, _ := params["command"].(string)
+			command := extractCommandParam(tool, params)
 			if m.isCommandOfflineBlocked(command, safetyDecider) {
 				m.mu.Lock()
 				m.lastDenialReason = "Blocked by offline mode: external network access is disabled."
@@ -401,7 +401,7 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		}
 	}
 
-	command, _ := params["command"].(string)
+	command := extractCommandParam(tool, params)
 	gravity := GravityUnknown
 	if isShellTool(tool) {
 		gravity = CommandGravity(command, m.WorkspaceDir())
@@ -415,7 +415,9 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 		// A command that provably only reads needs no prompt, and no model
 		// review either: paying a decision round trip for `git status` would
 		// make the common case slower for no safety gain.
-		if gravity == GravityRead {
+		// SendInput sends text to a stateful process stdin and must not be
+		// auto-approved merely because the snippet looks like a read command.
+		if gravity == GravityRead && tool != "sendinput" {
 			return true
 		}
 		if unattended {
@@ -848,4 +850,19 @@ func (m *Manager) replayVerdict(ui prompter, toolName string, v cachedVerdict, e
 		return true
 	}
 	return m.handleSafetyDecision(ui, toolName, v.decision, elapsed)
+}
+
+func extractCommandParam(tool string, params map[string]any) string {
+	if params == nil {
+		return ""
+	}
+	if cmd, ok := params["command"].(string); ok && strings.TrimSpace(cmd) != "" {
+		return cmd
+	}
+	if normalizeTool(tool) == "sendinput" {
+		if in, ok := params["input"].(string); ok {
+			return in
+		}
+	}
+	return ""
 }
