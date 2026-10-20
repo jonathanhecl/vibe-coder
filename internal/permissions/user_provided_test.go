@@ -80,7 +80,7 @@ func TestAssistedCommand_ForwardsUserProvidedContext(t *testing.T) {
 	m.NoteUserProvidedPath(img)
 
 	ui := &notifyingUI{}
-	if !m.Check("Bash", map[string]any{"command": "ls -l " + img}, ui) {
+	if !m.Check("Bash", map[string]any{"command": "convert " + img + " thumb.png"}, ui) {
 		t.Fatal("expected the command to be auto-approved")
 	}
 	if !decider.called {
@@ -235,7 +235,7 @@ func TestAssistedCommand_ContextNoteStillApproves(t *testing.T) {
 	m.NoteUserProvidedPath(img)
 
 	ui := &notifyingUI{}
-	m.Check("Bash", map[string]any{"command": "ls -l " + img}, ui)
+	m.Check("Bash", map[string]any{"command": "convert " + img + " thumb.png"}, ui)
 	if outcome, ok := ui.lastOutcome(); !ok || outcome != tui.AssistedApproved {
 		t.Fatalf("expected an approval notice, got %+v", ui.notices)
 	}

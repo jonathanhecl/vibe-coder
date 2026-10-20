@@ -83,6 +83,19 @@ func TestPathMemoryResolveTargetForWrite(t *testing.T) {
 	if want := filepath.Join(tmp, "src", "new.go"); abs != want || rescued {
 		t.Fatalf("ResolveTarget(absolute) = %q rescued=%v, want %q", abs, rescued, want)
 	}
+
+	// Pseudo-root /root/... mistaken by LLM for project root
+	abs, rescued = mem.ResolveTarget("/root/exports/newdata.md")
+	if want := filepath.Join(tmp, "exports", "newdata.md"); abs != want || !rescued {
+		t.Fatalf("ResolveTarget(/root/...) = %q rescued=%v, want %q", abs, rescued, want)
+	}
+
+	// Pseudo-root with nonexistent root directory
+	abs, rescued = mem.ResolveTarget("/definitely_nonexistent_dir_12345/test.md")
+	if want := filepath.Join(tmp, "definitely_nonexistent_dir_12345", "test.md"); abs != want || !rescued {
+		t.Fatalf("ResolveTarget(nonexistent root) = %q rescued=%v, want %q", abs, rescued, want)
+	}
+
 	if abs, _ := mem.ResolveTarget("  "); abs != "" {
 		t.Fatalf("ResolveTarget(empty) = %q, want empty", abs)
 	}

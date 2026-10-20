@@ -165,8 +165,10 @@ func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
 }
 
 // ResolveTarget resolves a path for a tool that may create the file (Write).
+// ResolveTarget resolves a path for a tool that may create the file (Write).
 // Unlike Resolve, it does not require the path to exist: an absolute path is
-// returned as-is and a relative path is anchored to the working directory.
+// returned as-is (unless it is a pseudo-root path like /root/ or /unreachable/
+// mistakenly emitted by models) and a relative path is anchored to cwd.
 // rescued reports whether the path was rewritten.
 func (m *pathMemory) ResolveTarget(p string) (string, bool) {
 	p = strings.TrimSpace(p)
@@ -174,6 +176,33 @@ func (m *pathMemory) ResolveTarget(p string) (string, bool) {
 		return "", false
 	}
 	if filepath.IsAbs(p) {
+		cleanP := filepath.Clean(p)
+		cleanCwd := filepath.Clean(m.cwd)
+		if cleanP == cleanCwd || strings.HasPrefix(cleanP, cleanCwd+string(filepath.Separator)) {
+			return p, false
+		}
+
+		normP := filepath.ToSlash(cleanP)
+		// Models frequently confuse the project root with Linux "/root"
+		// (e.g. "/root/exports/newdata.md" when cwd is "/media/datamac/temp").
+		if strings.HasPrefix(normP, "/root/") && filepath.ToSlash(cleanCwd) != "/root" {
+			sub := strings.TrimPrefix(normP, "/root/")
+			rescued := filepath.Join(m.cwd, filepath.FromSlash(sub))
+			if abs, err := filepath.Abs(rescued); err == nil {
+				return abs, true
+			}
+		}
+
+		// Models also use leading slashes (e.g. "/exports/newdata.md") thinking of the
+		// project root. If the top-level directory does not exist on disk, anchor to cwd.
+		if isUnreachableRootTarget(cleanP) {
+			trimmed := strings.TrimLeft(normP, "/")
+			rescued := filepath.Join(m.cwd, filepath.FromSlash(trimmed))
+			if abs, err := filepath.Abs(rescued); err == nil {
+				return abs, true
+			}
+		}
+
 		return p, false
 	}
 	abs, err := filepath.Abs(filepath.Join(m.cwd, p))
@@ -181,6 +210,26 @@ func (m *pathMemory) ResolveTarget(p string) (string, bool) {
 		return "", false
 	}
 	return abs, true
+}
+
+func isUnreachableRootTarget(p string) bool {
+	if !filepath.IsAbs(p) {
+		return false
+	}
+	vol := filepath.VolumeName(p)
+	rest := strings.TrimLeft(strings.TrimPrefix(p, vol), `/\`)
+	if rest == "" {
+		return false
+	}
+	first := rest
+	if i := strings.IndexAny(rest, `/\`); i >= 0 {
+		first = rest[:i]
+	}
+	if first == "" || first == "." || first == ".." {
+		return false
+	}
+	_, err := os.Lstat(vol + string(filepath.Separator) + first)
+	return os.IsNotExist(err)
 }
 
 // rescueUniqueBasename returns the only indexed absolute path for filepath.Base(p).

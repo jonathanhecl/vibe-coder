@@ -49,12 +49,17 @@ func permissionPayloadLines(tool string, params map[string]any) []string {
 
 func permissionPayloadEdit(params map[string]any) []string {
 	out := []string{"ACTION Edit"}
-	if dw, _ := params["domain_warning"].(string); dw != "" {
+	dw, _ := params["domain_warning"].(string)
+	if dw != "" {
 		out = append(out, "WARNING: "+dw)
 	}
 	fp, _ := params["file_path"].(string)
 	if fp != "" {
-		out = append(out, "FILE: "+compactPath(fp))
+		display := compactPath(fp)
+		if dw != "" {
+			display = fp
+		}
+		out = append(out, "FILE: "+display)
 	}
 	out = append(out, editLineSummary(fp, params))
 	oldS, _ := params["old_string"].(string)
@@ -115,12 +120,17 @@ func asPermissionInt(value any) int {
 
 func permissionPayloadWrite(params map[string]any) []string {
 	out := []string{"ACTION Write"}
-	if dw, _ := params["domain_warning"].(string); dw != "" {
+	dw, _ := params["domain_warning"].(string)
+	if dw != "" {
 		out = append(out, "WARNING: "+dw)
 	}
 	fp, _ := params["file_path"].(string)
 	if fp != "" {
-		out = append(out, "FILE: "+compactPath(fp))
+		display := compactPath(fp)
+		if dw != "" {
+			display = fp
+		}
+		out = append(out, "FILE: "+display)
 	}
 	c, _ := params["contents"].(string)
 	if len(c) == 0 {

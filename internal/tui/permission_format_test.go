@@ -117,3 +117,19 @@ func TestPermissionPayloadOmitsGravityWarningForPlainWrites(t *testing.T) {
 		t.Errorf("a plain write must carry no reason line, got:\n%s", joined)
 	}
 }
+
+func TestPermissionPayloadShowsFullPathOnDomainWarning(t *testing.T) {
+	t.Parallel()
+	lines := permissionPayloadLines("Write", map[string]any{
+		"file_path":      "/root/exports/newdata.md",
+		"domain_warning": "path is outside workspace domain (/media/datamac/temp)",
+		"contents":       "test content",
+	})
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "FILE: /root/exports/newdata.md") {
+		t.Errorf("expected card to show full uncompacted path when domain warning is present, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "FILE: exports/newdata.md") {
+		t.Errorf("card should not deceive user with compacted path on domain warning, got:\n%s", joined)
+	}
+}
