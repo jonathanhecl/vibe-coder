@@ -22,10 +22,17 @@ type askQuestion struct {
 func parseAskQuestions(params map[string]any) ([]askQuestion, string) {
 	raw, ok := params["questions"]
 	if !ok {
-		return nil, `missing "questions" — use a non-empty array of objects, not strings. Example: {"questions":[{"id":"q1","prompt":"Pick one","options":["A","B"]}]}`
+		// Tolerant fallback: check if model passed top-level prompt (or question) and options
+		if q, err := parseTopLevelPromptQuestion(params); err == "" && len(q) > 0 {
+			return q, ""
+		}
+		return nil, `missing "questions" (or "prompt" and "options") — use {"prompt":"...","options":["A","B"]} or {"questions":[{"id":"q1","prompt":"...","options":["A","B"]}]}`
 	}
 	list, ok := raw.([]any)
 	if !ok || len(list) == 0 {
+		if q, err := parseTopLevelPromptQuestion(params); err == "" && len(q) > 0 {
+			return q, ""
+		}
 		return nil, `"questions" must be a non-empty JSON array of objects. Do not use an array of plain question strings.`
 	}
 	out := make([]askQuestion, 0, len(list))
@@ -37,6 +44,31 @@ func parseAskQuestions(params map[string]any) ([]askQuestion, string) {
 		out = append(out, q)
 	}
 	return out, ""
+}
+
+func parseTopLevelPromptQuestion(params map[string]any) ([]askQuestion, string) {
+	prompt, _ := params["prompt"].(string)
+	if prompt == "" {
+		prompt, _ = params["question"].(string)
+	}
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return nil, ""
+	}
+	optsRaw, ok := params["options"].([]any)
+	if !ok || len(optsRaw) == 0 {
+		return nil, ""
+	}
+	opts, err := normalizeOptions(optsRaw)
+	if err != "" {
+		return nil, err
+	}
+	id, _ := params["id"].(string)
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = "q1"
+	}
+	return []askQuestion{{id: id, prompt: prompt, options: opts}}, ""
 }
 
 func normalizeOneQuestion(qAny any, index int) (askQuestion, string) {
@@ -53,6 +85,9 @@ func normalizeOneQuestion(qAny any, index int) (askQuestion, string) {
 		id = "q" + strconv.Itoa(index+1)
 	}
 	prompt, _ := m["prompt"].(string)
+	if prompt == "" {
+		prompt, _ = m["question"].(string)
+	}
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		prompt = "Choose an option:"

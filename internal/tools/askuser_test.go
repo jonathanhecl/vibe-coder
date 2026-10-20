@@ -137,3 +137,29 @@ func TestAskUserQuestionSelectionModesAndFeedback(t *testing.T) {
 		})
 	}
 }
+
+func TestAskUserQuestionTopLevelPromptAndOptions(t *testing.T) {
+	t.Parallel()
+
+	in := strings.NewReader("1\n")
+	var out strings.Builder
+	tool := NewAskUserQuestionToolWithIO(in, &out)
+
+	res := tool.Execute(context.Background(), map[string]any{
+		"prompt":  "Regla de duración para el sistema",
+		"options": []any{"Omitir por default", "Incluir lista corta moderna"},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Output)
+	}
+	if !strings.Contains(res.Output, `"q1":"1"`) {
+		t.Fatalf("unexpected output: %s", res.Output)
+	}
+	rendered := out.String()
+	if !strings.Contains(rendered, "Regla de duración para el sistema") {
+		t.Fatalf("rendered output missing prompt: %s", rendered)
+	}
+	if !strings.Contains(rendered, "Selected: [1] Omitir por default") {
+		t.Fatalf("rendered output missing feedback: %s", rendered)
+	}
+}

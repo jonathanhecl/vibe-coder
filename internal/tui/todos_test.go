@@ -161,6 +161,15 @@ func TestCompactToolHeaderPerTool(t *testing.T) {
 			want: "AskUserQuestion (2 questions)",
 		},
 		{
+			name: "AskUserQuestion top-level prompt",
+			tool: "AskUserQuestion",
+			params: map[string]any{
+				"prompt":  "Regla de duración para el sistema",
+				"options": []any{"A", "B"},
+			},
+			want: "AskUserQuestion Regla de duración para el sistema",
+		},
+		{
 			name:   "Unknown tool falls back to params",
 			tool:   "Unknown",
 			params: map[string]any{"foo": "bar"},

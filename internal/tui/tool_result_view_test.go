@@ -72,6 +72,16 @@ func TestToolResultSummaryAskUserQuestion(t *testing.T) {
 	if !strings.Contains(multiSummary, "Option B") || !strings.Contains(multiSummary, "Option X") {
 		t.Fatalf("expected multiple options in summary, got: %q", multiSummary)
 	}
+
+	// Single top-level prompt/options
+	topParams := map[string]any{
+		"prompt":  "Regla de duración para el sistema",
+		"options": []any{"Omitir por default", "Incluir lista corta moderna"},
+	}
+	topSummary := toolResultSummary(st, "AskUserQuestion", `{"q1":"1"}`, false, topParams)
+	if !strings.Contains(topSummary, "Omitir por default") {
+		t.Fatalf("expected option in summary, got: %q", topSummary)
+	}
 }
 
 func TestPrintEditDiffPreviewWithDiff(t *testing.T) {

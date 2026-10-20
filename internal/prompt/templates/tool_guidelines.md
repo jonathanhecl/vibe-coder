@@ -13,4 +13,4 @@
 - GitStatus/GitDiff review working-tree changes; GitUndo restores the latest checkpoint after a bad edit.
 - After an edit, `[DIAGNOSTICS]` reports what the language server found in that file. It is authoritative: fix those errors before running the suite.
 - TodoWrite: only for tasks with 3+ steps. Declare the full plan once, keep exactly one item "in_progress", and call it again with merge=true as each step completes.
-- AskUserQuestion: "questions" is an array of objects, each with "prompt" and a non-empty "options" array (strings, or objects with "label").
+- AskUserQuestion: ask the user to clarify ambiguities with labeled options. For one question use `{"prompt":"...","options":["A","B"]}`. For multiple questions use `{"questions":[{"id":"q1","prompt":"...","options":["A","B"]}]}`.

@@ -29,9 +29,10 @@ func NewAskUserQuestionToolWithIO(in io.Reader, out io.Writer) *AskUserQuestionT
 func (t *AskUserQuestionTool) Name() string { return "AskUserQuestion" }
 func (t *AskUserQuestionTool) Description() string {
 	return `Ask the user to pick from labeled options when something is ambiguous. ` +
-		`The JSON body must use "questions" as an array of OBJECTS (each with "prompt" and "options"), not an array of plain strings. ` +
-		`Each option may be a string or {"label":"...","id":"..."}. ` +
-		`Example: ` + askUserQuestionExample
+		`For a single question, provide "prompt" and "options" (strings or {"label":"...","id":"..."}). ` +
+		`For multiple questions, provide "questions" as an array of objects (each with "prompt" and "options"). ` +
+		`Example single question: {"prompt":"Which framework?","options":["React","Vue"]} ` +
+		`Example multiple questions: ` + askUserQuestionExample
 }
 func (t *AskUserQuestionTool) Schema() Schema {
 	return Schema{
@@ -46,9 +47,17 @@ func (t *AskUserQuestionTool) Schema() Schema {
 						"type":        "string",
 						"description": "Optional heading printed before the questions.",
 					},
+					"prompt": map[string]any{
+						"type":        "string",
+						"description": "The question prompt when asking a single question.",
+					},
+					"options": map[string]any{
+						"type":        "array",
+						"description": `List of options when using "prompt". Strings or objects with {"label":"...","id":"..."}.`,
+					},
 					"questions": map[string]any{
 						"type":        "array",
-						"description": `Required. Each item is an object: {"id":"q1","prompt":"...","options":["A","B"]} or options as [{"label":"A","id":"a"},...].`,
+						"description": `List of questions for multiple questions. Each item is an object: {"id":"q1","prompt":"...","options":["A","B"]}.`,
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
@@ -60,7 +69,6 @@ func (t *AskUserQuestionTool) Schema() Schema {
 						},
 					},
 				},
-				"required": []string{"questions"},
 			},
 		},
 	}

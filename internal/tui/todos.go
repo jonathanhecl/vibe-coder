@@ -157,10 +157,18 @@ func CompactToolHeader(name string, params map[string]any) string {
 		title = strings.TrimSpace(title)
 		if title != "" {
 			out = "AskUserQuestion " + title
+		} else if prompt, ok := params["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+			out = "AskUserQuestion " + strings.TrimSpace(prompt)
+		} else if prompt, ok := params["question"].(string); ok && strings.TrimSpace(prompt) != "" {
+			out = "AskUserQuestion " + strings.TrimSpace(prompt)
 		} else if qs, ok := params["questions"].([]any); ok && len(qs) > 0 {
 			if len(qs) == 1 {
 				if qMap, ok := qs[0].(map[string]any); ok {
-					if prompt, ok := qMap["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+					prompt, _ := qMap["prompt"].(string)
+					if prompt == "" {
+						prompt, _ = qMap["question"].(string)
+					}
+					if strings.TrimSpace(prompt) != "" {
 						out = "AskUserQuestion " + strings.TrimSpace(prompt)
 					}
 				}

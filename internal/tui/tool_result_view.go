@@ -44,7 +44,23 @@ func askUserQuestionSummary(st Style, output string, toolParams map[string]any) 
 	}
 
 	rawQuestions, ok := toolParams["questions"].([]any)
-	if !ok || len(rawQuestions) == 0 {
+	if (!ok || len(rawQuestions) == 0) && toolParams["options"] != nil {
+		prompt := toolParams["prompt"]
+		if prompt == nil {
+			prompt = toolParams["question"]
+		}
+		id := toolParams["id"]
+		if id == nil || strings.TrimSpace(fmt.Sprintf("%v", id)) == "" {
+			id = "q1"
+		}
+		rawQuestions = []any{
+			map[string]any{
+				"id":      fmt.Sprintf("%v", id),
+				"prompt":  prompt,
+				"options": toolParams["options"],
+			},
+		}
+	} else if !ok || len(rawQuestions) == 0 {
 		return ""
 	}
 
