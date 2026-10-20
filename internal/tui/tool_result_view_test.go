@@ -28,6 +28,52 @@ func TestToolResultSummaryEditShowsPlusMinus(t *testing.T) {
 	}
 }
 
+func TestToolResultSummaryAskUserQuestion(t *testing.T) {
+	t.Parallel()
+	st := Style{}
+
+	params := map[string]any{
+		"title": "Negative prompts",
+		"questions": []any{
+			map[string]any{
+				"id":     "negativos",
+				"prompt": "Choose policy",
+				"options": []any{
+					map[string]any{"id": "a", "label": "Omitir por default"},
+					map[string]any{"id": "b", "label": "Incluir lista corta moderna"},
+					map[string]any{"id": "c", "label": "Incluir lista clásica SD"},
+				},
+			},
+		},
+	}
+
+	summary := toolResultSummary(st, "AskUserQuestion", `{"negativos":"a"}`, false, params)
+	if !strings.Contains(summary, "Omitir por default") {
+		t.Fatalf("expected written option in summary, got: %q", summary)
+	}
+	if !strings.Contains(summary, "[1]") {
+		t.Fatalf("expected option number [1] in summary, got: %q", summary)
+	}
+
+	// Multiple questions
+	multiParams := map[string]any{
+		"questions": []any{
+			map[string]any{
+				"id":      "q1",
+				"options": []any{"Option A", "Option B"},
+			},
+			map[string]any{
+				"id":      "q2",
+				"options": []any{"Option X", "Option Y"},
+			},
+		},
+	}
+	multiSummary := toolResultSummary(st, "AskUserQuestion", `{"q1":"2","q2":"1"}`, false, multiParams)
+	if !strings.Contains(multiSummary, "Option B") || !strings.Contains(multiSummary, "Option X") {
+		t.Fatalf("expected multiple options in summary, got: %q", multiSummary)
+	}
+}
+
 func TestPrintEditDiffPreviewWithDiff(t *testing.T) {
 	var b strings.Builder
 	st := Style{}

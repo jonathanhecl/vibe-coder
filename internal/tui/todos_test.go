@@ -129,6 +129,38 @@ func TestCompactToolHeaderPerTool(t *testing.T) {
 			want:   "WebFetch https://example.com/path",
 		},
 		{
+			name: "AskUserQuestion with title",
+			tool: "AskUserQuestion",
+			params: map[string]any{
+				"title": "Negative prompts",
+				"questions": []any{
+					map[string]any{"prompt": "Policy"},
+				},
+			},
+			want: "AskUserQuestion Negative prompts",
+		},
+		{
+			name: "AskUserQuestion with prompt only",
+			tool: "AskUserQuestion",
+			params: map[string]any{
+				"questions": []any{
+					map[string]any{"prompt": "Which option?"},
+				},
+			},
+			want: "AskUserQuestion Which option?",
+		},
+		{
+			name: "AskUserQuestion multiple questions",
+			tool: "AskUserQuestion",
+			params: map[string]any{
+				"questions": []any{
+					map[string]any{"prompt": "Q1"},
+					map[string]any{"prompt": "Q2"},
+				},
+			},
+			want: "AskUserQuestion (2 questions)",
+		},
+		{
 			name:   "Unknown tool falls back to params",
 			tool:   "Unknown",
 			params: map[string]any{"foo": "bar"},

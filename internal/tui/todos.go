@@ -152,6 +152,27 @@ func CompactToolHeader(name string, params map[string]any) string {
 		if q, ok := params["query"].(string); ok && q != "" {
 			out = "WebSearch " + truncateInline(q, 60)
 		}
+	case "AskUserQuestion":
+		title, _ := params["title"].(string)
+		title = strings.TrimSpace(title)
+		if title != "" {
+			out = "AskUserQuestion " + title
+		} else if qs, ok := params["questions"].([]any); ok && len(qs) > 0 {
+			if len(qs) == 1 {
+				if qMap, ok := qs[0].(map[string]any); ok {
+					if prompt, ok := qMap["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+						out = "AskUserQuestion " + strings.TrimSpace(prompt)
+					}
+				}
+			} else {
+				out = fmt.Sprintf("AskUserQuestion (%d questions)", len(qs))
+			}
+			if out == "" {
+				out = "AskUserQuestion"
+			}
+		} else {
+			out = "AskUserQuestion"
+		}
 	}
 	if out == "" {
 		if extra := formatParams(params); extra != "" {

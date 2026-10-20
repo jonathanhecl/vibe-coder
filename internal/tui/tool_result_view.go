@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -12,6 +14,11 @@ import (
 func toolResultSummary(st Style, name, output string, isError bool, toolParams map[string]any) string {
 	if isError {
 		return summarizeOutput(output)
+	}
+	if name == "AskUserQuestion" {
+		if s := askUserQuestionSummary(st, output, toolParams); s != "" {
+			return s
+		}
 	}
 	if (name == "BackgroundRun" || name == "BackgroundStatus") && strings.Contains(output, "STILL RUNNING") {
 		return backgroundTaskSummary(output)
@@ -25,6 +32,91 @@ func toolResultSummary(st Style, name, output string, isError bool, toolParams m
 		return chip + st.Dim(" · ") + base
 	}
 	return summarizeOutput(output)
+}
+
+func askUserQuestionSummary(st Style, output string, toolParams map[string]any) string {
+	if toolParams == nil {
+		return ""
+	}
+	var answers map[string]any
+	if err := json.Unmarshal([]byte(output), &answers); err != nil || len(answers) == 0 {
+		return ""
+	}
+
+	rawQuestions, ok := toolParams["questions"].([]any)
+	if !ok || len(rawQuestions) == 0 {
+		return ""
+	}
+
+	var parts []string
+	for _, qAny := range rawQuestions {
+		qMap, ok := qAny.(map[string]any)
+		if !ok {
+			continue
+		}
+		qID, _ := qMap["id"].(string)
+		ans, hasAns := answers[qID]
+		if !hasAns && len(rawQuestions) == 1 && len(answers) == 1 {
+			for _, v := range answers {
+				ans = v
+				hasAns = true
+				break
+			}
+		}
+		if !hasAns {
+			continue
+		}
+
+		ansStr := strings.TrimSpace(fmt.Sprintf("%v", ans))
+		rawOptions, _ := qMap["options"].([]any)
+
+		chosenLabel := ""
+		chosenNum := 0
+		for i, optAny := range rawOptions {
+			switch opt := optAny.(type) {
+			case string:
+				if ansStr == strconv.Itoa(i+1) || strings.EqualFold(ansStr, opt) {
+					chosenLabel = opt
+					chosenNum = i + 1
+					break
+				}
+			case map[string]any:
+				optID, _ := opt["id"].(string)
+				optLabel, _ := opt["label"].(string)
+				if (optID != "" && strings.EqualFold(ansStr, optID)) ||
+					ansStr == strconv.Itoa(i+1) ||
+					(optLabel != "" && strings.EqualFold(ansStr, optLabel)) {
+					chosenLabel = optLabel
+					chosenNum = i + 1
+					break
+				}
+			}
+			if chosenLabel != "" {
+				break
+			}
+		}
+
+		label := chosenLabel
+		if label == "" {
+			label = ansStr
+		}
+
+		prefix := ""
+		if chosenNum > 0 {
+			prefix = st.BrightGreen(fmt.Sprintf("[%d] ", chosenNum))
+		}
+
+		item := prefix + label
+		if len(rawQuestions) > 1 && qID != "" {
+			item = st.Dim(qID+": ") + item
+		}
+		parts = append(parts, item)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, st.Dim(" · "))
 }
 
 func backgroundTaskSummary(output string) string {
