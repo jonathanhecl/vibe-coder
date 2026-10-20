@@ -68,6 +68,26 @@ func TestPathMemoryResolvesAgainstCwd(t *testing.T) {
 	if abs != want {
 		t.Fatalf("unexpected abs path: %q want %q", abs, want)
 	}
+
+	// Pseudo-root /root/AGENTS.md pointing to existing file in cwd
+	abs, rescued, ok = mem.Resolve("/root/AGENTS.md")
+	if !ok || !rescued || abs != want {
+		t.Fatalf("Resolve(/root/AGENTS.md) = %q rescued=%v ok=%v, want %q", abs, rescued, ok, want)
+	}
+
+	// Unreachable root /subpkg/nested.go anchored to cwd
+	subDir := filepath.Join(tmp, "subpkg_xyz_test")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	nestedWant := filepath.Join(subDir, "nested.go")
+	if err := os.WriteFile(nestedWant, []byte("package subpkg"), 0o644); err != nil {
+		t.Fatalf("seed nested: %v", err)
+	}
+	abs, rescued, ok = mem.Resolve("/subpkg_xyz_test/nested.go")
+	if !ok || !rescued || abs != nestedWant {
+		t.Fatalf("Resolve(/subpkg_xyz_test/nested.go) = %q rescued=%v ok=%v, want %q", abs, rescued, ok, nestedWant)
+	}
 }
 
 func TestPathMemoryResolveTargetForWrite(t *testing.T) {

@@ -150,6 +150,23 @@ func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
 		if _, err := os.Stat(p); err == nil {
 			return p, false, true
 		}
+		cleanP := filepath.Clean(p)
+		normP := filepath.ToSlash(cleanP)
+		cleanCwd := filepath.Clean(m.cwd)
+		if strings.HasPrefix(normP, "/root/") && filepath.ToSlash(cleanCwd) != "/root" {
+			sub := strings.TrimPrefix(normP, "/root/")
+			cand := filepath.Join(m.cwd, filepath.FromSlash(sub))
+			if _, err := os.Stat(cand); err == nil {
+				return cand, true, true
+			}
+		}
+		if isUnreachableRootTarget(cleanP) {
+			trimmed := strings.TrimLeft(normP, "/")
+			cand := filepath.Join(m.cwd, filepath.FromSlash(trimmed))
+			if _, err := os.Stat(cand); err == nil {
+				return cand, true, true
+			}
+		}
 	} else if joined := filepath.Join(m.cwd, p); joined != "" {
 		if _, err := os.Stat(joined); err == nil {
 			return joined, false, true
@@ -164,7 +181,6 @@ func (m *pathMemory) Resolve(p string) (abs string, rescued bool, ok bool) {
 	return "", false, false
 }
 
-// ResolveTarget resolves a path for a tool that may create the file (Write).
 // ResolveTarget resolves a path for a tool that may create the file (Write).
 // Unlike Resolve, it does not require the path to exist: an absolute path is
 // returned as-is (unless it is a pseudo-root path like /root/ or /unreachable/
