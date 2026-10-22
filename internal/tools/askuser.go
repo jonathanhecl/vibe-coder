@@ -15,10 +15,12 @@ import (
 
 const askUserQuestionExample = `{"questions":[{"id":"which","prompt":"Which project do you mean?","options":[{"id":"here","label":"This workspace"},{"id":"other","label":"Another folder"}]}]}`
 
-// AskOption is one labeled choice offered to the user.
+// AskOption is one labeled choice offered to the user. Description is an
+// optional short note rendered next to the label.
 type AskOption struct {
-	ID    string
-	Label string
+	ID          string
+	Label       string
+	Description string
 }
 
 // AskRequest is a single question handed to an Asker. ErrNote carries the
@@ -60,6 +62,8 @@ func (t *AskUserQuestionTool) Description() string {
 	return `Ask the user to pick from labeled options when something is ambiguous. ` +
 		`For a single question, provide "prompt" and "options" (strings or {"label":"...","id":"..."}). ` +
 		`For multiple questions, provide "questions" as an array of objects (each with "prompt" and "options"). ` +
+		`Order matters: the FIRST option is the default, used when the user presses ESC or the prompt times out, ` +
+		`so always put the option you recommend first. Each option may carry a short "description" shown beside its label. ` +
 		`Example single question: {"prompt":"Which framework?","options":["React","Vue"]} ` +
 		`Example multiple questions: ` + askUserQuestionExample
 }
@@ -81,12 +85,14 @@ func (t *AskUserQuestionTool) Schema() Schema {
 						"description": "The question prompt when asking a single question.",
 					},
 					"options": map[string]any{
-						"type":        "array",
-						"description": `List of options when using "prompt". Strings or objects with {"label":"...","id":"..."}.`,
+						"type": "array",
+						"description": `Ordered list of options when using "prompt". ` +
+							`Option 1 is the default (empty answer, ESC or timeout selects it), so list the recommended option first. ` +
+							`Strings or objects with {"label":"...","description":"...","id":"..."}.`,
 					},
 					"questions": map[string]any{
 						"type":        "array",
-						"description": `List of questions for multiple questions. Each item is an object: {"id":"q1","prompt":"...","options":["A","B"]}.`,
+						"description": `List of questions for multiple questions. Each item is an object: {"id":"q1","prompt":"...","options":["A","B"]}. Option 1 is the default in each question.`,
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
@@ -177,7 +183,7 @@ func (t *AskUserQuestionTool) ask(st tui.Style, out io.Writer, reader *bufio.Rea
 func (t *AskUserQuestionTool) askWithUI(title string, q askQuestion) (int, error) {
 	opts := make([]AskOption, len(q.options))
 	for i, opt := range q.options {
-		opts[i] = AskOption{ID: opt.id, Label: opt.label}
+		opts[i] = AskOption{ID: opt.id, Label: opt.label, Description: opt.description}
 	}
 	note := ""
 	for {
@@ -221,10 +227,11 @@ func printAskCard(st tui.Style, out io.Writer, title string, q askQuestion) {
 		fmt.Fprintf(out, "\n  %s %s\n\n", st.BoldCyan("?"), st.Bold(q.prompt))
 	}
 	for i, opt := range q.options {
-		fmt.Fprintf(out, "    %s %s\n",
-			st.BoldCyan("["+strconv.Itoa(i+1)+"]"),
-			st.BrightWhite(opt.label),
-		)
+		fmt.Fprintf(out, "    %s %s", st.BoldCyan("["+strconv.Itoa(i+1)+"]"), st.BrightWhite(opt.label))
+		if opt.description != "" {
+			fmt.Fprintf(out, "  %s", st.Dim(opt.description))
+		}
+		fmt.Fprintln(out)
 	}
 	fmt.Fprintf(out, "\n  %s %s", st.BoldCyan("▸"), st.Dim(fmt.Sprintf("Select option (1-%d) [default: 1]: ", len(q.options))))
 }

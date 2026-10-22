@@ -1,20 +1,31 @@
 package tui
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 )
+
+// AskOption is one choice in an AskCard. Description is optional and rendered
+// dimmed beside the label, so a question can explain the tradeoff of each
+// answer without lengthening the label itself.
+type AskOption struct {
+	Label       string
+	Description string
+}
 
 // AskCard is a multiple-choice question the agent asks through AskOptions.
 // Options are rendered as numbered rows; the answer line is read back as typed.
 type AskCard struct {
 	Title   string
 	Prompt  string
-	Options []string
+	Options []AskOption
 	// Note explains why the previous answer was rejected. When set, only the
 	// note and the prompt are redrawn, which keeps a retry from repeating the
 	// whole card.
@@ -27,8 +38,24 @@ type OptionAsker interface {
 	AskOptions(card AskCard) (string, error)
 }
 
+// errAskEscape and errAskTimeout both mean "take the default option". They stay
+// distinct so a timeout is announced and a deliberate ESC is not.
+var (
+	errAskEscape  = errors.New("ask: escaped")
+	errAskTimeout = errors.New("ask: timed out")
+)
+
+// askEscapeWindow is how long a lone ESC waits for the rest of a sequence
+// before it counts as "give me the default answer". Arrow keys and bracketed
+// paste arrive as a burst, so they never trip this.
+const askEscapeWindow = 40 * time.Millisecond
+
 // AskOptions draws card and reads the answer through the UI's own line editor,
 // so typed characters are echoed and edited like any other prompt.
+//
+// ESC (or reaching the configured ASK_TIMEOUT_MS) returns the empty answer the
+// tool treats as option 1, which is why option 1 is documented as the
+// recommended one.
 //
 // The ESC monitor is paused first: while it runs it holds stdin in
 // non-canonical mode with echo disabled and consumes keystrokes, which is
@@ -55,9 +82,38 @@ func (u *PlainUI) AskOptions(card AskCard) (string, error) {
 		line, err := u.reader.ReadString('\n')
 		return strings.TrimSpace(line), err
 	}
-	// readInteractiveInput switches stdin to raw mode and repaints the prompt
-	// line as the user types, which is the echo the tool path lacked.
-	return u.readInteractiveInput(renderedPrompt)
+
+	input := &askInput{br: u.reader, fd: int(u.in.Fd()), deadline: u.askDeadline()}
+	line, err := u.readInteractiveInputFrom(input, renderedPrompt)
+	switch {
+	case errors.Is(err, errAskTimeout):
+		u.reportAskTimeout(card)
+		return "", nil
+	case errors.Is(err, errAskEscape):
+		return "", nil
+	}
+	return line, err
+}
+
+// askDeadline turns the configured ask timeout into an absolute deadline. A
+// zero time means "wait for the user", which is the default.
+func (u *PlainUI) askDeadline() time.Time {
+	if u.cfg == nil || u.cfg.Harness.AskTimeoutMS <= 0 {
+		return time.Time{}
+	}
+	return time.Now().Add(time.Duration(u.cfg.Harness.AskTimeoutMS) * time.Millisecond)
+}
+
+func (u *PlainUI) reportAskTimeout(card AskCard) {
+	label := ""
+	if len(card.Options) > 0 {
+		label = card.Options[0].Label
+	}
+	waited := time.Duration(u.cfg.Harness.AskTimeoutMS) * time.Millisecond
+	// The timeout can interrupt a half-typed answer, so start on a fresh line.
+	fmt.Fprintf(u.out, "\r\n  %s\n",
+		u.style.DimYellow(fmt.Sprintf("No answer after %s: using the default [1] %s.", waited.Round(time.Second), label)),
+	)
 }
 
 // pauseESCMonitor stops the double-ESC watcher and returns the interrupt it was
@@ -100,10 +156,15 @@ func (u *PlainUI) renderAskCardLocked(card AskCard) {
 
 	if card.Note == "" {
 		for i, opt := range card.Options {
-			b.WriteString(fmt.Sprintf("    %s %s\n",
-				u.style.BoldCyan("["+strconv.Itoa(i+1)+"]"),
-				u.style.BrightWhite(opt),
-			))
+			b.WriteString("    ")
+			b.WriteString(u.style.BoldCyan("[" + strconv.Itoa(i+1) + "]"))
+			b.WriteString(" ")
+			b.WriteString(u.style.BrightWhite(opt.Label))
+			if opt.Description != "" {
+				b.WriteString("  ")
+				b.WriteString(u.style.Dim(opt.Description))
+			}
+			b.WriteString("\n")
 		}
 	}
 	_, _ = io.WriteString(u.out, b.String())
@@ -115,4 +176,55 @@ func (u *PlainUI) askPromptLine(optionCount int) string {
 		return "  " + u.style.BoldCyan("▸") + " " + u.style.Dim(label)
 	}
 	return "  ▸ " + label
+}
+
+// askInput reads terminal bytes through the shared buffered reader while
+// honouring two ways out of a question: a lone ESC, and the configured
+// deadline. Both report "use the default" instead of blocking forever.
+type askInput struct {
+	br       *bufio.Reader
+	fd       int
+	deadline time.Time
+}
+
+func (a *askInput) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if a.br.Buffered() == 0 {
+		timeout := time.Duration(-1)
+		if !a.deadline.IsZero() {
+			remaining := time.Until(a.deadline)
+			if remaining <= 0 {
+				return 0, errAskTimeout
+			}
+			timeout = remaining
+		}
+		ready, err := waitReadable(a.fd, timeout)
+		if err != nil {
+			return 0, err
+		}
+		if !ready {
+			return 0, errAskTimeout
+		}
+	}
+
+	buf := p[:1]
+	if _, err := a.br.Read(buf); err != nil {
+		return 0, err
+	}
+	if buf[0] != 0x1b || a.br.Buffered() > 0 {
+		return 1, nil
+	}
+	// A bare ESC with nothing behind it is the user asking for the default.
+	// Anything else (arrows, Alt-Enter, paste markers) already has the rest of
+	// the sequence buffered by now.
+	ready, err := waitReadable(a.fd, askEscapeWindow)
+	if err != nil {
+		return 1, nil
+	}
+	if !ready {
+		return 0, errAskEscape
+	}
+	return 1, nil
 }

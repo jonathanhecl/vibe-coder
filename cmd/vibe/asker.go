@@ -16,9 +16,9 @@ import (
 type tuiAsker struct{ ui tui.OptionAsker }
 
 func (a tuiAsker) Ask(req tools.AskRequest) (string, error) {
-	opts := make([]string, len(req.Options))
+	opts := make([]tui.AskOption, len(req.Options))
 	for i, opt := range req.Options {
-		opts[i] = opt.Label
+		opts[i] = tui.AskOption{Label: opt.Label, Description: opt.Description}
 	}
 	return a.ui.AskOptions(tui.AskCard{
 		Title:   req.Title,

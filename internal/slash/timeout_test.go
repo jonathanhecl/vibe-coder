@@ -99,3 +99,30 @@ func TestSetTimeoutPersistsViaSave(t *testing.T) {
 		t.Fatalf("expected the setting in the config file, got %q", string(data))
 	}
 }
+
+func TestStatusShowsPermissionTimeout(t *testing.T) {
+	ctx, _, out := newContextTestCtx(t)
+
+	steps := []struct {
+		cmd  string
+		want string
+	}{
+		{"", "Permission timeout: 3m (default)"},
+		{"/settimeout 90s", "Permission timeout: 90s"},
+		{"/settimeout off", "Permission timeout: off (waits until answered)"},
+	}
+	for _, step := range steps {
+		if step.cmd != "" {
+			if _, _, err := Dispatch(ctx, step.cmd); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out.Reset()
+		if _, _, err := Dispatch(ctx, "/status"); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), step.want) {
+			t.Fatalf("%q: expected %q, got %q", step.cmd, step.want, out.String())
+		}
+	}
+}

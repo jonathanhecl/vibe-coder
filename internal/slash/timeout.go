@@ -24,9 +24,11 @@ func runSetTimeoutCommand(c *Ctx, args []string) error {
 		printTimeoutStatus(c)
 		return nil
 	}
-	raw := strings.TrimSpace(args[0])
+	raw := strings.TrimSpace(strings.Join(args, " "))
+	// A negative duration means "off" in the config file, but typed at the
+	// prompt it is almost always a typo, so the command rejects it.
 	parsed, ok := config.ParsePermissionTimeout(raw)
-	if !ok {
+	if !ok || strings.HasPrefix(raw, "-") {
 		fmt.Fprintf(c.Out, "Invalid permission timeout %q: expected 3m, 90s, seconds as a bare number (45), or off\n", raw)
 		return nil
 	}

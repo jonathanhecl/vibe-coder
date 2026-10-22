@@ -77,6 +77,13 @@ func (u *PlainUI) GetInput(prompt string) (input string, err error) {
 }
 
 func (u *PlainUI) readInteractiveInput(renderedPrompt string) (string, error) {
+	return u.readInteractiveInputFrom(u.reader, renderedPrompt)
+}
+
+// readInteractiveInputFrom is readInteractiveInput over an explicit reader, so
+// callers can wrap the shared reader (deadlines, ESC handling) without giving
+// stdin a second owner.
+func (u *PlainUI) readInteractiveInputFrom(reader io.Reader, renderedPrompt string) (string, error) {
 	fd := int(u.in.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -100,7 +107,7 @@ func (u *PlainUI) readInteractiveInput(renderedPrompt string) (string, error) {
 	}
 	// Read through the buffered reader so bytes that AskPermission left in the
 	// bufio buffer are not lost when we re-enter raw mode.
-	return readInteractiveInputStreamWithStyle(u.reader, u.out, u.style, u.history, renderedPrompt)
+	return readInteractiveInputStreamWithStyle(reader, u.out, u.style, u.history, renderedPrompt)
 }
 
 func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error) {

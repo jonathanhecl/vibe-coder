@@ -111,3 +111,59 @@ func TestLoadInvalidPermissionTimeoutFlag(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestSavePermissionTimeoutRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "localapp"))
+	t.Setenv("HOME", tmp)
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
+
+	cases := []struct {
+		in       time.Duration
+		wantLine string
+	}{
+		{90 * time.Second, "PERMISSION_TIMEOUT=90s"},
+		{3 * time.Minute, "PERMISSION_TIMEOUT=3m"},
+		{-1, "PERMISSION_TIMEOUT=off"},
+	}
+	for _, tc := range cases {
+		cfg := &Config{ConfigFile: cfgPath, PermissionTimeout: tc.in}
+		if err := SaveModelSettings(cfg); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), tc.wantLine) {
+			t.Fatalf("%s: expected %q in %q", tc.in, tc.wantLine, string(data))
+		}
+		t.Setenv("VIBE_CODER_CONFIG", cfgPath)
+		loaded, err := Load(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if loaded.PermissionTimeout != tc.in {
+			t.Fatalf("%s: reloaded as %s", tc.in, loaded.PermissionTimeout)
+		}
+	}
+}
+
+func TestSaveUnsetPermissionTimeoutWritesNoKey(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "localapp"))
+	t.Setenv("HOME", tmp)
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
+
+	cfg := &Config{ConfigFile: cfgPath}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "PERMISSION_TIMEOUT") {
+		t.Fatalf("unset timeout must not be written, got %q", string(data))
+	}
+}

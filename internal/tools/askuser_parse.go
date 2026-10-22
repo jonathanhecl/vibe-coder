@@ -7,8 +7,9 @@ import (
 )
 
 type askOption struct {
-	id    string
-	label string
+	id          string
+	label       string
+	description string
 }
 
 type askQuestion struct {
@@ -124,9 +125,13 @@ func normalizeOptions(optsRaw []any) ([]askOption, string) {
 			if oid == "" {
 				oid = strconv.Itoa(j + 1)
 			}
-			opts = append(opts, askOption{id: oid, label: label})
+			desc, _ := v["description"].(string)
+			if strings.TrimSpace(desc) == "" {
+				desc, _ = v["desc"].(string)
+			}
+			opts = append(opts, askOption{id: oid, label: label, description: strings.TrimSpace(desc)})
 		default:
-			return nil, fmt.Sprintf("options[%d] must be a string or {\"label\":\"...\"}", j)
+			return nil, fmt.Sprintf("options[%d] must be a string or {\"label\":\"...\",\"description\":\"...\"}", j)
 		}
 	}
 	if len(opts) == 0 {
