@@ -57,10 +57,12 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		// Create a checkpoint before mutating files so failed edits can be
 		// inspected or rolled back by the user outside the agent loop.
 		// The snapshot covers only the edited file; the working tree stays put.
+		// Checkpointing is best effort: an edit outside the repository, a path
+		// the snapshot refuses, or an unreadable file must never abort the run
+		// and cut the assistant mid-task.
 		logger.Infof("Creating checkpoint pre-edit")
 		if err := a.cp.Create("pre-edit", asString(toolParams["file_path"])); err != nil {
-			logger.Errorf("Failed to create checkpoint: %v", err)
-			return tools.Result{}, false, err
+			logger.Errorf("Skipping checkpoint for %s: %v", toolName, err)
 		}
 	}
 
@@ -75,7 +77,12 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 			checkpointErr = a.cp.Complete()
 		}
 		if checkpointErr != nil {
-			return result, true, fmt.Errorf("finish file checkpoint: %w", checkpointErr)
+			// The file was already written or the edit was already reported;
+			// failing the run now would only hide that outcome from the user.
+			logger.Errorf("Failed to finish file checkpoint for %s: %v", toolName, checkpointErr)
+			if err := a.cp.Discard(); err != nil {
+				logger.Errorf("Failed to discard unfinished checkpoint for %s: %v", toolName, err)
+			}
 		}
 	}
 	logger.Infof("Tool %s Execute completed. is_error=%t, output_len=%d", toolName, result.IsError, len(result.Output))

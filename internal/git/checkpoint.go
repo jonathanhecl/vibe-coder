@@ -37,7 +37,12 @@ func (c *Checkpoint) IsRepo() bool {
 
 func (c *Checkpoint) Create(label string, paths ...string) error {
 	if c.pending != nil {
-		return fmt.Errorf("previous checkpoint is still pending")
+		// A pending entry only becomes usable through Complete, so one left
+		// behind by an interrupted edit can never be finalized. Dropping it
+		// beats blocking every later checkpoint for the rest of the run.
+		if err := c.Discard(); err != nil {
+			return fmt.Errorf("discard abandoned checkpoint: %w", err)
+		}
 	}
 	if !c.IsRepo() {
 		return nil

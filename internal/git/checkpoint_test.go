@@ -171,6 +171,35 @@ func TestCheckpointRejectsUnsafeTargets(t *testing.T) {
 	}
 }
 
+func TestCheckpointReplacesAbandonedPending(t *testing.T) {
+	root, _ := checkpointRepo(t)
+	first := filepath.Join(root, "first.txt")
+	second := filepath.Join(root, "second.txt")
+	writeFixture(t, first, "original")
+	writeFixture(t, second, "original")
+	cp := NewCheckpoint(root)
+	if err := cp.Create("interrupted", first); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, first, "edited, never completed")
+	if err := cp.Create("edit", second); err != nil {
+		t.Fatalf("abandoned pending blocked the next checkpoint: %v", err)
+	}
+	writeFixture(t, second, "edited")
+	if err := cp.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewCheckpoint(root).Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, second); got != "original" {
+		t.Fatalf("rollback restored %q, want %q", got, "original")
+	}
+	if err := NewCheckpoint(root).Rollback(); !errors.Is(err, ErrNoCheckpoint) {
+		t.Fatalf("abandoned pending was recorded as undoable: %v", err)
+	}
+}
+
 func TestCheckpointPreservesExistingStashes(t *testing.T) {
 	root, run := checkpointRepo(t)
 	path := filepath.Join(root, "file.txt")
