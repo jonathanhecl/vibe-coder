@@ -198,31 +198,36 @@ func (u *PlainUI) renderAskCardLocked(card AskCard) {
 // something that surprises them.
 func (u *PlainUI) askPromptLine(optionCount int, remaining time.Duration) string {
 	label := fmt.Sprintf("Select option (1-%d) [default: 1]", optionCount)
-	countdown := ""
+	badge := ""
 	if remaining > 0 {
-		countdown = askCountdown(remaining)
+		badge = askCountdown(remaining) + "  "
 	}
 	if u.style.Enabled() {
-		line := "  " + u.style.BoldCyan("▸") + " " + u.style.Dim(label)
-		if countdown != "" {
-			line += u.style.DimYellow(countdown)
+		line := "  " + u.style.BoldCyan("▸") + " "
+		if badge != "" {
+			line += u.style.DimYellow(badge)
 		}
-		return line + ": "
+		return line + u.style.Dim(label) + ": "
 	}
-	return "  ▸ " + label + countdown + ": "
+	return "  ▸ " + badge + label + ": "
 }
 
 // askCountdown is the visible side of the timeout: the prompt counts down, so
-// taking the default is something the user watched happen instead of a surprise.
-// It uses the same m:ss shape as the permission countdown because the budget is
-// the same one, and "auto in 180s" reads like a bug where "auto in 3:00" reads
-// like a clock.
+// taking the default is something the user watched rather than a surprise.
+//
+// It sits before the instruction instead of after it: a fixed column means the
+// prompt never shifts while counting, and the clock reads as a badge rather than
+// as the last word of a sentence. The glyph is the one the permission countdown
+// uses, because both prompts spend the same budget, so the user only has to
+// learn one clock. m:ss, not raw seconds: at minute scale "auto in 180s" reads
+// like a bug.
 func askCountdown(remaining time.Duration) string {
 	secs := ceilSeconds(remaining)
 	if secs < 1 {
 		secs = 1
 	}
-	return fmt.Sprintf(" · auto in %d:%02d", secs/60, secs%60)
+	return fmt.Sprintf("⏳ %d:%02d", secs/60, secs%60)
+}
 }
 
 // askInput reads terminal bytes through the shared buffered reader while

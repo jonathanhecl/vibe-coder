@@ -100,6 +100,34 @@ func TestLoadPermissionTimeoutOffDisablesCountdown(t *testing.T) {
 	}
 }
 
+// The budget is not about permissions only: every prompt that waits on the
+// user shares it, so the generic name wins and the old one keeps working.
+func TestLoadUserTimeoutEnvName(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "localapp"))
+	t.Setenv("VIBE_CODER_CONFIG", filepath.Join(tmp, "missing.env"))
+
+	t.Setenv("VIBE_USER_TIMEOUT", "45s")
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cfg.EffectivePermissionTimeout(); d != 45*time.Second {
+		t.Fatalf("VIBE_USER_TIMEOUT: got %v want 45s", d)
+	}
+
+	// New name wins when both are set, so migrating does not need the old one
+	// removed in the same breath.
+	t.Setenv("VIBE_CODER_PERMISSION_TIMEOUT", "2m")
+	cfg, err = Load(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cfg.EffectivePermissionTimeout(); d != 45*time.Second {
+		t.Fatalf("new name must win: got %v want 45s", d)
+	}
+}
+
 func TestLoadInvalidPermissionTimeoutFlag(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("LOCALAPPDATA", filepath.Join(tmp, "localapp"))

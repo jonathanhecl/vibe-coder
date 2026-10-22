@@ -189,11 +189,14 @@ func TestAskPromptLineShowsCountdown(t *testing.T) {
 
 	ui := &PlainUI{style: Style{}}
 	line := ui.askPromptLine(2, 4200*time.Millisecond)
-	if !strings.Contains(line, "auto in 0:05") {
+	if !strings.Contains(line, "⏳ 0:05") {
 		t.Fatalf("prompt must show the countdown as m:ss: %q", line)
 	}
 	if !strings.Contains(line, "Select option (1-2) [default: 1]") {
 		t.Fatalf("prompt lost its label: %q", line)
+	}
+	if strings.Index(line, "⏳ 0:05") > strings.Index(line, "Select option") {
+		t.Fatalf("the countdown is a badge: it must precede the instruction: %q", line)
 	}
 }
 
@@ -201,7 +204,7 @@ func TestAskPromptLineShowsNoCountdownWithoutDeadline(t *testing.T) {
 	t.Parallel()
 
 	ui := &PlainUI{style: Style{}}
-	if line := ui.askPromptLine(2, 0); strings.Contains(line, "auto in") {
+	if line := ui.askPromptLine(2, 0); strings.Contains(line, "⏳") {
 		t.Fatalf("no deadline means no countdown: %q", line)
 	}
 }
@@ -226,11 +229,11 @@ func TestLineEditorRefreshPromptRepaintsCountdown(t *testing.T) {
 	t.Parallel()
 
 	var out strings.Builder
-	e := newLineEditor(&out, Style{}, nil, "  auto in 5s: ")
-	e.promptFn = func() string { return "  auto in 4s: " }
+	e := newLineEditor(&out, Style{}, nil, "  ▸ ⏳ 0:05  Select option (1-2) [default: 1]: ")
+	e.promptFn = func() string { return "  ▸ ⏳ 0:04  Select option (1-2) [default: 1]: " }
 	e.refreshPrompt()
 
-	if !strings.Contains(out.String(), "auto in 4s: ") {
+	if !strings.Contains(out.String(), "⏳ 0:04") {
 		t.Fatalf("prompt repaint missing the new countdown:\n%q", out.String())
 	}
 

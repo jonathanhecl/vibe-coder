@@ -616,7 +616,7 @@ Harness tunables (defaults < config file < env):
 
 Interactive prompts share one budget. An `AskUserQuestion` card and a permission prompt both wait on the same human, so `VIBE_USER_TIMEOUT` (alias `VIBE_CODER_PERMISSION_TIMEOUT`), `PERMISSION_TIMEOUT` and `--permission-timeout` (default `3m`, `off` waits forever) bound both:
 
-- an `AskUserQuestion` card takes its default option when the budget runs out, and the answer line counts the wait down (`· auto in 5s`); the clock only appears when both ends are terminals, because where it cannot be shown waiting beats taking a default nobody saw coming
+- an `AskUserQuestion` card takes its default option when the budget runs out, and the answer line counts the wait down in a leading `⏳ 2:43` badge (`▸ ⏳ 2:43  Select option (1-3) [default: 1]:`), so the instruction never shifts while the clock runs; the clock only appears when both ends are terminals, because where it cannot be shown waiting beats taking a default nobody saw coming
 - ESC at the card also takes the default, and the default is always option 1: the tool tells the model to list its recommended option first, and an option marked `{"recommended":true}` is moved to position 1 before the card is drawn, so a model that flags the best answer without reordering it still gets it as the default
 - a permission prompt denies the action on the same deadline, with the same countdown
 
