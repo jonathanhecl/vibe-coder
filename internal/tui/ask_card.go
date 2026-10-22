@@ -134,8 +134,10 @@ func (u *PlainUI) reportAskTimeout(card AskCard) {
 		waited = u.cfg.EffectivePermissionTimeout()
 	}
 	// The timeout can interrupt a half-typed answer, so start on a fresh line.
+	// The wording matches the permission card: both prompts spend the same budget
+	// and announce the same way what they did with it.
 	fmt.Fprintf(u.out, "\r\n  %s\n",
-		u.style.DimYellow(fmt.Sprintf("No answer after %s: using the default [1] %s.", waited.Round(time.Second), label)),
+		u.style.DimYellow(fmt.Sprintf("⏳ no answer after %s — using the default [1] %s.", formatBadgeWait(waited), label)),
 	)
 }
 
@@ -197,37 +199,56 @@ func (u *PlainUI) renderAskCardLocked(card AskCard) {
 // live countdown, so the timeout is something the user watches instead of
 // something that surprises them.
 func (u *PlainUI) askPromptLine(optionCount int, remaining time.Duration) string {
-	label := fmt.Sprintf("Select option (1-%d) [default: 1]", optionCount)
-	badge := ""
-	if remaining > 0 {
-		badge = askCountdown(remaining) + "  "
-	}
-	if u.style.Enabled() {
-		line := "  " + u.style.BoldCyan("▸") + " "
-		if badge != "" {
-			line += u.style.DimYellow(badge)
-		}
-		return line + u.style.Dim(label) + ": "
-	}
-	return "  ▸ " + badge + label + ": "
+	return optionPromptLine(u.style, askBadge(remaining), fmt.Sprintf("Select option (1-%d) [default: 1]", optionCount))
 }
 
-// askCountdown is the visible side of the timeout: the prompt counts down, so
-// taking the default is something the user watched rather than a surprise.
+// optionPromptLine is the input line every interactive card ends with: a caret,
+// an optional countdown badge, the instruction and the colon the cursor sits
+// after. The question card and the permission card share it so the two prompts
+// read as one interface instead of two, and so a change to the shape happens in
+// one place.
 //
-// It sits before the instruction instead of after it: a fixed column means the
-// prompt never shifts while counting, and the clock reads as a badge rather than
-// as the last word of a sentence. The glyph is the one the permission countdown
-// uses, because both prompts spend the same budget, so the user only has to
-// learn one clock. m:ss, not raw seconds: at minute scale "auto in 180s" reads
-// like a bug.
-func askCountdown(remaining time.Duration) string {
+// The badge comes before the instruction: a fixed column means the line never
+// shifts while the clock runs, and the clock reads as a badge rather than as the
+// last word of a sentence.
+func optionPromptLine(st Style, badge, instruction string) string {
+	if !st.Enabled() {
+		if badge == "" {
+			return "  ▸ " + instruction + ": "
+		}
+		return "  ▸ " + badge + "  " + instruction + ": "
+	}
+	line := "  " + st.BoldCyan("▸") + " "
+	if badge != "" {
+		line += st.DimYellow(badge) + "  "
+	}
+	return line + st.Dim(instruction) + ": "
+}
+
+// askBadge is the visible side of the user-action timeout: the prompt counts
+// down, so the deadline is something the user watched rather than a surprise.
+// An empty string means there is no clock to show.
+//
+// m:ss, not raw seconds: at minute scale "180s" reads like a bug while "3:00"
+// reads like a clock. Both cards spend the same budget, so both use this badge
+// and the user only has to learn one clock.
+func askBadge(remaining time.Duration) string {
+	if remaining <= 0 {
+		return ""
+	}
 	secs := ceilSeconds(remaining)
 	if secs < 1 {
 		secs = 1
 	}
-	return fmt.Sprintf("⏳ %d:%02d", secs/60, secs%60)
+	return "⏳ " + formatBadgeWait(time.Duration(secs)*time.Second)
 }
+
+// formatBadgeWait renders a wait the way the badge does (m:ss) without the
+// glyph, for sentences that talk about a wait that already happened. Seconds are
+// rounded up so a fresh 3-minute prompt reads 3:00 and never 2:59.
+func formatBadgeWait(d time.Duration) string {
+	secs := ceilSeconds(d)
+	return fmt.Sprintf("%d:%02d", secs/60, secs%60)
 }
 
 // askInput reads terminal bytes through the shared buffered reader while

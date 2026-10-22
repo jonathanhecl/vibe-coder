@@ -5,26 +5,27 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestCountdownText(t *testing.T) {
+func TestAskBadge(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		in   time.Duration
 		want string
 	}{
-		{3 * time.Minute, "⏳ auto-deny in 3:00"},
-		{90 * time.Second, "⏳ auto-deny in 1:30"},
-		{9 * time.Second, "⏳ auto-deny in 0:09"},
-		{500 * time.Millisecond, "⏳ auto-deny in 0:01"},
-		{0, "⏳ auto-deny in 0:00"},
-		{-time.Second, "⏳ auto-deny in 0:00"},
+		{3 * time.Minute, "⏳ 3:00"},
+		{90 * time.Second, "⏳ 1:30"},
+		{9 * time.Second, "⏳ 0:09"},
+		{500 * time.Millisecond, "⏳ 0:01"},
+		{0, ""},
+		{-time.Second, ""},
 	}
 	for _, tc := range cases {
-		if got := countdownText(tc.in); got != tc.want {
-			t.Errorf("countdownText(%v) = %q, want %q", tc.in, got, tc.want)
+		if got := askBadge(tc.in); got != tc.want {
+			t.Errorf("askBadge(%v) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -155,9 +156,34 @@ func TestRepaintPermissionLineKeepsTheCaret(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
 	ui := &PlainUI{out: &out, style: NewStyle(nil)}
-	ui.repaintPermissionLine("⏳ auto-deny in 3:00")
-	want := "\r\x1b[K  ▸ ⏳ auto-deny in 3:00"
+	ui.repaintPermissionLine(3 * time.Minute)
+	want := "\r\x1b[K" + optionPromptLine(ui.style, "⏳ 3:00", permissionInstruction)
 	if got := out.String(); got != want {
 		t.Fatalf("repaint = %q, want %q", got, want)
+	}
+	got := out.String()
+	if !strings.Contains(got, permissionInstruction) {
+		t.Fatalf("repaint dropped the instruction: %q", got)
+	}
+	if strings.Index(got, "⏳ 3:00") > strings.Index(got, permissionInstruction) {
+		t.Fatalf("the badge must precede the instruction: %q", got)
+	}
+}
+
+// TestPermissionPromptMatchesTheQuestionCard pins the shared shape: same heading
+// marker, same option rows, same input line. Two prompts that spend the same
+// timeout should not look like two different programs.
+func TestPermissionPromptMatchesTheQuestionCard(t *testing.T) {
+	t.Parallel()
+	got := buildPermissionPrompt(Style{}, permissionPayloadLines("Bash", map[string]any{
+		"command": "rm -rf build",
+	}))
+	for _, want := range []string{"  ? PERMISSION REQUIRED", "    [1] Allow once", "    [7] Cancel", optionPromptLine(Style{}, "", permissionInstruction)} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in the permission card:\n%s", want, got)
+		}
+	}
+	if strings.HasSuffix(got, "\n") {
+		t.Fatalf("the card must end on its input line, not a newline:\n%q", got)
 	}
 }

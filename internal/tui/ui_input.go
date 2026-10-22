@@ -285,12 +285,12 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	if timeout > 0 && u.countdownAvailable() {
 		key, timedOut := u.readPermissionKeyCountdown(timeout)
 		if timedOut {
-			u.repaintPermissionLine(u.style.BoldYellow("⏳ no answer — permission denied"))
+			u.rewriteInputLine(u.style.BoldYellow(fmt.Sprintf("⏳ no answer after %s — permission denied", formatBadgeWait(timeout))))
 			fmt.Fprint(u.out, "\n")
 			return DecisionTimeout
 		}
 		if key != 0 {
-			u.repaintPermissionLine("")
+			u.repaintPermissionLine(0)
 			fmt.Fprintf(u.out, "%c\n", key)
 			return permissionDecision(strings.ToLower(string(key)))
 		}
@@ -352,9 +352,9 @@ func (u *PlainUI) countdownAvailable() bool {
 // read in raw mode and the caller should fall back to a line read.
 func (u *PlainUI) readPermissionKeyCountdown(timeout time.Duration) (byte, bool) {
 	deadline := time.Now().Add(timeout)
-	u.repaintPermissionLine(u.style.Dim(countdownText(timeout)))
+	u.repaintPermissionLine(timeout)
 	key, err := u.readKeyUntil(deadline, func(remaining time.Duration) error {
-		u.repaintPermissionLine(u.style.Dim(countdownText(remaining)))
+		u.repaintPermissionLine(remaining)
 		return nil
 	})
 	if errors.Is(err, errPromptTimeout) {
@@ -388,24 +388,18 @@ func (u *PlainUI) readKeyUntil(deadline time.Time, tick func(time.Duration) erro
 	return ch, nil
 }
 
-// repaintPermissionLine rewrites the line the prompt left the cursor on, keeping
-// the "▸ " caret so the prompt still reads as a single input line. Clearing to
-// the end of the line removes whatever the previous repaint left behind.
-func (u *PlainUI) repaintPermissionLine(text string) {
-	caret := u.style.Dim("  ▸ ")
-	if text == "" {
-		fmt.Fprintf(u.out, "\r\x1b[K%s", caret)
-		return
-	}
-	fmt.Fprintf(u.out, "\r\x1b[K%s%s", caret, text)
+// repaintPermissionLine rewrites the card's input line in place, keeping the
+// caret, the countdown badge and the instruction the user is answering. The
+// repaint is the same line optionPromptLine draws, so the card never changes
+// shape when the clock starts.
+func (u *PlainUI) repaintPermissionLine(remaining time.Duration) {
+	fmt.Fprintf(u.out, "\r\x1b[K%s", optionPromptLine(u.style, askBadge(remaining), permissionInstruction))
 }
 
-// countdownText renders the time left before the action is denied. Seconds are
-// rounded up so a fresh 3-minute prompt reads 3:00 and never shows 0:00 while
-// time is still left.
-func countdownText(remaining time.Duration) string {
-	secs := ceilSeconds(remaining)
-	return fmt.Sprintf("⏳ auto-deny in %d:%02d", secs/60, secs%60)
+// rewriteInputLine replaces the card's input line with text, for the states that
+// end it: the denial that follows a timeout, or the prompt without a clock.
+func (u *PlainUI) rewriteInputLine(text string) {
+	fmt.Fprintf(u.out, "\r\x1b[K%s", text)
 }
 
 // ceilSeconds rounds a wait up to whole seconds. Both countdowns share it so
@@ -469,26 +463,29 @@ func (u *PlainUI) drainTrailingNewline() {
 
 func buildPermissionPrompt(st Style, payload []string) string {
 	// Rendering is separate from stdin reads so permission copy stays testable.
+	// The shape follows the AskUserQuestion card: a "?" heading, the payload
+	// indented like a question's prompt, one [n] row per answer with its
+	// description beside it, and the same input line at the end. Two prompts that
+	// wait on the same human should not look like two different programs.
 	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(st.BoldYellow("  ? "))
+	b.WriteString(st.Bold("PERMISSION REQUIRED"))
 	b.WriteString("\n")
 	for _, raw := range payload {
 		line := fitGateLine(raw, permissionDisplayMaxRunes)
-		b.WriteString(st.Dim("  "))
+		b.WriteString(st.Dim("    "))
 		writePermissionPayloadLine(&b, st, line)
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString(st.Dim("  "))
-	b.WriteString(st.BoldBrightGreen("PERMISSION REQUIRED"))
-	b.WriteString(st.Dim(" — choose an option:\n"))
-
 	writePermissionOption := func(n string, label, desc string, color func(string) string) {
 		b.WriteString(st.Dim("    "))
-		b.WriteString(st.BoldBrightGreen("[" + n + "] "))
+		b.WriteString(st.BoldYellow("[" + n + "] "))
 		b.WriteString(color(label))
 		if desc != "" {
-			b.WriteString(st.Dim(" — " + desc))
+			b.WriteString(st.Dim("  " + desc))
 		}
 		b.WriteString("\n")
 	}
@@ -501,10 +498,15 @@ func buildPermissionPrompt(st Style, payload []string) string {
 	writePermissionOption("6", "Always deny", "save block", st.BoldRed)
 	writePermissionOption("7", "Cancel", "abort this run", st.Magenta)
 	b.WriteString("\n")
-	b.WriteString(st.Dim("  Press a number 1–7; Enter is not required.\n"))
-	b.WriteString(st.BoldBrightGreen("  ▸ "))
+	b.WriteString(optionPromptLine(st, "", permissionInstruction))
 	return b.String()
 }
+
+// permissionInstruction is the instruction on the permission card's input line.
+// The default is spelled out because a timeout denies: that is the opposite of
+// the question card, whose default is option 1, and a prompt that hides the
+// difference is a prompt that surprises someone.
+const permissionInstruction = "Select option (1-7) [default: deny]"
 
 func writePermissionPayloadLine(b *strings.Builder, st Style, line string) {
 	switch {

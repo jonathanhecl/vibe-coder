@@ -71,8 +71,8 @@ func TestPermissionPromptExplainsSelector(t *testing.T) {
 	if strings.Contains(got, ";; stdin") {
 		t.Fatalf("permission prompt should not expose the legacy ;; marker:\n%s", got)
 	}
-	if !strings.Contains(got, "Enter is not required") {
-		t.Fatalf("permission prompt should explain single-key input:\n%s", got)
+	if !strings.Contains(got, permissionInstruction) {
+		t.Fatalf("permission prompt should explain the selector:\n%s", got)
 	}
 }
 
