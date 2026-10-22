@@ -10,9 +10,29 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
-func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName string, toolParams map[string]any, mode toolExecutionMode) (tools.Result, bool, error) {
+// toolOutcome reports what happened to a tool call so the run loop can decide
+// whether the turn continues. A refusal from the user is not the end of the
+// run: only Cancel stops the agent and hands control back to the prompt.
+type toolOutcome int
+
+const (
+	// toolRan means the tool executed and its result is in the session.
+	toolRan toolOutcome = iota
+	// toolBlocked means agent policy (plan or review mode) kept the tool from
+	// running before the user was ever asked.
+	toolBlocked
+	// toolDenied means the user refused this one action. The refusal is
+	// recorded for the model, which must adapt and keep working without it.
+	toolDenied
+	// toolCancelled means the user chose Cancel: abort the run now.
+	toolCancelled
+)
+
+func (o toolOutcome) ran() bool { return o == toolRan }
+
+func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName string, toolParams map[string]any, mode toolExecutionMode) (tools.Result, toolOutcome, error) {
 	if err := ctx.Err(); err != nil {
-		return tools.Result{}, false, err
+		return tools.Result{}, toolBlocked, err
 	}
 	toolName = tool.Name()
 	logger.Infof("Tool execution request: tool=%s, params=%+v", toolName, toolParams)
@@ -27,7 +47,7 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 				a.sess.AddSystemNote(blockMsg)
 			}
 		}
-		return tools.Result{Output: blockMsg, IsError: true}, false, nil
+		return tools.Result{Output: blockMsg, IsError: true}, toolBlocked, nil
 	}
 	// While a mission is active the run is unattended: auto-approve Ask/Network
 	// tools so it never blocks on a prompt. Dangerous commands are still denied.
@@ -36,7 +56,15 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	}
 	if !a.perm.Check(toolName, toolParams, a.ui) {
 		deny := permissionDeniedNote(a.perm)
-		logger.Errorf("Tool %s execution denied by permissions", toolName)
+		outcome := toolDenied
+		if a.perm.WasCancelled() {
+			// Cancel is the only choice that aborts the run: the user asked for
+			// the agent to stop, not to work around a single refusal.
+			outcome = toolCancelled
+		} else {
+			deny += "\n" + permissionDenialGuidance
+		}
+		logger.Errorf("Tool %s execution denied by permissions (outcome=%d)", toolName, outcome)
 		if mode.showPermissionDeniedResult {
 			a.ui.ShowToolResult(toolName, deny, true, toolParams)
 		}
@@ -47,10 +75,10 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 				a.sess.AddSystemNote(deny)
 			}
 		}
-		if mode.endAssistantOnDenied {
+		if outcome == toolCancelled && mode.endAssistantOnCancel {
 			a.ui.EndAssistant(a.turnUsage())
 		}
-		return tools.Result{Output: deny, IsError: true}, false, nil
+		return tools.Result{Output: deny, IsError: true}, outcome, nil
 	}
 
 	if toolName == "Write" || toolName == "Edit" {
@@ -167,9 +195,9 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		}
 	}
 	if _, loop := a.noProgress.observe(toolCallSignature(toolName, toolParams), toolOutputSignature(result)); loop {
-		return result, true, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
+		return result, toolRan, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
 	}
-	return result, true, nil
+	return result, toolRan, nil
 }
 func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map[string]any) {
 	key := pathParamKeyForTool(toolName)

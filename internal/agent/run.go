@@ -13,7 +13,9 @@ type toolExecutionMode struct {
 	// The inferred-tool and XML-fallback paths historically surfaced denial
 	// differently. Keep that UI detail explicit while sharing execution logic.
 	showPermissionDeniedResult bool
-	endAssistantOnDenied       bool
+	// endAssistantOnCancel closes the assistant block when the user cancels a
+	// run that never streamed an assistant message of its own.
+	endAssistantOnCancel bool
 	// structured marks native tool-call turns: their results persist as
 	// role "tool" messages instead of the XML-fallback user envelope.
 	structured bool
@@ -73,11 +75,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if tool == nil {
 				return fmt.Errorf("tool not found: %s", toolName)
 			}
-			if _, executed, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
-				endAssistantOnDenied: true,
+			if _, outcome, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
+				endAssistantOnCancel: true,
 			}); err != nil {
 				return err
-			} else if !executed {
+			} else if outcome == toolBlocked || outcome == toolCancelled {
 				return nil
 			}
 			a.persistMissionProgress()
@@ -142,7 +144,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 						a.sess.AddToolResult(c.Name, msg)
 						continue
 					}
-					_, executed, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
+					_, outcome, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
 						showPermissionDeniedResult: true,
 						structured:                 true,
 						auxiliaryNotes:             &auxNotes,
@@ -154,10 +156,19 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 						}
 						break
 					}
-					if !executed {
+					if outcome == toolCancelled || outcome == toolBlocked {
+						// Cancel ends the run; a policy block ends the turn. A plain
+						// denial does neither: that one call is recorded as refused
+						// and the batch keeps going, so the model still has its
+						// results to work with.
 						batchHalted = true
+						cancelled := outcome == toolCancelled
 						for j := i + 1; j < len(nativeCalls); j++ {
-							a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch was denied or blocked.")
+							if cancelled {
+								a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: the user cancelled this run.")
+								continue
+							}
+							a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch was blocked by policy.")
 						}
 						break
 					}
@@ -210,13 +221,13 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			a.sess.AddAssistant(reply)
 			for _, c := range calls {
 				tool := a.reg.Get(c.Name)
-				_, executed, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
+				_, outcome, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
 					showPermissionDeniedResult: true,
 				})
 				if err != nil {
 					return err
 				}
-				if !executed {
+				if outcome == toolBlocked || outcome == toolCancelled {
 					return nil
 				}
 				a.persistMissionProgress()

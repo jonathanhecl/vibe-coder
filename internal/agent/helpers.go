@@ -76,6 +76,11 @@ func permissionDeniedNote(m *permissions.Manager) string {
 	}
 	return "Permission denied."
 }
+
+// permissionDenialGuidance rides along with a denial so the model understands
+// that the user said no to this action and that the task is still open. Without
+// it local models tend to retry the same call until the iteration cap.
+const permissionDenialGuidance = "The user rejected this action. Do not retry it as-is: continue the task by another route, ask for what you need, or finish and tell the user what was skipped."
 func shortModelName(name string) string {
 	name = strings.TrimSpace(name)
 	if i := strings.LastIndex(name, "/"); i >= 0 && i+1 < len(name) {

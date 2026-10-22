@@ -33,9 +33,9 @@ func TestRestrictedModesDenyUnknownEffects(t *testing.T) {
 					ag.EnterReviewMode()
 				}
 				probe := &policyProbe{name: name}
-				_, executed, err := ag.executeTool(context.Background(), probe, name, map[string]any{}, toolExecutionMode{})
-				if err != nil || executed || probe.called {
-					t.Fatalf("restricted tool executed: executed=%t called=%t err=%v", executed, probe.called, err)
+				_, outcome, err := ag.executeTool(context.Background(), probe, name, map[string]any{}, toolExecutionMode{})
+				if err != nil || outcome.ran() || probe.called {
+					t.Fatalf("restricted tool executed: outcome=%v called=%t err=%v", outcome, probe.called, err)
 				}
 			})
 		}
@@ -57,21 +57,21 @@ func TestRestrictedModesCheckBuiltins(t *testing.T) {
 			}
 			for _, name := range []string{"Write", "Edit", "NotebookEdit", "Bash", "InteractiveBash", "SendInput", "TerminateSession", "GitUndo"} {
 				tool := ag.reg.Get(name)
-				_, executed, err := ag.executeTool(context.Background(), tool, name, map[string]any{"file_path": path, "contents": "changed", "old_string": "original", "new_string": "changed", "command": "echo unexpected"}, toolExecutionMode{})
-				if err != nil || executed {
-					t.Fatalf("%s allowed in %s: executed=%t err=%v", name, mode, executed, err)
+				_, outcome, err := ag.executeTool(context.Background(), tool, name, map[string]any{"file_path": path, "contents": "changed", "old_string": "original", "new_string": "changed", "command": "echo unexpected"}, toolExecutionMode{})
+				if err != nil || outcome.ran() {
+					t.Fatalf("%s allowed in %s: outcome=%v err=%v", name, mode, outcome, err)
 				}
 			}
 			read := ag.reg.Get("Read")
-			result, executed, err := ag.executeTool(context.Background(), read, read.Name(), map[string]any{"file_path": path}, toolExecutionMode{})
-			if err != nil || !executed || result.IsError {
+			result, outcome, err := ag.executeTool(context.Background(), read, read.Name(), map[string]any{"file_path": path}, toolExecutionMode{})
+			if err != nil || !outcome.ran() || result.IsError {
 				t.Fatalf("read was blocked: %+v, %v", result, err)
 			}
 			plan := filepath.Join(ag.cfg.Cwd, ".vibe-coder", "plans", "proposal.md")
 			write := ag.reg.Get("Write")
-			result, executed, err = ag.executeTool(context.Background(), write, write.Name(), map[string]any{"file_path": plan, "contents": "plan"}, toolExecutionMode{})
-			if err != nil || executed != (mode == "plan") {
-				t.Fatalf("plan write policy mismatch: executed=%t err=%v", executed, err)
+			result, outcome, err = ag.executeTool(context.Background(), write, write.Name(), map[string]any{"file_path": plan, "contents": "plan"}, toolExecutionMode{})
+			if err != nil || outcome.ran() != (mode == "plan") {
+				t.Fatalf("plan write policy mismatch: outcome=%v err=%v", outcome, err)
 			}
 			if mode == "plan" && result.IsError {
 				t.Fatalf("plan write failed: %+v", result)

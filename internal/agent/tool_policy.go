@@ -35,15 +35,19 @@ func (a *Agent) executeDelegatedTool(ctx context.Context, requested tools.Tool, 
 	if tool == nil {
 		return tools.Result{}, fmt.Errorf("delegated tool is unavailable: %s", requested.Name())
 	}
-	result, executed, err := a.executeTool(ctx, tool, tool.Name(), params, toolExecutionMode{
+	result, outcome, err := a.executeTool(ctx, tool, tool.Name(), params, toolExecutionMode{
 		showPermissionDeniedResult: true,
 		skipSessionRecord:          true,
 	})
 	if err != nil {
 		return result, err
 	}
-	if !executed {
-		return result, fmt.Errorf("delegated tool blocked: %s", result.Output)
+	if outcome != toolRan {
+		verb := "blocked"
+		if outcome == toolDenied {
+			verb = "denied by the user"
+		}
+		return result, fmt.Errorf("delegated tool %s: %s", verb, result.Output)
 	}
 	return result, nil
 }

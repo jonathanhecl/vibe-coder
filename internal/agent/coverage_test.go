@@ -271,11 +271,18 @@ func TestRunInferredToolMissingAndXMLWriteBlockedInPlan(t *testing.T) {
 }
 
 func TestRunXMLPermissionDeniedAndParallelAgentsPath(t *testing.T) {
-	// XML permission denied branch.
-	c1 := &coverageClient{reply: `<invoke name="Write">{"file_path":"C:/tmp/a.txt","contents":"x"}</invoke>`}
+	// A denied XML tool refuses that action only: the turn continues to the
+	// next model reply instead of returning control to the user.
+	c1 := &sequenceClient{replies: []string{
+		`<invoke name="Write">{"file_path":"C:/tmp/a.txt","contents":"x"}</invoke>`,
+		"done",
+	}}
 	ag1 := newCoverageAgent(t, c1, tui.DecisionDeny, false)
 	if err := ag1.Run(context.Background(), "chat"); err != nil {
 		t.Fatalf("run with denied xml tool should not error: %v", err)
+	}
+	if c1.calls != 2 {
+		t.Fatalf("denied xml tool ended the run: model turns=%d, want 2", c1.calls)
 	}
 
 	// ParallelAgents branch with registered tool.

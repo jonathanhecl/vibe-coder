@@ -24,15 +24,15 @@ func TestEditOutsideRepositorySkipsCheckpointWithoutAborting(t *testing.T) {
 	}
 	outside := filepath.Join(t.TempDir(), "outside.txt")
 	tool := ag.reg.Get("Write")
-	result, executed, err := ag.executeTool(context.Background(), tool, tool.Name(), map[string]any{
+	result, outcome, err := ag.executeTool(context.Background(), tool, tool.Name(), map[string]any{
 		"file_path": outside,
 		"contents":  "written",
 	}, toolExecutionMode{})
 	if err != nil {
 		t.Fatalf("checkpoint aborted the edit: %v", err)
 	}
-	if !executed || result.IsError {
-		t.Fatalf("write did not run: %+v, executed=%t", result, executed)
+	if !outcome.ran() || result.IsError {
+		t.Fatalf("write did not run: %+v, outcome=%v", result, outcome)
 	}
 	data, readErr := os.ReadFile(outside)
 	if readErr != nil || string(data) != "written" {
