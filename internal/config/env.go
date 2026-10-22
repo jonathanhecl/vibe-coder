@@ -195,7 +195,10 @@ func applyEnv(cfg *Config) {
 			cfg.ChatTimeout = parsed
 		}
 	}
-	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_PERMISSION_TIMEOUT")); v != "" {
+	if v := strings.TrimSpace(envFirstNonEmpty("VIBE_USER_TIMEOUT", "VIBE_CODER_PERMISSION_TIMEOUT")); v != "" {
+		// VIBE_USER_TIMEOUT is the name: the budget covers every prompt that
+		// waits on the user, not just permissions. The old name still works so
+		// an existing shell or env file does not silently lose its setting.
 		if parsed, ok := ParsePermissionTimeout(v); ok {
 			cfg.PermissionTimeout = parsed
 		}

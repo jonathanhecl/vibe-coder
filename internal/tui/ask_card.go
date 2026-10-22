@@ -214,12 +214,15 @@ func (u *PlainUI) askPromptLine(optionCount int, remaining time.Duration) string
 
 // askCountdown is the visible side of the timeout: the prompt counts down, so
 // taking the default is something the user watched happen instead of a surprise.
+// It uses the same m:ss shape as the permission countdown because the budget is
+// the same one, and "auto in 180s" reads like a bug where "auto in 3:00" reads
+// like a clock.
 func askCountdown(remaining time.Duration) string {
 	secs := ceilSeconds(remaining)
 	if secs < 1 {
 		secs = 1
 	}
-	return fmt.Sprintf(" · auto in %ds", secs)
+	return fmt.Sprintf(" · auto in %d:%02d", secs/60, secs%60)
 }
 
 // askInput reads terminal bytes through the shared buffered reader while

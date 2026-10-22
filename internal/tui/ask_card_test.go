@@ -189,8 +189,8 @@ func TestAskPromptLineShowsCountdown(t *testing.T) {
 
 	ui := &PlainUI{style: Style{}}
 	line := ui.askPromptLine(2, 4200*time.Millisecond)
-	if !strings.Contains(line, "auto in 5s") {
-		t.Fatalf("prompt must show the countdown: %q", line)
+	if !strings.Contains(line, "auto in 0:05") {
+		t.Fatalf("prompt must show the countdown as m:ss: %q", line)
 	}
 	if !strings.Contains(line, "Select option (1-2) [default: 1]") {
 		t.Fatalf("prompt lost its label: %q", line)
