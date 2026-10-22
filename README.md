@@ -613,6 +613,7 @@ Harness tunables (defaults < config file < env):
 - `TOOL_OUTPUT_MAX_TOKENS=<n>` / `VIBE_CODER_TOOL_OUTPUT_MAX_TOKENS` — cap on a single tool result's token size (default `0` = auto; negative values normalize to `0`)
 - `COMPACT_AT_PERCENT=<n>` / `VIBE_CODER_COMPACT_AT_PERCENT` — context-window fill percentage that triggers compaction (default `85`, clamped to `50..95`)
 - `METRICS_DISABLED=true|false` / `VIBE_CODER_METRICS_DISABLED` — turn off JSONL metrics recording (the in-memory `/stats` summary still updates)
+- `ASK_TIMEOUT_MS=<n>` / `VIBE_CODER_ASK_TIMEOUT_MS` — how long an `AskUserQuestion` prompt waits for an answer before taking its default option (default `0` = wait forever, clamped to at least `1000` when enabled). ESC at the prompt also takes the default, and the default is always option 1, which is why the tool asks the model to list its recommended option first
 
 Language servers (defaults < config file < env < CLI):
 

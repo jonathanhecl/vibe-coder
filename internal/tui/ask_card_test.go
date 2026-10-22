@@ -2,8 +2,11 @@ package tui
 
 import (
 	"bufio"
+	"errors"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newAskTestUI(input string, out *strings.Builder) *PlainUI {
@@ -22,9 +25,12 @@ func TestAskOptionsRendersCardAndReturnsTypedAnswer(t *testing.T) {
 	ui := newAskTestUI("2\n", &out)
 
 	got, err := ui.AskOptions(AskCard{
-		Title:   "Negative prompts",
-		Prompt:  "Choose policy",
-		Options: []string{"Omitir por default", "Incluir lista corta moderna"},
+		Title:  "Negative prompts",
+		Prompt: "Choose policy",
+		Options: []AskOption{
+			{Label: "Omitir por default", Description: "menos tokens"},
+			{Label: "Incluir lista corta moderna"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -38,6 +44,7 @@ func TestAskOptionsRendersCardAndReturnsTypedAnswer(t *testing.T) {
 		"Negative prompts",
 		"Choose policy",
 		"[1] Omitir por default",
+		"menos tokens",
 		"[2] Incluir lista corta moderna",
 		"Select option (1-2) [default: 1]:",
 	} {
@@ -55,7 +62,7 @@ func TestAskOptionsRetryShowsNoteWithoutRepeatingOptions(t *testing.T) {
 
 	_, err := ui.AskOptions(AskCard{
 		Prompt:  "Choose policy",
-		Options: []string{"Alpha", "Beta"},
+		Options: []AskOption{{Label: "Alpha"}, {Label: "Beta"}},
 		Note:    `Invalid option "x". Please enter a number (1-2):`,
 	})
 	if err != nil {
@@ -77,11 +84,102 @@ func TestAskOptionsPromptHasNoTitleWhenCardHasNone(t *testing.T) {
 	var out strings.Builder
 	ui := newAskTestUI("\n", &out)
 
-	if _, err := ui.AskOptions(AskCard{Prompt: "Pick one", Options: []string{"Only"}}); err != nil {
+	if _, err := ui.AskOptions(AskCard{Prompt: "Pick one", Options: []AskOption{{Label: "Only"}}}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	rendered := out.String()
 	if !strings.Contains(rendered, "? Pick one") {
 		t.Fatalf("prompt should be the heading when there is no title:\n%s", rendered)
+	}
+}
+
+// askInput is exercised over a pipe: poll works there exactly as it does on a
+// terminal, without needing a pty to test the two ways out of a question.
+func newAskInputPipe(t *testing.T, deadline time.Time) (*askInput, *os.File) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = r.Close()
+		_ = w.Close()
+	})
+	return &askInput{br: bufio.NewReader(r), fd: int(r.Fd()), deadline: deadline}, w
+}
+
+func TestAskInputReturnsTypedBytes(t *testing.T) {
+	t.Parallel()
+
+	input, w := newAskInputPipe(t, time.Time{})
+	if _, err := w.WriteString("3\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	buf := make([]byte, 1)
+	if _, err := input.Read(buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if buf[0] != '3' {
+		t.Fatalf("expected '3', got %q", buf[0])
+	}
+}
+
+func TestAskInputLoneEscapeMeansDefault(t *testing.T) {
+	t.Parallel()
+
+	input, w := newAskInputPipe(t, time.Time{})
+	if _, err := w.Write([]byte{0x1b}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	buf := make([]byte, 1)
+	_, err := input.Read(buf)
+	if !errors.Is(err, errAskEscape) {
+		t.Fatalf("a lone ESC must ask for the default, got %v", err)
+	}
+}
+
+func TestAskInputEscapeSequenceIsNotDefault(t *testing.T) {
+	t.Parallel()
+
+	input, w := newAskInputPipe(t, time.Time{})
+	if _, err := w.WriteString("\x1b[A"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	buf := make([]byte, 1)
+	if _, err := input.Read(buf); err != nil {
+		t.Fatalf("arrow key must not be read as ESC: %v", err)
+	}
+	if buf[0] != 0x1b {
+		t.Fatalf("expected the ESC that starts the sequence, got %q", buf[0])
+	}
+}
+
+func TestAskInputDeadlineTakesDefault(t *testing.T) {
+	t.Parallel()
+
+	input, _ := newAskInputPipe(t, time.Now().Add(60*time.Millisecond))
+
+	buf := make([]byte, 1)
+	start := time.Now()
+	_, err := input.Read(buf)
+	if !errors.Is(err, errAskTimeout) {
+		t.Fatalf("expected the timeout to take the default, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("timeout took too long: %s", elapsed)
+	}
+}
+
+func TestAskInputExpiredDeadlineTakesDefaultImmediately(t *testing.T) {
+	t.Parallel()
+
+	input, _ := newAskInputPipe(t, time.Now().Add(-time.Second))
+
+	buf := make([]byte, 1)
+	if _, err := input.Read(buf); !errors.Is(err, errAskTimeout) {
+		t.Fatalf("expected an expired deadline to take the default, got %v", err)
 	}
 }
