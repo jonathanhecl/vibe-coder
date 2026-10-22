@@ -160,6 +160,9 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 	}
 	emptyStreak := 0
 	idleStreak := 0
+	// A pause already told the user why the mission stopped; reporting the same
+	// error again adds noise, not information.
+	pauseReported := false
 	for ag.MissionActive() {
 		if ctxErr := rootCtx.Err(); ctxErr != nil {
 			return ctxErr
@@ -172,6 +175,7 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 				fmt.Fprintln(os.Stderr, "Mission paused: repeated tool call with no progress. The agent needs your input.")
 				saveMissionProgress(ag)
 				ag.LogMissionTurn(err)
+				pauseReported = true
 				break
 			}
 			// A hard failure (network, permission, cancellation) stops the run.
@@ -187,6 +191,7 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 			fmt.Fprintln(os.Stderr, "Mission paused: repeated empty responses. The agent needs your input.")
 			saveMissionProgress(ag)
 			ag.LogMissionTurn(err)
+			pauseReported = true
 			break
 		}
 		// Stall guard: a turn that executed no tool at all did no work. This is
@@ -218,6 +223,7 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 			fmt.Fprintln(os.Stderr, "Mission paused: no tool activity for several turns. The agent needs your input.")
 			saveMissionProgress(ag)
 			ag.LogMissionTurn(err)
+			pauseReported = true
 			break
 		}
 		m := ag.MissionSnapshot()
@@ -227,7 +233,7 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 		saveMissionProgress(ag)
 		ag.LogMissionTurn(err)
 	}
-	if err != nil && !agent.IsIterationCapErr(err) && !agent.IsNoProgressErr(err) {
+	if err != nil && !pauseReported && !agent.IsIterationCapErr(err) && !agent.IsNoProgressErr(err) {
 		return err
 	}
 	return nil
@@ -285,6 +291,9 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 			currentInput = ag.BuildEmptyResponseRetryInput(input, repeatedState)
 			continue
 		}
+		// The user declined the retry: say so instead of returning to the prompt
+		// in silence, which reads like a crash.
+		fmt.Fprintln(os.Stdout, "No retry requested; this turn ended without an answer.")
 		return nil
 	}
 }

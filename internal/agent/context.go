@@ -148,9 +148,12 @@ func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool
 		a.compactBestEffort(ctx)
 		return true, fmt.Errorf("empty assistant response with pending todos")
 	}
-	a.sess.AddSystemNote("Model returned repeated empty responses; ending this run cleanly.")
+	// Nothing to fall back on: ending the run here used to be silent, so the
+	// user got neither an answer nor a reason. Report it as an empty response
+	// so the caller can offer a retry (interactive) or print the failure.
+	a.sess.AddSystemNote("Model returned repeated empty responses; ending this run without a visible assistant message.")
 	a.compactBestEffort(ctx)
-	return true, nil
+	return true, emptyAssistantResponseErr()
 }
 
 func (a *Agent) compactBestEffort(ctx context.Context) {

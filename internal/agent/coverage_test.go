@@ -226,7 +226,10 @@ func TestTryAutoPullModelDeniedAndCancelledChat(t *testing.T) {
 }
 
 func TestRunAddsRAGContextAndHandlesUnknownXMLTool(t *testing.T) {
-	c := &coverageClient{reply: `<invoke name="MissingTool">{"x":1}</invoke>`}
+	// The prose is the final answer when the envelope names a tool that does
+	// not exist; the turn may not end on the envelope alone (see
+	// TestRunReportsUnknownToolWithoutVisibleAnswer).
+	c := &coverageClient{reply: "I will check that.\n<invoke name=\"MissingTool\">{\"x\":1}</invoke>"}
 	ag := newCoverageAgent(t, c, tui.DecisionAllowOnce, true)
 	ag.SetRAG(coverageRAG{})
 	if err := ag.Run(context.Background(), "just chat"); err != nil {

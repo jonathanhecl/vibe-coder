@@ -287,6 +287,7 @@ func isConnectionError(err error) bool {
 func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 	var lastErr error
 	thinkingLoopRetries := 0
+	notedEmptyReply := false
 
 	for {
 		for attempt := 0; attempt <= MaxRetries; attempt++ {
@@ -357,6 +358,15 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 			}
 			cancel()
 			if attempt < MaxRetries {
+				// A model that just answered with nothing receives an identical
+				// request on retry, which asks the same question twice. The
+				// reminder changes the prompt and names what was missing, so the
+				// retry has a real chance. Connection and timeout errors are
+				// already retried with backoff at the HTTP layer.
+				if !notedEmptyReply && (lastErr == nil || IsEmptyAssistantResponseErr(lastErr)) {
+					notedEmptyReply = true
+					a.sess.AddRuntimeReminder("The previous attempt returned no visible answer and no tool call. Reply with a short plain-text answer, or call one tool.")
+				}
 				select {
 				case <-rootCtx.Done():
 					return "", nil, rootCtx.Err()

@@ -197,6 +197,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if unknown != "" {
 				a.sess.AddAssistant(reply)
 				a.compactBestEffort(ctx)
+				if assistantVisibleText(reply) == "" {
+					// An unknown tool envelope alone is not an answer: the user
+					// would see the turn end with no text at all.
+					return fmt.Errorf("model called unknown tool %q and produced no visible answer", unknown)
+				}
 				return nil
 			}
 			if assistantVisibleText(reply) == "" {
@@ -225,6 +230,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		if assistantVisibleText(reply) == "" {
 			if thinkingOnlyRetries < 2 {
 				thinkingOnlyRetries++
+				// Retrying with an identical prompt asks the same question that
+				// just got no answer. The reminder makes the retry a different
+				// request and names what was missing.
+				a.sess.AddRuntimeReminder("Your previous reply contained no visible answer and no tool call (only reasoning, or nothing). Reply to the user in plain text, or call one concrete tool now.")
+				a.compactBestEffort(ctx)
 				continue
 			}
 			thinkingOnlyRetries = 0
@@ -233,9 +243,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.compactBestEffort(ctx)
 				continue
 			}
+			// A turn that ends here would show the user nothing at all: no
+			// answer, no footer, no error. Report the empty reply instead of
+			// returning success so the caller can offer a retry.
 			a.sess.AddSystemNote("Model reply was empty; ending this run without a visible assistant message.")
 			a.compactBestEffort(ctx)
-			return nil
+			return emptyAssistantResponseErr()
 		}
 		thinkingOnlyRetries = 0
 		if a.hasPendingTodos() {

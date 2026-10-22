@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -116,6 +117,15 @@ func IsEmptyAssistantResponseErr(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "empty assistant response")
+}
+
+// emptyAssistantResponseErr builds the give-up error for a model that answered
+// with nothing. Every path that ends a run for this reason must use this
+// wording: the caller detects it with IsEmptyAssistantResponseErr to offer a
+// retry, and ending with a nil error instead is what made a dead turn look
+// like a crash with no message.
+func emptyAssistantResponseErr() error {
+	return errors.New("empty assistant response: the model returned no visible text and no tool call (it may have spent its output budget on reasoning)")
 }
 
 type ragProvider interface {
