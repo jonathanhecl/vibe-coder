@@ -33,6 +33,8 @@ func TestParsePermissionTimeout(t *testing.T) {
 	}{
 		{"3m", 3 * time.Minute, true},
 		{" 90s ", 90 * time.Second, true},
+		{"30", 30 * time.Second, true},
+		{"120", 120 * time.Second, true},
 		{"0", -1, true},
 		{"off", -1, true},
 		{"never", -1, true},

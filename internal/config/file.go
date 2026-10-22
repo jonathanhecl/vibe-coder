@@ -299,14 +299,15 @@ func isMigratedKey(key string) bool {
 // persistEntries returns the config keys to write and their canonical order.
 func (c *Config) persistEntries() (map[string]string, []string) {
 	updates := map[string]string{
-		"ASSISTED_YES":      strconv.FormatBool(c.AssistedYes),
-		"HIDE_THINK":        strconv.FormatBool(c.OllamaHideThink),
-		"THINK":             strings.TrimSpace(c.OllamaThinkLevel),
-		"KEEP_ALIVE_MAIN":   strconv.Itoa(c.KeepAliveMain),
-		"KEEP_ALIVE_WORKER": strconv.Itoa(c.KeepAliveWorker),
-		"SKILLS_DIRS":       strings.Join(c.SkillsDirs, string(os.PathListSeparator)),
+		"ASSISTED_YES":       strconv.FormatBool(c.AssistedYes),
+		"HIDE_THINK":         strconv.FormatBool(c.OllamaHideThink),
+		"THINK":              strings.TrimSpace(c.OllamaThinkLevel),
+		"KEEP_ALIVE_MAIN":    strconv.Itoa(c.KeepAliveMain),
+		"KEEP_ALIVE_WORKER":  strconv.Itoa(c.KeepAliveWorker),
+		"SKILLS_DIRS":        strings.Join(c.SkillsDirs, string(os.PathListSeparator)),
+		"PERMISSION_TIMEOUT": formatPermissionTimeoutSetting(c.PermissionTimeout),
 	}
-	ordered := []string{"HIDE_THINK", "THINK", "KEEP_ALIVE_MAIN", "KEEP_ALIVE_WORKER", "SKILLS_DIRS"}
+	ordered := []string{"HIDE_THINK", "THINK", "KEEP_ALIVE_MAIN", "KEEP_ALIVE_WORKER", "SKILLS_DIRS", "PERMISSION_TIMEOUT"}
 
 	for _, name := range c.ProviderNames() {
 		p := c.Providers[name]

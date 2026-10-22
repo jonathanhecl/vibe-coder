@@ -260,6 +260,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, runSetModelCommand(c, fields[1:])
 	case "/think":
 		return true, false, runThinkCommand(c, fields[1:])
+	case "/settimeout":
+		return true, false, runSetTimeoutCommand(c, fields[1:])
 	case "/tokens":
 		printTokens(c)
 		return true, false, nil

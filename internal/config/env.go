@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -41,8 +42,9 @@ func (c *Config) EffectivePermissionTimeout() time.Duration {
 	return defaultPermissionPromptTimeout
 }
 
-// ParsePermissionTimeout parses a permission timeout in Go duration form. The
-// words off/never/none disable the countdown, as do a zero or negative duration.
+// ParsePermissionTimeout parses a permission timeout in Go duration form. A
+// bare number means seconds, so "90" and "90s" are the same setting. The words
+// off/never/none disable the countdown, as do a zero or negative duration.
 // It returns false when the value cannot be parsed, so the caller can keep the
 // previous setting instead of silently dropping it.
 func ParsePermissionTimeout(v string) (time.Duration, bool) {
@@ -54,6 +56,12 @@ func ParsePermissionTimeout(v string) (time.Duration, bool) {
 	case "off", "never", "none", "false":
 		return -1, true
 	}
+	if secs, err := strconv.Atoi(s); err == nil {
+		if secs <= 0 {
+			return -1, true
+		}
+		return time.Duration(secs) * time.Second, true
+	}
 	parsed, err := time.ParseDuration(s)
 	if err != nil {
 		return 0, false
@@ -62,6 +70,31 @@ func ParsePermissionTimeout(v string) (time.Duration, bool) {
 		return -1, true
 	}
 	return parsed, true
+}
+
+// FormatPermissionTimeout renders a positive timeout the way the setting is
+// written: whole minutes as "3m", whole seconds as "45s", otherwise the Go
+// duration form. Non-positive values render as "off".
+func FormatPermissionTimeout(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return "off"
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	case d%time.Second == 0:
+		return fmt.Sprintf("%ds", int(d/time.Second))
+	default:
+		return d.String()
+	}
+}
+
+// formatPermissionTimeoutSetting encodes the timeout for the config file. An
+// unset value stays empty so /save does not write a key the user never chose.
+func formatPermissionTimeoutSetting(d time.Duration) string {
+	if d == 0 {
+		return ""
+	}
+	return FormatPermissionTimeout(d)
 }
 
 func applyEnv(cfg *Config) {

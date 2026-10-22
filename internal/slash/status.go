@@ -75,6 +75,17 @@ func statusRows(c *Ctx) []tui.Row {
 	})
 	rows = append(rows, tui.Row{Label: "Tools", Plain: toolsStatus(c)})
 	rows = append(rows, tui.Row{
+		Label: "Permission timeout",
+		Short: "Perm timeout",
+		Plain: permissionTimeoutStatus(c),
+		Render: func(st tui.Style) string {
+			if c.Cfg.PermissionTimeout < 0 {
+				return st.Gray(permissionTimeoutStatus(c))
+			}
+			return st.BrightWhite(permissionTimeoutStatus(c))
+		},
+	})
+	rows = append(rows, tui.Row{
 		Label: "Language servers",
 		Short: "LSP",
 		Plain: lspStatusValue(c),
