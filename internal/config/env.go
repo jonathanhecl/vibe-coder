@@ -236,11 +236,6 @@ func applyEnv(cfg *Config) {
 			cfg.Harness.CompactAtPercent = parsed
 		}
 	}
-	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_ASK_TIMEOUT_MS")); v != "" {
-		if parsed, err := strconv.Atoi(v); err == nil {
-			cfg.Harness.AskTimeoutMS = parsed
-		}
-	}
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_KEEP_ALIVE_MAIN")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
 			cfg.KeepAliveMain = parsed

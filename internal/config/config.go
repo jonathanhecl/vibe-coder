@@ -188,10 +188,6 @@ type HarnessConfig struct {
 	// MetricsDisabled turns off JSONL metrics recording (the in-memory
 	// summary still updates).
 	MetricsDisabled bool
-	// AskTimeoutMS bounds how long an interactive question waits for an
-	// answer before taking its default option (default 0 = wait forever,
-	// clamped to at least 1000 ms when enabled).
-	AskTimeoutMS int
 }
 
 const (
@@ -199,7 +195,6 @@ const (
 	defaultCompactAtPercent = 85
 	minCompactAtPercent     = 50
 	maxCompactAtPercent     = 95
-	minAskTimeoutMS         = 1000
 )
 
 // normalize clamps the harness tunables to their documented ranges.
@@ -215,12 +210,6 @@ func (h *HarnessConfig) normalize() {
 	}
 	if h.CompactAtPercent > maxCompactAtPercent {
 		h.CompactAtPercent = maxCompactAtPercent
-	}
-	if h.AskTimeoutMS < 0 {
-		h.AskTimeoutMS = 0
-	}
-	if h.AskTimeoutMS > 0 && h.AskTimeoutMS < minAskTimeoutMS {
-		h.AskTimeoutMS = minAskTimeoutMS
 	}
 }
 

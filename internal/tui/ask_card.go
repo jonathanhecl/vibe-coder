@@ -56,9 +56,12 @@ const askEscapeWindow = 40 * time.Millisecond
 // AskOptions draws card and reads the answer through the UI's own line editor,
 // so typed characters are echoed and edited like any other prompt.
 //
-// ESC (or reaching the configured ASK_TIMEOUT_MS) returns the empty answer the
-// tool treats as option 1, which is why option 1 is documented as the
-// recommended one.
+// ESC (or reaching the user-action timeout) returns the empty answer the tool
+// treats as option 1, which is why option 1 is documented as the recommended
+// one.
+//
+// The budget is the permission timeout: both prompts are a terminal waiting on
+// a human, so one setting covers both.
 //
 // The ESC monitor is paused first: while it runs it holds stdin in
 // non-canonical mode with echo disabled and consumes keystrokes, which is
@@ -106,13 +109,19 @@ func (u *PlainUI) AskOptions(card AskCard) (string, error) {
 	return line, err
 }
 
-// askDeadline turns the configured ask timeout into an absolute deadline. A
-// zero time means "wait for the user", which is the default.
+// askDeadline turns the user-action timeout into an absolute deadline. It is
+// the same budget a permission prompt gets: both are the terminal waiting on a
+// human, so there is one setting instead of two. A zero time means "wait for
+// the user", which is what an explicit off asks for.
 func (u *PlainUI) askDeadline() time.Time {
-	if u.cfg == nil || u.cfg.Harness.AskTimeoutMS <= 0 {
+	if u.cfg == nil {
 		return time.Time{}
 	}
-	return time.Now().Add(time.Duration(u.cfg.Harness.AskTimeoutMS) * time.Millisecond)
+	d := u.cfg.EffectivePermissionTimeout()
+	if d <= 0 {
+		return time.Time{}
+	}
+	return time.Now().Add(d)
 }
 
 func (u *PlainUI) reportAskTimeout(card AskCard) {
@@ -120,7 +129,10 @@ func (u *PlainUI) reportAskTimeout(card AskCard) {
 	if len(card.Options) > 0 {
 		label = card.Options[0].Label
 	}
-	waited := time.Duration(u.cfg.Harness.AskTimeoutMS) * time.Millisecond
+	waited := time.Duration(0)
+	if u.cfg != nil {
+		waited = u.cfg.EffectivePermissionTimeout()
+	}
 	// The timeout can interrupt a half-typed answer, so start on a fresh line.
 	fmt.Fprintf(u.out, "\r\n  %s\n",
 		u.style.DimYellow(fmt.Sprintf("No answer after %s: using the default [1] %s.", waited.Round(time.Second), label)),

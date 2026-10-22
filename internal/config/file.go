@@ -171,9 +171,8 @@ func applyConfigFile(cfg *Config, path string) error {
 				cfg.Harness.CompactAtPercent = parsed
 			}
 		case "ASK_TIMEOUT_MS":
-			if parsed, err := strconv.Atoi(value); err == nil {
-				cfg.Harness.AskTimeoutMS = parsed
-			}
+			// Retired: interactive questions share PERMISSION_TIMEOUT (the
+			// user-action budget). Ignored so an old config file still loads.
 		case "RAG_MODE":
 			cfg.RAGMode = value
 		case "KEEP_ALIVE_MAIN":
