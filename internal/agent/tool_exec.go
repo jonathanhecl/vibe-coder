@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
+	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
@@ -61,8 +62,11 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 			// Cancel is the only choice that aborts the run: the user asked for
 			// the agent to stop, not to work around a single refusal.
 			outcome = toolCancelled
-		} else {
-			deny += "\n" + permissionDenialGuidance
+		} else if !strings.Contains(deny, permissions.DenialGuidance) {
+			// The refusal must tell the model the task is still open, otherwise
+			// local models retry the same call until the iteration cap. Reasons
+			// that already carry the guidance (the timeout note) are left alone.
+			deny += "\n" + permissions.DenialGuidance
 		}
 		logger.Errorf("Tool %s execution denied by permissions (outcome=%d)", toolName, outcome)
 		if mode.showPermissionDeniedResult {

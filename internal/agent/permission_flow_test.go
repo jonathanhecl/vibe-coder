@@ -42,7 +42,7 @@ func newPermissionAgent(t *testing.T, client ollama.Client, decision tui.Decisio
 	}
 	reg := tools.NewRegistry()
 	reg.RegisterDefaults()
-	perm := permissions.NewManager(&config.Config{YesMode: false})
+	perm := permissions.NewManager(&config.Config{YesMode: false, Cwd: tmp})
 	sess := session.New(cfg)
 	ui := &decisionUI{decision: decision}
 	return New(cfg, client, reg, perm, sess, ui), ui
@@ -82,7 +82,7 @@ func TestDeniedToolKeepsTheRunGoing(t *testing.T) {
 	if !strings.Contains(text, "Permission denied") {
 		t.Fatalf("the model was not told about the denial:\n%s", text)
 	}
-	if !strings.Contains(text, permissionDenialGuidance) {
+	if !strings.Contains(text, permissions.DenialGuidance) {
 		t.Fatalf("the denial did not carry the adapt-and-continue guidance:\n%s", text)
 	}
 	if _, err := os.Stat(filepath.Join(ag.cfg.Cwd, target)); !os.IsNotExist(err) {
@@ -134,11 +134,14 @@ func TestNativeBatchDenialKeepsOtherCalls(t *testing.T) {
 		t.Fatalf("expected one prompt for Write, got %v", ui.asked)
 	}
 	text := sessionText(ag)
-	if !strings.Contains(text, "blocked.txt") || !strings.Contains(text, "Permission denied") {
+	if !strings.Contains(text, "Permission denied") || !strings.Contains(text, permissions.DenialGuidance) {
 		t.Fatalf("the denial result was not recorded in the batch:\n%s", text)
 	}
 	if !strings.Contains(text, "hello") {
 		t.Fatalf("the call after the denial never ran:\n%s", text)
+	}
+	if _, err := os.Stat(filepath.Join(ag.cfg.Cwd, "blocked.txt")); !os.IsNotExist(err) {
+		t.Fatalf("denied write still landed: %v", err)
 	}
 }
 

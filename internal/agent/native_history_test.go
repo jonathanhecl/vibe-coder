@@ -236,7 +236,8 @@ func TestNativeBatchDeniedToolAnswersRemainingCalls(t *testing.T) {
 	client := &captureBatchClient{writePath: path, readPath: path, denied: true}
 	ag := New(cfg, client, reg, perm, sess, &fakeUI{})
 
-	// Run with denied first tool should not error, but stop the turn
+	// The Bash call is denied for the session; the Read that follows it in the
+	// same batch still runs, so every declared call is answered.
 	_ = ag.Run(context.Background(), "run bash then read")
 
 	// Verify all tool calls declared by the assistant in the session were answered as role="tool"

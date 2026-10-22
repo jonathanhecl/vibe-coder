@@ -19,11 +19,16 @@ type prompter interface {
 	AskPermission(tool string, params map[string]any) tui.Decision
 }
 
+// DenialGuidance is the follow-up every denial carries to the model. A denial
+// refuses one action, never the task: the agent must adapt instead of repeating
+// the same request until the iteration cap.
+const DenialGuidance = "Continue the task without it: do not repeat the same request as-is. Work around it, ask for what you need, or finish and tell the user what was skipped."
+
 // permissionTimeoutNote is the reason the model reads when a permission prompt
 // expires unanswered. It says the action did not run and that repeating it is
 // pointless, so the agent finishes the rest of the task instead of assuming the
 // tool succeeded or asking for the same thing again.
-const permissionTimeoutNote = "Permission denied: the user did not answer the permission prompt before it timed out, so this action was NOT executed. Continue the task without it; do not repeat the same request."
+const permissionTimeoutNote = "Permission denied: the user did not answer the permission prompt before it timed out, so this action was NOT executed. " + DenialGuidance
 
 // SafetyDecider evaluates whether a shell command is dangerous or safe to run automatically.
 type SafetyDecider interface {
