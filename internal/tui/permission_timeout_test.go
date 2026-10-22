@@ -64,8 +64,9 @@ func TestWaitByteReturnsBufferedInputWithoutTicking(t *testing.T) {
 	}
 
 	ticks := 0
-	ch, err := waitByte(int(readEnd.Fd()), bufio.NewReader(readEnd), time.Now().Add(time.Minute), func(time.Duration) {
+	ch, err := waitByte(int(readEnd.Fd()), bufio.NewReader(readEnd), time.Now().Add(time.Minute), func(time.Duration) error {
 		ticks++
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -89,8 +90,9 @@ func TestWaitByteTimesOutWithCountdownTicks(t *testing.T) {
 
 	start := time.Now()
 	ticks := 0
-	_, err = waitByte(int(readEnd.Fd()), bufio.NewReader(readEnd), start.Add(120*time.Millisecond), func(time.Duration) {
+	_, err = waitByte(int(readEnd.Fd()), bufio.NewReader(readEnd), start.Add(120*time.Millisecond), func(time.Duration) error {
 		ticks++
+		return nil
 	})
 	if !errors.Is(err, errPromptTimeout) {
 		t.Fatalf("got %v, want errPromptTimeout", err)

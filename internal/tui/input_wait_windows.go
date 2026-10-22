@@ -14,6 +14,6 @@ func inputWatchable(int) bool { return false }
 
 // waitByte reads one byte, blocking indefinitely. The countdown is disabled on
 // this platform (see inputWatchable), so the deadline is never reached.
-func waitByte(_ int, r *bufio.Reader, _ time.Time, _ func(time.Duration)) (byte, error) {
+func waitByte(_ int, r *bufio.Reader, _ time.Time, _ func(time.Duration) error) (byte, error) {
 	return r.ReadByte()
 }

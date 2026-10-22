@@ -84,6 +84,13 @@ func (u *PlainUI) readInteractiveInput(renderedPrompt string) (string, error) {
 // callers can wrap the shared reader (deadlines, ESC handling) without giving
 // stdin a second owner.
 func (u *PlainUI) readInteractiveInputFrom(reader io.Reader, renderedPrompt string) (string, error) {
+	return u.readInteractiveInputFromFn(reader, renderedPrompt, nil)
+}
+
+// readInteractiveInputFromFn also accepts a live prompt: a reader that returns
+// errAskTick makes the line editor repaint the prompt and keep reading, which
+// is how a countdown stays on screen while the buffer is edited.
+func (u *PlainUI) readInteractiveInputFromFn(reader io.Reader, renderedPrompt string, promptFn func() string) (string, error) {
 	fd := int(u.in.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -107,7 +114,7 @@ func (u *PlainUI) readInteractiveInputFrom(reader io.Reader, renderedPrompt stri
 	}
 	// Read through the buffered reader so bytes that AskPermission left in the
 	// bufio buffer are not lost when we re-enter raw mode.
-	return readInteractiveInputStreamWithStyle(reader, u.out, u.style, u.history, renderedPrompt)
+	return readInteractiveInputStreamWithPromptFn(reader, u.out, u.style, u.history, renderedPrompt, promptFn)
 }
 
 func readInteractiveInputStream(reader io.Reader, out io.Writer) (string, error) {
@@ -346,8 +353,9 @@ func (u *PlainUI) countdownAvailable() bool {
 func (u *PlainUI) readPermissionKeyCountdown(timeout time.Duration) (byte, bool) {
 	deadline := time.Now().Add(timeout)
 	u.repaintPermissionLine(u.style.Dim(countdownText(timeout)))
-	key, err := u.readKeyUntil(deadline, func(remaining time.Duration) {
+	key, err := u.readKeyUntil(deadline, func(remaining time.Duration) error {
 		u.repaintPermissionLine(u.style.Dim(countdownText(remaining)))
+		return nil
 	})
 	if errors.Is(err, errPromptTimeout) {
 		return 0, true
@@ -362,7 +370,7 @@ func (u *PlainUI) readPermissionKeyCountdown(timeout time.Duration) (byte, bool)
 // tick with the time left between polls. It holds escMu and raw mode for the
 // whole wait, exactly like readSingleChar, so the ESC monitor cannot swallow the
 // key the user pressed.
-func (u *PlainUI) readKeyUntil(deadline time.Time, tick func(time.Duration)) (byte, error) {
+func (u *PlainUI) readKeyUntil(deadline time.Time, tick func(time.Duration) error) (byte, error) {
 	fd := int(u.in.Fd())
 	u.escMu.Lock()
 	defer u.escMu.Unlock()
@@ -396,11 +404,17 @@ func (u *PlainUI) repaintPermissionLine(text string) {
 // rounded up so a fresh 3-minute prompt reads 3:00 and never shows 0:00 while
 // time is still left.
 func countdownText(remaining time.Duration) string {
-	if remaining < 0 {
-		remaining = 0
-	}
-	secs := int((remaining + time.Second - 1) / time.Second)
+	secs := ceilSeconds(remaining)
 	return fmt.Sprintf("⏳ auto-deny in %d:%02d", secs/60, secs%60)
+}
+
+// ceilSeconds rounds a wait up to whole seconds. Both countdowns share it so
+// neither ever shows zero while a little time is still left to answer.
+func ceilSeconds(d time.Duration) int {
+	if d <= 0 {
+		return 0
+	}
+	return int((d + time.Second - 1) / time.Second)
 }
 
 // readSingleChar puts stdin in raw mode for one keypress and returns it.

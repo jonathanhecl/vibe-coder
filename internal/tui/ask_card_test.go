@@ -183,3 +183,71 @@ func TestAskInputExpiredDeadlineTakesDefaultImmediately(t *testing.T) {
 		t.Fatalf("expected an expired deadline to take the default, got %v", err)
 	}
 }
+
+func TestAskPromptLineShowsCountdown(t *testing.T) {
+	t.Parallel()
+
+	ui := &PlainUI{style: Style{}}
+	line := ui.askPromptLine(2, 4200*time.Millisecond)
+	if !strings.Contains(line, "auto in 5s") {
+		t.Fatalf("prompt must show the countdown: %q", line)
+	}
+	if !strings.Contains(line, "Select option (1-2) [default: 1]") {
+		t.Fatalf("prompt lost its label: %q", line)
+	}
+}
+
+func TestAskPromptLineShowsNoCountdownWithoutDeadline(t *testing.T) {
+	t.Parallel()
+
+	ui := &PlainUI{style: Style{}}
+	if line := ui.askPromptLine(2, 0); strings.Contains(line, "auto in") {
+		t.Fatalf("no deadline means no countdown: %q", line)
+	}
+}
+
+func TestAskInputTicksBeforeDeadline(t *testing.T) {
+	t.Parallel()
+
+	input, _ := newAskInputPipe(t, time.Now().Add(5*time.Second))
+
+	buf := make([]byte, 1)
+	start := time.Now()
+	_, err := input.Read(buf)
+	if !errors.Is(err, errAskTick) {
+		t.Fatalf("expected a countdown tick before the deadline, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 1500*time.Millisecond {
+		t.Fatalf("a tick must arrive within the first second, took %s", elapsed)
+	}
+}
+
+func TestLineEditorRefreshPromptRepaintsCountdown(t *testing.T) {
+	t.Parallel()
+
+	var out strings.Builder
+	e := newLineEditor(&out, Style{}, nil, "  auto in 5s: ")
+	e.promptFn = func() string { return "  auto in 4s: " }
+	e.refreshPrompt()
+
+	if !strings.Contains(out.String(), "auto in 4s: ") {
+		t.Fatalf("prompt repaint missing the new countdown:\n%q", out.String())
+	}
+
+	out.Reset()
+	e.refreshPrompt()
+	if out.String() != "" {
+		t.Fatalf("an unchanged prompt must not be repainted:\n%q", out.String())
+	}
+}
+
+func TestLineEditorRefreshPromptWithoutFnIsNoop(t *testing.T) {
+	t.Parallel()
+
+	var out strings.Builder
+	e := newLineEditor(&out, Style{}, nil, "prompt: ")
+	e.refreshPrompt()
+	if out.String() != "" {
+		t.Fatalf("a static prompt must never be repainted:\n%q", out.String())
+	}
+}

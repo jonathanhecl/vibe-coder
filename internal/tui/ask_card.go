@@ -39,10 +39,13 @@ type OptionAsker interface {
 }
 
 // errAskEscape and errAskTimeout both mean "take the default option". They stay
-// distinct so a timeout is announced and a deliberate ESC is not.
+// distinct so a timeout is announced and a deliberate ESC is not. errAskTick is
+// not an error the user sees: it asks the line editor to repaint the countdown
+// and keep reading.
 var (
 	errAskEscape  = errors.New("ask: escaped")
 	errAskTimeout = errors.New("ask: timed out")
+	errAskTick    = errors.New("ask: repaint countdown")
 )
 
 // askEscapeWindow is how long a lone ESC waits for the rest of a sequence
@@ -74,7 +77,15 @@ func (u *PlainUI) AskOptions(card AskCard) (string, error) {
 	// to be on screen before it starts, exactly like GetInput does. The blank
 	// line before it belongs to the card, not to the prompt handed to the
 	// editor, which measures the prompt to place the cursor.
-	renderedPrompt := u.askPromptLine(len(card.Options))
+	deadline := u.askDeadline()
+	if !deadline.IsZero() && !u.countdownAvailable() {
+		// The countdown is repainted with escape sequences on the prompt line, so
+		// it needs a terminal on both ends. Where it cannot be shown, waiting for
+		// the user beats taking a default nobody saw coming.
+		deadline = time.Time{}
+	}
+	promptFn := func() string { return u.askPromptLine(len(card.Options), time.Until(deadline)) }
+	renderedPrompt := promptFn()
 	_, _ = io.WriteString(u.out, "\n"+renderedPrompt)
 	u.mu.Unlock()
 
@@ -83,8 +94,8 @@ func (u *PlainUI) AskOptions(card AskCard) (string, error) {
 		return strings.TrimSpace(line), err
 	}
 
-	input := &askInput{br: u.reader, fd: int(u.in.Fd()), deadline: u.askDeadline()}
-	line, err := u.readInteractiveInputFrom(input, renderedPrompt)
+	input := &askInput{br: u.reader, fd: int(u.in.Fd()), deadline: deadline}
+	line, err := u.readInteractiveInputFromFn(input, renderedPrompt, promptFn)
 	switch {
 	case errors.Is(err, errAskTimeout):
 		u.reportAskTimeout(card)
@@ -170,12 +181,33 @@ func (u *PlainUI) renderAskCardLocked(card AskCard) {
 	_, _ = io.WriteString(u.out, b.String())
 }
 
-func (u *PlainUI) askPromptLine(optionCount int) string {
-	label := fmt.Sprintf("Select option (1-%d) [default: 1]: ", optionCount)
-	if u.style.Enabled() {
-		return "  " + u.style.BoldCyan("▸") + " " + u.style.Dim(label)
+// askPromptLine renders the answer line. A positive remaining duration adds a
+// live countdown, so the timeout is something the user watches instead of
+// something that surprises them.
+func (u *PlainUI) askPromptLine(optionCount int, remaining time.Duration) string {
+	label := fmt.Sprintf("Select option (1-%d) [default: 1]", optionCount)
+	countdown := ""
+	if remaining > 0 {
+		countdown = askCountdown(remaining)
 	}
-	return "  ▸ " + label
+	if u.style.Enabled() {
+		line := "  " + u.style.BoldCyan("▸") + " " + u.style.Dim(label)
+		if countdown != "" {
+			line += u.style.DimYellow(countdown)
+		}
+		return line + ": "
+	}
+	return "  ▸ " + label + countdown + ": "
+}
+
+// askCountdown is the visible side of the timeout: the prompt counts down, so
+// taking the default is something the user watched happen instead of a surprise.
+func askCountdown(remaining time.Duration) string {
+	secs := ceilSeconds(remaining)
+	if secs < 1 {
+		secs = 1
+	}
+	return fmt.Sprintf(" · auto in %ds", secs)
 }
 
 // askInput reads terminal bytes through the shared buffered reader while
@@ -191,28 +223,12 @@ func (a *askInput) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	if a.br.Buffered() == 0 {
-		timeout := time.Duration(-1)
-		if !a.deadline.IsZero() {
-			remaining := time.Until(a.deadline)
-			if remaining <= 0 {
-				return 0, errAskTimeout
-			}
-			timeout = remaining
-		}
-		ready, err := waitReadable(a.fd, timeout)
-		if err != nil {
-			return 0, err
-		}
-		if !ready {
-			return 0, errAskTimeout
-		}
-	}
-
-	buf := p[:1]
-	if _, err := a.br.Read(buf); err != nil {
+	ch, err := a.nextByte()
+	if err != nil {
 		return 0, err
 	}
+	buf := p[:1]
+	buf[0] = ch
 	if buf[0] != 0x1b || a.br.Buffered() > 0 {
 		return 1, nil
 	}
@@ -227,4 +243,18 @@ func (a *askInput) Read(p []byte) (int, error) {
 		return 0, errAskEscape
 	}
 	return 1, nil
+}
+
+// nextByte waits for one keystroke. A countdown tick is reported as errAskTick
+// so the line editor repaints the prompt and asks again; real input always wins
+// because waitByte only ticks after a poll came back empty.
+func (a *askInput) nextByte() (byte, error) {
+	if a.deadline.IsZero() {
+		return a.br.ReadByte()
+	}
+	ch, err := waitByte(a.fd, a.br, a.deadline, func(time.Duration) error { return errAskTick })
+	if errors.Is(err, errPromptTimeout) {
+		return 0, errAskTimeout
+	}
+	return ch, err
 }

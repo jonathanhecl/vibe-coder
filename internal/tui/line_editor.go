@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -55,6 +56,10 @@ type lineEditor struct {
 	blocks      []blockSpan
 	prompt      string
 	promptWidth int
+	// promptFn, when set, supplies a prompt that changes on its own (a
+	// countdown). The read loop calls refreshPrompt on every tick so the line
+	// on screen keeps matching the reader's state.
+	promptFn func() string
 
 	history     *inputHistory
 	histEntries []string
@@ -229,10 +234,23 @@ func normalizePaste(s string) string {
 // empty line returns io.EOF. Ctrl-C clears the current line and returns an
 // empty string so the REPL shows a fresh prompt without exiting.
 func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style Style, history *inputHistory, prompt string) (string, error) {
+	return readInteractiveInputStreamWithPromptFn(reader, out, style, history, prompt, nil)
+}
+
+// readInteractiveInputStreamWithPromptFn is readInteractiveInputStreamWithStyle
+// with an optional live prompt. When promptFn is set, a reader can ask for a
+// repaint by returning errAskTick; the loop repaints the prompt and the buffer
+// behind it and keeps reading, so a countdown never fights the cursor.
+func readInteractiveInputStreamWithPromptFn(reader io.Reader, out io.Writer, style Style, history *inputHistory, prompt string, promptFn func() string) (string, error) {
 	e := newLineEditor(out, style, history, prompt)
+	e.promptFn = promptFn
 	for {
 		b, err := readByte(reader)
-		if err != nil {
+		switch {
+		case errors.Is(err, errAskTick):
+			e.refreshPrompt()
+			continue
+		case err != nil:
 			return "", err
 		}
 		switch {
@@ -435,6 +453,39 @@ func (e *lineEditor) redraw() {
 	}
 	e.screenRow = cursorRow
 	e.screenCol = cursorCol
+}
+
+// refreshPrompt repaints the prompt when promptFn reports a new value. It is a
+// no-op for a static prompt, so the tick path costs nothing outside a
+// countdown.
+func (e *lineEditor) refreshPrompt() {
+	if e.promptFn == nil {
+		return
+	}
+	next := e.promptFn()
+	if next == e.prompt {
+		return
+	}
+	e.prompt = next
+	e.promptWidth = visibleWidth(next)
+	e.repaintPrompt()
+}
+
+// repaintPrompt rewrites the prompt and then everything the editor owns after
+// it. redraw() deliberately never touches the prompt, so a prompt that changes
+// by itself needs this wrapper: go back to the first row of the editable
+// region, rewrite the prompt from column 0, and let redraw repaint the buffer
+// and restore the cursor from the fresh state.
+func (e *lineEditor) repaintPrompt() {
+	if e.screenRow > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dA", e.screenRow)
+	}
+	_, _ = io.WriteString(e.out, "\r\x1b[J")
+	_, _ = io.WriteString(e.out, e.prompt)
+	// The terminal cursor now sits exactly after the prompt, which is the state
+	// redraw assumes when screenRow and screenCol are zero.
+	e.screenRow, e.screenCol = 0, 0
+	e.redraw()
 }
 
 // insertRune inserts r at the cursor. Appending at the end is optimized to a
