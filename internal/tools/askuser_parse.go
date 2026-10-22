@@ -10,6 +10,13 @@ type askOption struct {
 	id          string
 	label       string
 	description string
+	// recommended marks the option the model judges best. It is promoted to
+	// position 1 because position 1 is the default taken by ESC and the
+	// timeout: an instruction alone was not enough for every model.
+	recommended bool
+	// autoID records an id derived from the position, so promotion can
+	// renumber it and keep "id" meaningful for the model.
+	autoID bool
 }
 
 type askQuestion struct {
@@ -113,7 +120,7 @@ func normalizeOptions(optsRaw []any) ([]askOption, string) {
 			if s == "" {
 				return nil, fmt.Sprintf("options[%d] is an empty string", j)
 			}
-			opts = append(opts, askOption{id: strconv.Itoa(j + 1), label: s})
+			opts = append(opts, askOption{id: strconv.Itoa(j + 1), label: s, autoID: true})
 		case map[string]any:
 			label, _ := v["label"].(string)
 			label = strings.TrimSpace(label)
@@ -122,14 +129,22 @@ func normalizeOptions(optsRaw []any) ([]askOption, string) {
 			}
 			oid, _ := v["id"].(string)
 			oid = strings.TrimSpace(oid)
-			if oid == "" {
+			autoID := oid == ""
+			if autoID {
 				oid = strconv.Itoa(j + 1)
 			}
 			desc, _ := v["description"].(string)
 			if strings.TrimSpace(desc) == "" {
 				desc, _ = v["desc"].(string)
 			}
-			opts = append(opts, askOption{id: oid, label: label, description: strings.TrimSpace(desc)})
+			rec := isTrue(v["recommended"]) || isTrue(v["best"])
+			opts = append(opts, askOption{
+				id:          oid,
+				label:       label,
+				description: strings.TrimSpace(desc),
+				recommended: rec,
+				autoID:      autoID,
+			})
 		default:
 			return nil, fmt.Sprintf("options[%d] must be a string or {\"label\":\"...\",\"description\":\"...\"}", j)
 		}
@@ -137,5 +152,48 @@ func normalizeOptions(optsRaw []any) ([]askOption, string) {
 	if len(opts) == 0 {
 		return nil, "need at least one option"
 	}
-	return opts, ""
+	return promoteRecommended(opts), ""
+}
+
+// isTrue accepts the shapes a model may emit for a boolean-ish field.
+func isTrue(v any) bool {
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		s := strings.ToLower(strings.TrimSpace(b))
+		return s == "true" || s == "yes" || s == "1"
+	case float64:
+		return b != 0
+	}
+	return false
+}
+
+// promoteRecommended moves the option flagged as recommended to position 1,
+// because position 1 is what ESC, an empty answer and the timeout select. The
+// other options keep their relative order and positional ids are renumbered so
+// the answer the model receives still points at the option it sees.
+func promoteRecommended(opts []askOption) []askOption {
+	idx := -1
+	for i, o := range opts {
+		if o.recommended {
+			idx = i
+			break
+		}
+	}
+	if idx > 0 {
+		rec := opts[idx]
+		copied := make([]askOption, 0, len(opts))
+		copied = append(copied, rec)
+		copied = append(copied, opts[:idx]...)
+		copied = append(copied, opts[idx+1:]...)
+		opts = copied
+	}
+	for i := range opts {
+		opts[i].recommended = false
+		if opts[i].autoID {
+			opts[i].id = strconv.Itoa(i + 1)
+		}
+	}
+	return opts
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
-const askUserQuestionExample = `{"questions":[{"id":"which","prompt":"Which project do you mean?","options":[{"id":"here","label":"This workspace"},{"id":"other","label":"Another folder"}]}]}`
+const askUserQuestionExample = `{"questions":[{"id":"which","prompt":"Which project do you mean?","options":[{"id":"here","label":"This workspace","recommended":true},{"id":"other","label":"Another folder"}]}]}`
 
 // AskOption is one labeled choice offered to the user. Description is an
 // optional short note rendered next to the label.
@@ -62,8 +62,11 @@ func (t *AskUserQuestionTool) Description() string {
 	return `Ask the user to pick from labeled options when something is ambiguous. ` +
 		`For a single question, provide "prompt" and "options" (strings or {"label":"...","id":"..."}). ` +
 		`For multiple questions, provide "questions" as an array of objects (each with "prompt" and "options"). ` +
-		`Order matters: the FIRST option is the default, used when the user presses ESC or the prompt times out, ` +
-		`so always put the option you recommend first. Each option may carry a short "description" shown beside its label. ` +
+		`Order matters: option 1 is the DEFAULT -- an empty answer, ESC and the timeout all select it -- ` +
+		`so the best answer must be option 1. If your recommendation ended up further down the list, mark it with ` +
+		`{"label":"...","recommended":true} and the tool moves it to position 1 before showing the card. ` +
+		`Use this instead of labeling an option "recommended" in its text: the label does not change the default. ` +
+		`Each option may carry a short "description" shown beside its label. ` +
 		`Example single question: {"prompt":"Which framework?","options":["React","Vue"]} ` +
 		`Example multiple questions: ` + askUserQuestionExample
 }
@@ -87,12 +90,13 @@ func (t *AskUserQuestionTool) Schema() Schema {
 					"options": map[string]any{
 						"type": "array",
 						"description": `Ordered list of options when using "prompt". ` +
-							`Option 1 is the default (empty answer, ESC or timeout selects it), so list the recommended option first. ` +
-							`Strings or objects with {"label":"...","description":"...","id":"..."}.`,
+							`Option 1 is the default (empty answer, ESC or timeout selects it), so the best answer goes first. ` +
+							`Strings or objects with {"label":"...","description":"...","id":"...","recommended":true}; ` +
+							`an option with "recommended":true is moved to option 1 automatically.`,
 					},
 					"questions": map[string]any{
 						"type":        "array",
-						"description": `List of questions for multiple questions. Each item is an object: {"id":"q1","prompt":"...","options":["A","B"]}. Option 1 is the default in each question.`,
+						"description": `List of questions for multiple questions. Each item is an object: {"id":"q1","prompt":"...","options":["A","B"]}. Option 1 is the default in each question and must be the best answer in each.`,
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
