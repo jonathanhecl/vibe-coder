@@ -229,6 +229,11 @@ func main() {
 	}
 	defer mcpMgr.Stop()
 
+	// The tool asks through the UI so a single owner reads stdin; otherwise its
+	// own reader races the line editor and the ESC monitor, which leaves the
+	// typed answer invisible.
+	wireAsker(reg, ui)
+
 	ag := agent.New(cfg, client, reg, perm, sess, ui)
 	ag.SetContextStore(ctxStore)
 	ag.SetSidecar(sidePool)

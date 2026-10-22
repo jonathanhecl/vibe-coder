@@ -170,6 +170,11 @@ func (r *RichUI) AskPermission(tool string, params map[string]any) Decision {
 	return r.plain.AskPermission(tool, params)
 }
 
+func (r *RichUI) AskOptions(card AskCard) (string, error) {
+	r.updateStatus(richStatusMsg{phase: "input"})
+	return r.plain.AskOptions(card)
+}
+
 // NotifyAssisted surfaces assisted-mode review outcomes through the plain
 // renderer so the user sees why a prompt appeared or did not.
 func (r *RichUI) NotifyAssisted(notice AssistedNotice) {

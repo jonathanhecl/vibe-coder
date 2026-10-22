@@ -41,6 +41,22 @@ func (r *Registry) SetOutputLimit(maxBytes int) {
 	}
 }
 
+// SetAsker hands every tool that can ask the user an interactive front end.
+// Tools without one keep reading stdin themselves; callers should wire an asker
+// whenever a UI already owns the terminal so only one reader touches stdin.
+func (r *Registry) SetAsker(a Asker) {
+	if r == nil || a == nil {
+		return
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, t := range r.tools {
+		if at, ok := t.(interface{ SetAsker(Asker) }); ok {
+			at.SetAsker(a)
+		}
+	}
+}
+
 func (r *Registry) Get(name string) Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -119,6 +119,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 ### Safety and permissions
 
 - **Three permission tiers**: Safe (allow unless denied), Ask, and Network (prompt unless approved by a remembered rule or `-y`). Persistent denials apply to safe tools too.
+- **The prompt has a clock**: the permission card prints `⏳ auto-deny in 3:00` on its input line and counts down while it waits. When the clock reaches zero the action is denied as if the user had picked `Deny once` — no session rule is recorded, nothing is executed, and the model is told the prompt timed out so it keeps working on the rest of the task instead of retrying. Configure it with `PERMISSION_TIMEOUT` / `VIBE_CODER_PERMISSION_TIMEOUT` / `--permission-timeout` (Go duration, default `3m`; `off` waits forever). The countdown appears only when both stdin and stdout are terminals; a piped run keeps the old blocking behavior.
 - **Command gravity** — every shell command is classified before it runs, so the permission card shows its weight instead of reading every command alike. `READ` commands only inspect (a pipeline made of readers whose paths all resolve inside the workspace, with `2>/dev/null` allowed and no output redirection), so they run without a prompt and without spending a decision-model round trip. `WRITE` creates or updates files. `DESTRUCTIVE` deletes or overwrites data that already exists, including `cat a > b` over a file that already holds content, `cp a b`/`mv a b` onto an existing file, `>` truncation versus `>>` append, and history-rewriting git commands. `CATASTROPHIC` cannot be undone. The card prints `GRAVITY <level>` plus a one-line reason, and the level is handed to the decision model as runtime context; a model verdict that itself reports `high` risk is never auto-approved, however confident it claims to be.
 - **`-y` mode** enables auto-approval except for catastrophic commands in `Bash`, `InteractiveBash` and `BackgroundRun`. Remembered approvals, an approved session rule, and unattended missions cannot bypass them either (a mission denies them instead of hanging on a prompt).
 - **In-session memory** — `/yes` and `/no` toggle at runtime; decisions are remembered for the current session.
@@ -346,6 +347,8 @@ Model keys and overrides:
 - Environment: `VIBE_CODER_TEMPORAL=true|false` (aliases: `VIBEGO_TEMPORAL`, `TEMPORAL`)
 - Environment: `VIBE_CODER_ISOLATED=true|false` (aliases: `VIBEGO_ISOLATED`, `ISOLATED`)
 - Config file key / environment: `CHAT_TIMEOUT` / `VIBE_CODER_CHAT_TIMEOUT` (Go duration, e.g. `30m`; default `15m`) — deadline for a single `/api/chat` turn, useful for slow local models in long missions
+- Config file key / environment: `PERMISSION_TIMEOUT` / `VIBE_CODER_PERMISSION_TIMEOUT` (Go duration, e.g. `90s`; default `3m`, `off` waits forever) — how long a permission prompt waits before denying the action and telling the model it timed out
+- CLI: `--permission-timeout <duration|off>` — same bound from the command line
 - CLI: `--ui plain|rich`
 - CLI: `--model <model-name>` (or `-m <model-name>`)
 - CLI: `--sidecar <model-name>`

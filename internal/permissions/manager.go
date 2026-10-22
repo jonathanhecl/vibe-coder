@@ -19,6 +19,12 @@ type prompter interface {
 	AskPermission(tool string, params map[string]any) tui.Decision
 }
 
+// permissionTimeoutNote is the reason the model reads when a permission prompt
+// expires unanswered. It says the action did not run and that repeating it is
+// pointless, so the agent finishes the rest of the task instead of assuming the
+// tool succeeded or asking for the same thing again.
+const permissionTimeoutNote = "Permission denied: the user did not answer the permission prompt before it timed out, so this action was NOT executed. Continue the task without it; do not repeat the same request."
+
 // SafetyDecider evaluates whether a shell command is dangerous or safe to run automatically.
 type SafetyDecider interface {
 	IsCommandDangerous(ctx context.Context, command string) (bool, error)
@@ -544,6 +550,15 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	case tui.DecisionYesMode:
 		m.SetYesMode(true)
 		return true
+	case tui.DecisionTimeout:
+		// Nobody answered the prompt in time. This is a plain denial, not a
+		// cancellation: no session rule is recorded, so the same action can be
+		// asked again later, and the run keeps going with the reason recorded
+		// for the model.
+		m.mu.Lock()
+		m.lastDenialReason = permissionTimeoutNote
+		m.mu.Unlock()
+		return false
 	case tui.DecisionCancel:
 		m.mu.Lock()
 		m.permissionCancelled = true

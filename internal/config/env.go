@@ -20,6 +20,50 @@ func (c *Config) EffectiveChatTimeout() time.Duration {
 	return defaultChatRequestTimeout
 }
 
+// defaultPermissionPromptTimeout is how long a permission prompt waits for the
+// user before denying the action. A local model can work unattended for long
+// stretches, and a prompt nobody answers is indistinguishable from a hung run.
+const defaultPermissionPromptTimeout = 3 * time.Minute
+
+// EffectivePermissionTimeout returns how long a permission prompt waits for an
+// answer before the action is denied. An unset value means the 3-minute
+// default; a negative value disables the countdown and waits forever.
+func (c *Config) EffectivePermissionTimeout() time.Duration {
+	if c == nil {
+		return defaultPermissionPromptTimeout
+	}
+	if c.PermissionTimeout < 0 {
+		return 0
+	}
+	if c.PermissionTimeout > 0 {
+		return c.PermissionTimeout
+	}
+	return defaultPermissionPromptTimeout
+}
+
+// ParsePermissionTimeout parses a permission timeout in Go duration form. The
+// words off/never/none disable the countdown, as do a zero or negative duration.
+// It returns false when the value cannot be parsed, so the caller can keep the
+// previous setting instead of silently dropping it.
+func ParsePermissionTimeout(v string) (time.Duration, bool) {
+	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "" {
+		return 0, false
+	}
+	switch s {
+	case "off", "never", "none", "false":
+		return -1, true
+	}
+	parsed, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, false
+	}
+	if parsed <= 0 {
+		return -1, true
+	}
+	return parsed, true
+}
+
 func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("OLLAMA_HOST")); v != "" {
 		cfg.OllamaHost = v
@@ -116,6 +160,11 @@ func applyEnv(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_CHAT_TIMEOUT")); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
 			cfg.ChatTimeout = parsed
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_PERMISSION_TIMEOUT")); v != "" {
+		if parsed, ok := ParsePermissionTimeout(v); ok {
+			cfg.PermissionTimeout = parsed
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("VIBE_CODER_NO_THINK")); v != "" {

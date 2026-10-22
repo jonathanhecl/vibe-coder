@@ -130,6 +130,10 @@ func applyConfigFile(cfg *Config, path string) error {
 			if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
 				cfg.ChatTimeout = parsed
 			}
+		case "PERMISSION_TIMEOUT":
+			if parsed, ok := ParsePermissionTimeout(value); ok {
+				cfg.PermissionTimeout = parsed
+			}
 		case "NO_THINK":
 			if b, ok := parseBoolish(value); ok {
 				cfg.OllamaNoThink = b

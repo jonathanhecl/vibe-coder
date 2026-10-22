@@ -2,13 +2,19 @@ package tui
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/term"
 )
+
+// errPromptTimeout reports that a permission prompt expired before the user
+// answered.
+var errPromptTimeout = errors.New("permission prompt timed out")
 
 const (
 	enableBracketedPaste  = "\x1b[?2004h"
@@ -248,6 +254,11 @@ func readBufferedInput(reader *bufio.Reader, first string) (string, bool, string
 // AskPermission prompts the user with a colored panel for tool consent.
 // The user can press a single digit (1-7) without Enter; on non-TTY input we
 // fall back to line-based reading.
+//
+// The wait is bounded: the prompt shows a countdown and, when it reaches zero,
+// the action is denied with DecisionTimeout so a run never stalls on a prompt
+// nobody is there to answer. The bound comes from the configured permission
+// timeout and disappears when it is disabled or when stdin cannot be watched.
 func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	u.stopSpinner()
 	u.mu.Lock()
@@ -255,6 +266,21 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 
 	_, _ = io.WriteString(u.out, buildPermissionPrompt(u.style, permissionPayloadLines(tool, params)))
 	u.mu.Unlock()
+
+	timeout := u.cfg.EffectivePermissionTimeout()
+	if timeout > 0 && u.countdownAvailable() {
+		key, timedOut := u.readPermissionKeyCountdown(timeout)
+		if timedOut {
+			u.repaintPermissionLine(u.style.BoldYellow("⏳ no answer — permission denied"))
+			fmt.Fprint(u.out, "\n")
+			return DecisionTimeout
+		}
+		if key != 0 {
+			u.repaintPermissionLine("")
+			fmt.Fprintf(u.out, "%c\n", key)
+			return permissionDecision(strings.ToLower(string(key)))
+		}
+	}
 
 	var s string
 	if ch, ok := u.readSingleChar(); ok {
@@ -267,10 +293,13 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 		}
 		s = strings.TrimSpace(strings.ToLower(trimLine(line)))
 	}
-	if s == "" {
-		return DecisionDenyOnce
-	}
+	return permissionDecision(s)
+}
 
+// permissionDecision maps the key or line the user typed to a Decision. An empty
+// or unrecognized answer denies once, which keeps the run moving instead of
+// guessing an approval.
+func permissionDecision(s string) Decision {
 	switch s {
 	case "1":
 		return DecisionAllowOnce
@@ -289,6 +318,82 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	default:
 		return DecisionDenyOnce
 	}
+}
+
+// countdownAvailable reports whether this prompt can be watched with a
+// deadline. Both ends must be real terminals: stdout, because the countdown is
+// repainted in place with escape sequences, and stdin, because raw mode is what
+// delivers a single keypress without Enter.
+func (u *PlainUI) countdownAvailable() bool {
+	if u.in == nil || u.reader == nil || u.out == nil || !u.outIsTTY {
+		return false
+	}
+	fd := int(u.in.Fd())
+	return term.IsTerminal(fd) && inputWatchable(fd)
+}
+
+// readPermissionKeyCountdown waits for one keypress, repainting the time left on
+// the prompt's input line once per second. It returns timedOut when the deadline
+// arrives first; a zero key with timedOut false means the keypress could not be
+// read in raw mode and the caller should fall back to a line read.
+func (u *PlainUI) readPermissionKeyCountdown(timeout time.Duration) (byte, bool) {
+	deadline := time.Now().Add(timeout)
+	u.repaintPermissionLine(u.style.Dim(countdownText(timeout)))
+	key, err := u.readKeyUntil(deadline, func(remaining time.Duration) {
+		u.repaintPermissionLine(u.style.Dim(countdownText(remaining)))
+	})
+	if errors.Is(err, errPromptTimeout) {
+		return 0, true
+	}
+	if err != nil {
+		return 0, false
+	}
+	return key, false
+}
+
+// readKeyUntil waits for one byte from the terminal until the deadline, calling
+// tick with the time left between polls. It holds escMu and raw mode for the
+// whole wait, exactly like readSingleChar, so the ESC monitor cannot swallow the
+// key the user pressed.
+func (u *PlainUI) readKeyUntil(deadline time.Time, tick func(time.Duration)) (byte, error) {
+	fd := int(u.in.Fd())
+	u.escMu.Lock()
+	defer u.escMu.Unlock()
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return 0, err
+	}
+	defer term.Restore(fd, oldState)
+
+	ch, err := waitByte(fd, u.reader, deadline, tick)
+	if err != nil {
+		return 0, err
+	}
+	u.drainTrailingNewline()
+	return ch, nil
+}
+
+// repaintPermissionLine rewrites the line the prompt left the cursor on, keeping
+// the "▸ " caret so the prompt still reads as a single input line. Clearing to
+// the end of the line removes whatever the previous repaint left behind.
+func (u *PlainUI) repaintPermissionLine(text string) {
+	caret := u.style.Dim("  ▸ ")
+	if text == "" {
+		fmt.Fprintf(u.out, "\r\x1b[K%s", caret)
+		return
+	}
+	fmt.Fprintf(u.out, "\r\x1b[K%s%s", caret, text)
+}
+
+// countdownText renders the time left before the action is denied. Seconds are
+// rounded up so a fresh 3-minute prompt reads 3:00 and never shows 0:00 while
+// time is still left.
+func countdownText(remaining time.Duration) string {
+	if remaining < 0 {
+		remaining = 0
+	}
+	secs := int((remaining + time.Second - 1) / time.Second)
+	return fmt.Sprintf("⏳ auto-deny in %d:%02d", secs/60, secs%60)
 }
 
 // readSingleChar puts stdin in raw mode for one keypress and returns it.
@@ -312,22 +417,33 @@ func (u *PlainUI) readSingleChar() (byte, bool) {
 	if err != nil {
 		return 0, false
 	}
-	if u.reader.Buffered() > 0 {
-		next, err := u.reader.Peek(1)
-		if err == nil {
-			if next[0] == '\n' {
+	u.drainTrailingNewline()
+	return ch, true
+}
+
+// drainTrailingNewline consumes the newline a terminal sends along with a
+// single-key answer, so the next prompt does not start with an empty line of
+// input. It only looks at bytes the bufio reader already buffered, so it never
+// blocks waiting for one.
+func (u *PlainUI) drainTrailingNewline() {
+	if u.reader.Buffered() == 0 {
+		return
+	}
+	next, err := u.reader.Peek(1)
+	if err != nil {
+		return
+	}
+	switch next[0] {
+	case '\n':
+		_, _ = u.reader.ReadByte()
+	case '\r':
+		_, _ = u.reader.ReadByte()
+		if u.reader.Buffered() > 0 {
+			if next, err = u.reader.Peek(1); err == nil && next[0] == '\n' {
 				_, _ = u.reader.ReadByte()
-			} else if next[0] == '\r' {
-				_, _ = u.reader.ReadByte()
-				if u.reader.Buffered() > 0 {
-					if next, err = u.reader.Peek(1); err == nil && next[0] == '\n' {
-						_, _ = u.reader.ReadByte()
-					}
-				}
 			}
 		}
 	}
-	return ch, true
 }
 
 func buildPermissionPrompt(st Style, payload []string) string {

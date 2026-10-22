@@ -119,6 +119,10 @@ type Config struct {
 	HistoryFile string
 	// ChatTimeout caps one streaming chat call to Ollama (0 = use default, see EffectiveChatTimeout).
 	ChatTimeout time.Duration
+	// PermissionTimeout bounds how long a permission prompt waits for an answer
+	// before the action is denied (see EffectivePermissionTimeout). Zero uses the
+	// 3-minute default; a negative value disables the countdown.
+	PermissionTimeout time.Duration
 	// OllamaNoThink disables native thinking in /api/chat when false is sent (faster replies; quality trade-off).
 	OllamaNoThink bool
 	// OllamaThinkLevel selects the Ollama think value: "" (unset, default

@@ -7,55 +7,57 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type cliOptions struct {
-	prompt           optionalString
-	interactive      optionalBool
-	model            optionalString
-	ui               optionalString
-	sidecar          optionalString
-	noSidecar        bool
-	decisionModel    optionalString
-	decisionEndpoint optionalString
-	yesMode          optionalBool
-	assistedYes      optionalBool
-	offline          optionalBool
-	debug            optionalBool
-	resume           optionalBool
-	newSession       optionalBool
-	temporal         optionalBool
-	isolated         optionalBool
-	sessionID        optionalString
-	listSessions     optionalBool
-	ollamaHost       optionalString
-	endpoint         optionalString
-	modelProvider    optionalString
-	sidecarEndpoint  optionalString
-	sidecarProvider  optionalString
-	maxTokens        optionalInt
-	temperature      optionalFloat
-	contextWindow    optionalInt
-	keepAliveMain    optionalInt
-	keepAliveWorker  optionalInt
-	rag              optionalBool
-	ragMode          optionalString
-	ragPath          optionalString
-	ragTopK          optionalInt
-	ragIndex         optionalString
-	contextFiles     stringSlice
-	skillsDirs       optionalString
-	lsp              bool
-	noLSP            bool
-	lspServers       optionalString
-	lspTimeout       optionalInt
-	noLSPAfterEdit   bool
-	help             optionalBool
-	version          optionalBool
-	thinkLevel       optionalString
-	noThink          bool
-	hideThink        bool
-	showThink        bool
+	prompt            optionalString
+	interactive       optionalBool
+	model             optionalString
+	ui                optionalString
+	sidecar           optionalString
+	noSidecar         bool
+	decisionModel     optionalString
+	decisionEndpoint  optionalString
+	yesMode           optionalBool
+	assistedYes       optionalBool
+	permissionTimeout optionalDuration
+	offline           optionalBool
+	debug             optionalBool
+	resume            optionalBool
+	newSession        optionalBool
+	temporal          optionalBool
+	isolated          optionalBool
+	sessionID         optionalString
+	listSessions      optionalBool
+	ollamaHost        optionalString
+	endpoint          optionalString
+	modelProvider     optionalString
+	sidecarEndpoint   optionalString
+	sidecarProvider   optionalString
+	maxTokens         optionalInt
+	temperature       optionalFloat
+	contextWindow     optionalInt
+	keepAliveMain     optionalInt
+	keepAliveWorker   optionalInt
+	rag               optionalBool
+	ragMode           optionalString
+	ragPath           optionalString
+	ragTopK           optionalInt
+	ragIndex          optionalString
+	contextFiles      stringSlice
+	skillsDirs        optionalString
+	lsp               bool
+	noLSP             bool
+	lspServers        optionalString
+	lspTimeout        optionalInt
+	noLSPAfterEdit    bool
+	help              optionalBool
+	version           optionalBool
+	thinkLevel        optionalString
+	noThink           bool
+	hideThink         bool
+	showThink         bool
 }
 
 func parseCLI(args []string) (cliOptions, error) {
@@ -79,6 +81,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.yesMode, "yes", "yes mode")
 	fs.Var(&opts.assistedYes, "assisted-yes", "enable assisted execution mode with the decision model")
 	fs.Var(&opts.assistedYes, "assisted", "enable assisted execution mode with the decision model (alias)")
+	fs.Var(&opts.permissionTimeout, "permission-timeout", "how long a permission prompt waits before denying the action (e.g. 3m, off to wait forever)")
 	fs.Var(&opts.offline, "offline", "enable offline mode (blocks network tools and external commands)")
 	fs.Var(&opts.debug, "debug", "debug logs")
 	fs.Var(&opts.newSession, "n", "start a new session (do not auto-resume)")
@@ -288,6 +291,9 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	if cli.noLSPAfterEdit {
 		cfg.LSP.AfterEdit = false
 	}
+	if cli.permissionTimeout.set {
+		cfg.PermissionTimeout = cli.permissionTimeout.value
+	}
 }
 
 func validateUIMode(mode string) error {
@@ -347,6 +353,30 @@ func (o *optionalInt) Set(v string) error {
 	return nil
 }
 func (o *optionalInt) String() string { return strconv.Itoa(o.value) }
+
+// optionalDuration accepts a Go duration (or off/never) so a flag can carry the
+// same syntax as the config file and the environment.
+type optionalDuration struct {
+	value time.Duration
+	set   bool
+}
+
+func (o *optionalDuration) Set(v string) error {
+	parsed, ok := ParsePermissionTimeout(v)
+	if !ok {
+		return fmt.Errorf("invalid duration %q: use a Go duration such as 90s or 3m, or off", v)
+	}
+	o.value = parsed
+	o.set = true
+	return nil
+}
+
+func (o *optionalDuration) String() string {
+	if o.value == 0 {
+		return ""
+	}
+	return o.value.String()
+}
 
 type optionalFloat struct {
 	value float64

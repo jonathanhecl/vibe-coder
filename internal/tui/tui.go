@@ -121,6 +121,10 @@ const (
 	DecisionDenyPersistent
 	DecisionYesMode
 	DecisionCancel
+	// DecisionTimeout is reported when the permission prompt expired before the
+	// user answered. It is a denial, not a cancellation: the action does not run
+	// and the agent keeps working on the rest of the task.
+	DecisionTimeout
 )
 
 // Backward-compatible aliases for older call sites and tests.
