@@ -58,8 +58,12 @@ type PlainUI struct {
 	in  *os.File
 	out io.Writer
 
-	reader              *bufio.Reader
-	style               Style
+	reader *bufio.Reader
+	style  Style
+	// outIsTTY is resolved once at construction: the card decorations that
+	// assume a real terminal (spinner, output tails) stay off when stdout is a
+	// pipe or a file, which keeps -p and redirected runs parseable.
+	outIsTTY            bool
 	planMode            bool
 	bracketedPaste      bool
 	restoreTerminalMode func()
@@ -151,6 +155,7 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 		out:       os.Stdout,
 		reader:    bufio.NewReader(os.Stdin),
 		style:     st,
+		outIsTTY:  term.IsTerminal(int(os.Stdout.Fd())),
 		stopCh:    make(chan struct{}),
 		markdown:  NewMarkdownRenderer(st),
 		cfg:       c,

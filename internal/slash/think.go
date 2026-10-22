@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
 // runThinkCommand implements /think: show or set the Ollama thinking effort
@@ -48,6 +49,11 @@ func printThinkStatus(c *Ctx) {
 }
 
 func thinkCapabilitySuffix(c *Ctx) string {
+	// A configured level that cannot be delivered is the most useful thing to
+	// say, so it outranks what the model advertises.
+	if note := tui.ThinkingProviderNote(c.Cfg); note != "" {
+		return " (" + note + ")"
+	}
 	switch {
 	case c.Cfg.ThinkingKnown && c.Cfg.ThinkingSupported:
 		return fmt.Sprintf(" (%s supports thinking)", c.Cfg.Model)
@@ -69,21 +75,7 @@ func refreshThinkingFlags(c *Ctx) {
 // thinkingStatus renders the /status Thinking line: effective level plus
 // what the model actually supports.
 func thinkingStatus(c *Ctx) string {
-	level := strings.TrimSpace(c.Cfg.OllamaThinkLevel)
-	if level == "" {
-		level = "default"
-	}
-	if c.Cfg.OllamaNoThink && level == "default" {
-		level = "off"
-	}
-	switch {
-	case c.Cfg.ThinkingKnown && c.Cfg.ThinkingSupported:
-		return level + " (supported)"
-	case c.Cfg.ThinkingKnown:
-		return level + " (not supported)"
-	default:
-		return level + " (unknown)"
-	}
+	return tui.ThinkingRow(c.Cfg).Plain
 }
 
 // toolsStatus renders the /status Tools line: native when the model

@@ -3,6 +3,8 @@ package slash
 import (
 	"strings"
 	"testing"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
 func TestThinkSetAndStatus(t *testing.T) {
@@ -82,6 +84,32 @@ func TestStatusShowsThinking(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Thinking: medium (supported)") {
 		t.Fatalf("expected thinking line, got %q", out.String())
+	}
+}
+
+// The thinking row must not imply an effort the main provider never receives.
+func TestStatusReportsUndeliverableThinkingLevel(t *testing.T) {
+	ctx, _, out := newContextTestCtx(t)
+	if err := ctx.Cfg.AddProvider(config.Provider{Name: "local", Endpoint: "http://127.0.0.1:8080/v1", Kind: config.ProviderOpenAI}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.Cfg.SetRoleModel(config.RoleMain, "local", "swift-1.5"); err != nil {
+		t.Fatal(err)
+	}
+	ctx.Cfg.OllamaThinkLevel = "low"
+	if _, _, err := Dispatch(ctx, "/status"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Thinking: low (not applied: main provider is openai)") {
+		t.Fatalf("expected the provider caveat, got %q", out.String())
+	}
+
+	out.Reset()
+	if _, _, err := Dispatch(ctx, "/think"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Thinking level: low (not applied: main provider is openai)") {
+		t.Fatalf("expected /think to report the same caveat, got %q", out.String())
 	}
 }
 

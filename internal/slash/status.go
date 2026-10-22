@@ -62,7 +62,7 @@ func statusRows(c *Ctx) []tui.Row {
 	// instead of being repeated here.
 	rows = append(rows, tui.RoleRows(c.Cfg)...)
 
-	rows = append(rows, tui.Row{Label: "Thinking", Plain: thinkingStatus(c)})
+	rows = append(rows, tui.ThinkingRow(c.Cfg))
 	rows = append(rows, tui.Row{
 		Label: "Hide think",
 		Plain: yesNo(c.Cfg.OllamaHideThink),

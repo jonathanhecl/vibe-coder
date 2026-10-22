@@ -480,7 +480,7 @@ func (c *Config) SetRoleModel(role Role, provider, model string) error {
 	if _, ok := c.ensureProviderMap()[provider]; !ok {
 		return fmt.Errorf("unknown provider %q", provider)
 	}
-	c.RoleModels[role] = RoleModel{Provider: provider, Model: model}
+	c.ensureRoleMap()[role] = RoleModel{Provider: provider, Model: model}
 	c.syncLegacyFields()
 	return nil
 }

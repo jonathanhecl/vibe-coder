@@ -84,6 +84,15 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 		printEditDiffPreview(u.out, u.style, toolParams)
 	}
 
+	// A shell command's verdict lives on its last lines, but the card above
+	// collapses the whole output to "N lines, XB". printOutputTail shows that
+	// tail (dim, indented) so the transcript reads like a log snippet instead
+	// of a count. Terminal only: redirected output keeps the one-line summary
+	// so pipes stay parseable.
+	if !isError && name == "Bash" && u.outIsTTY {
+		printOutputTail(u.out, u.style, output, bashOutputTailLines)
+	}
+
 	// A failed Bash with a long command shows only "super..." in the card.
 	// Print the full command so the failure is debuggable.
 	if isError && name == "Bash" && toolParams != nil {
@@ -149,4 +158,52 @@ func printIndented(w io.Writer, s string) {
 	for _, line := range strings.Split(s, "\n") {
 		fmt.Fprintln(w, "    "+line)
 	}
+}
+
+// bashOutputTailLines is how many trailing lines of a successful shell command
+// are shown under its card: enough to read the verdict (test result, last
+// warning, the artifact that was built) without turning the transcript into a
+// log dump. The card keeps the full line and byte count.
+const bashOutputTailLines = 4
+
+// outputTailMaxRunes bounds a single previewed line. Shell output is arbitrary
+// text, and a 4000-column line would wreck the card layout.
+const outputTailMaxRunes = 200
+
+// printOutputTail prints the last maxLines of output, dim and indented, as a
+// compact tail. Single-line output is skipped: the card summary already shows
+// it verbatim.
+func printOutputTail(w io.Writer, st Style, output string, maxLines int) {
+	if maxLines <= 0 || strings.TrimSpace(output) == "" {
+		return
+	}
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	if len(lines) < 2 {
+		return
+	}
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	for _, line := range lines {
+		fmt.Fprintln(w, "    "+st.Dim(trimOutputLine(line, outputTailMaxRunes)))
+	}
+}
+
+// trimOutputLine keeps the last carriage-return state of a progress line (a
+// build reporting "10%\r50%\r100%" means 100%) and truncates rune-safely.
+func trimOutputLine(line string, maxRunes int) string {
+	if i := strings.LastIndexByte(line, '\r'); i >= 0 {
+		line = line[i+1:]
+	}
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(line)
+	if len(runes) <= maxRunes {
+		return line
+	}
+	if maxRunes == 1 {
+		return "…"
+	}
+	return string(runes[:maxRunes-1]) + "…"
 }

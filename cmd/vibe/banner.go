@@ -25,9 +25,12 @@ const bannerWordmark = `  ██╗   ██╗██╗██████╗ �
 // "Rol [provider] model" shape and show their fallback while they stay unset.
 // Endpoints live in /providers, so they are not repeated here.
 func bannerRows(cfg *config.Config, sessionID string, resumed bool) []tui.Row {
-	rows := make([]tui.Row, 0, len(config.AllRoles)+2)
+	rows := make([]tui.Row, 0, len(config.AllRoles)+3)
 	rows = append(rows, sessionBannerRow(cfg, sessionID, resumed))
 	rows = append(rows, withDecisionAssistedHint(tui.RoleRows(cfg), cfg)...)
+	// The thinking level belongs next to the models: it is the main model's
+	// runtime behavior, and it is the one setting a user changes per task.
+	rows = append(rows, tui.ThinkingRow(cfg))
 	if cfg != nil && cfg.Offline {
 		rows = append(rows, tui.Row{
 			Label:  "Offline",

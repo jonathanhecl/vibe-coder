@@ -50,6 +50,7 @@ func TestBannerRowsRoleWiring(t *testing.T) {
 		{"Rabbit/Fast", "Fallback to Sidecar  (set it with /setmodel rabbit MODEL)"},
 		{"Vision", "images go to main, then sidecar  (set it with /setmodel vision MODEL)"},
 		{"Embedding", "text-only retrieval (no encoder)  (set it with /setmodel embedding MODEL)"},
+		{"Thinking", "default"},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("expected %d rows, got %d: %#v", len(want), len(rows), rows)
@@ -62,8 +63,11 @@ func TestBannerRowsRoleWiring(t *testing.T) {
 			t.Errorf("%s = %q, want %q", expected.label, rows[i].Plain, expected.plain)
 		}
 	}
-	// The session row stands alone; every model role is listed under "Models".
-	for _, row := range rows[1:] {
+	// The session row stands alone and the thinking level follows the models.
+	if got := bannerRowPlain(t, rows, "Thinking"); got != "default" {
+		t.Fatalf("thinking row = %q", got)
+	}
+	for _, row := range rows[1 : len(rows)-1] {
 		if row.Section != tui.RoleSection {
 			t.Fatalf("%s row is not grouped under %q: %#v", row.Label, tui.RoleSection, row)
 		}
@@ -174,8 +178,9 @@ func TestBannerRowsNilConfig(t *testing.T) {
 	rows := bannerRows(nil, "session-nil", false)
 	// A nil config binds no role: the decision row is left out because there is
 	// nothing to assist with, and the vision row stays because nothing sees.
-	if len(rows) != len(config.RoleDisplayOrder) {
-		t.Fatalf("expected %d rows, got %d", len(config.RoleDisplayOrder), len(rows))
+	// The thinking row is always present, so it is counted on top of the roles.
+	if len(rows) != len(config.RoleDisplayOrder)+1 {
+		t.Fatalf("expected %d rows, got %d", len(config.RoleDisplayOrder)+1, len(rows))
 	}
 	if got := bannerRowPlain(t, rows, "Session"); got != "session-nil" {
 		t.Fatalf("session row = %q", got)
