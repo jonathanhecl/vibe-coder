@@ -56,6 +56,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	defer a.PersistWorkState()
 
 	a.resetTurnToolCalls()
+	// The repeated-call budget is per turn: a streak left by an earlier request
+	// must not abort this one on its first identical call.
+	a.noProgress.reset()
 	// Keep permission mode in sync with the mission at the start of every turn
 	// so unattended approval can never leak into a non-mission run.
 	if a.perm != nil {
@@ -69,6 +72,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	toolName, toolParams, wantsTool := inferSingleToolCall(userInput)
 	thinkingOnlyRetries := 0
 	emptyChatErrRetries := 0
+	noProgressRetries := 0
 	for i := 0; i < MaxIterations; i++ {
 		if wantsTool {
 			tool := a.reg.Get(toolName)
@@ -78,7 +82,11 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			if _, outcome, err := a.executeTool(ctx, tool, toolName, toolParams, toolExecutionMode{
 				endAssistantOnCancel: true,
 			}); err != nil {
-				return err
+				if a.recoverNoProgress(ctx, err, &noProgressRetries) {
+					wantsTool = false
+					continue
+				}
+				return noAnswerStopErr(err)
 			} else if outcome == toolBlocked || outcome == toolCancelled {
 				return nil
 			}
@@ -184,7 +192,10 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					fn()
 				}
 				if batchErr != nil {
-					return batchErr
+					if a.recoverNoProgress(ctx, batchErr, &noProgressRetries) {
+						continue
+					}
+					return noAnswerStopErr(batchErr)
 				}
 				if batchHalted {
 					return nil
@@ -225,7 +236,10 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					showPermissionDeniedResult: true,
 				})
 				if err != nil {
-					return err
+					if a.recoverNoProgress(ctx, err, &noProgressRetries) {
+						break
+					}
+					return noAnswerStopErr(err)
 				}
 				if outcome == toolBlocked || outcome == toolCancelled {
 					return nil
@@ -272,5 +286,5 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		a.compactBestEffort(ctx)
 		return nil
 	}
-	return fmt.Errorf("iteration cap reached (%d)", MaxIterations)
+	return fmt.Errorf("iteration cap reached (%d): this turn used all of its steps without finishing. Nothing was lost: send \"continue\" to resume from where it stopped", MaxIterations)
 }

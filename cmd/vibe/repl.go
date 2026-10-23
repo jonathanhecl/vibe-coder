@@ -233,7 +233,11 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 		saveMissionProgress(ag)
 		ag.LogMissionTurn(err)
 	}
-	if err != nil && !pauseReported && !agent.IsIterationCapErr(err) && !agent.IsNoProgressErr(err) {
+	// A mission that exhausted its per-turn step budget simply continues in the
+	// next turn; every other stop must reach the caller. Swallowing the step cap
+	// and the repeated-call stop here is what dropped the user back to the
+	// prompt with no answer and no reason.
+	if err != nil && !pauseReported && !(agent.IsIterationCapErr(err) && ag.MissionSnapshot().Status != "") {
 		return err
 	}
 	return nil

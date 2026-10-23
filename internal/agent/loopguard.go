@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,12 @@ func IsNoProgressErr(err error) bool {
 // polls, so real work is not mistaken for a loop.
 const noProgressLimit = 8
 
+// maxNoProgressRetries is how many times one turn restates the task after the
+// repeated-call stop fires before giving up. The first trip used to end the run
+// outright, which dropped the user back to the prompt with nothing to read and
+// no way to tell a stuck model from a crash.
+const maxNoProgressRetries = 2
+
 type noProgressGuard struct {
 	mu     sync.Mutex
 	call   string
@@ -49,6 +56,49 @@ func (g *noProgressGuard) observe(callSig, outputSig string) (int, bool) {
 		g.call, g.output, g.streak = callSig, outputSig, 1
 	}
 	return g.streak, g.streak >= noProgressLimit
+}
+
+// reset clears the streak for a new turn. The tolerance belongs to the turn that
+// spent it: a streak left over from an earlier request aborts the next one on
+// its first — identical — call, which is how one stuck turn poisoned every
+// prompt after it.
+func (g *noProgressGuard) reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.call, g.output, g.streak = "", "", 0
+}
+
+// recoverNoProgress turns the repeated-call stop into one more attempt inside the
+// same turn: it clears the streak, tells the model exactly what it repeated and
+// lets the loop ask again, so the next reply is a different request instead of
+// the same dead end. A mission is left alone because the mission loop pauses it
+// with a printed reason; retrying there would only burn tokens.
+func (a *Agent) recoverNoProgress(ctx context.Context, err error, retries *int) bool {
+	if !IsNoProgressErr(err) || a.MissionActive() || *retries >= maxNoProgressRetries {
+		return false
+	}
+	*retries = *retries + 1
+	detail := strings.TrimSpace(strings.TrimPrefix(err.Error(), ErrNoProgress.Error()+":"))
+	a.noProgress.reset()
+	a.ui.ShowToolResult("RECOVERY", "repeated tool call detected; asking the model to change its approach", false, nil)
+	message := "Stop repeating: "
+	if detail != "" {
+		message += strings.TrimSuffix(detail, ".") + ". "
+	}
+	message += "The same call cannot produce a different result. Change your approach now: re-read the file or the command output, fix the concrete cause, or tell the user in plain text what blocks you."
+	a.sess.AddRuntimeReminder(message)
+	a.compactBestEffort(ctx)
+	return true
+}
+
+// noAnswerStopErr explains a turn that stopped without an answer. The session
+// and its history are intact, so saying so turns a dead end into a resumable
+// stop instead of a silence that reads like a crash.
+func noAnswerStopErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w (nothing else ran this turn; the session is intact: send \"continue\" to resume, or tell the model what to change)", err)
 }
 
 // toolCallSignature canonicalizes a tool call (name + params) so identical

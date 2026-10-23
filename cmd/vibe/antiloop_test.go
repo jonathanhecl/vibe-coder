@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -64,6 +65,14 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 			if n == 1 {
 				content = fakeMissionStart
 			}
+		case f.mode == "stuck":
+			// The same call every time: the no-progress guard is the only thing
+			// that can stop this turn.
+			content = fakeNoopCall
+		case f.mode == "busy":
+			// A different call every time: real work, so only the per-turn step
+			// budget can end this turn.
+			content = fmt.Sprintf(`<invoke name="Bash">{"command":"echo step-%d"}</invoke>`, n)
 		default: // loop-tool
 			if n == 1 {
 				content = fakeMissionStart
@@ -154,5 +163,42 @@ func TestRunPromptPausesEmptyResponses(t *testing.T) {
 	}
 	if calls := fake.calls.Load(); calls > hardChatCap/2 {
 		t.Fatalf("empty-response guard fired too late: %d chat calls", calls)
+	}
+}
+
+// A plain turn (no mission) that gets stuck repeating one tool call used to end
+// with a nil error: runPrompt swallowed the no-progress stop and the user was
+// dropped back to the prompt with no answer and no reason. The stop must reach
+// the caller so it can be reported.
+func TestRunPromptReportsRepeatedToolLoopOutsideMission(t *testing.T) {
+	srv, _ := newFakeOllama(t, "stuck")
+	ag, ui := newHTTPTestAgent(t, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := runPrompt(ctx, ag, ui, "fix the file")
+	if !agent.IsNoProgressErr(err) {
+		t.Fatalf("runPrompt returned %v, want the repeated-call stop to reach the caller", err)
+	}
+	if !strings.Contains(err.Error(), `send "continue" to resume`) {
+		t.Errorf("the stop does not say how to resume: %v", err)
+	}
+}
+
+// The per-turn step cap was swallowed the same way: the turn vanished at step
+// 50 with nothing printed. It must be reported, and it must say the session can
+// continue.
+func TestRunPromptReportsIterationCapOutsideMission(t *testing.T) {
+	srv, _ := newFakeOllama(t, "busy")
+	ag, ui := newHTTPTestAgent(t, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	err := runPrompt(ctx, ag, ui, "keep working")
+	if !agent.IsIterationCapErr(err) {
+		t.Fatalf("runPrompt returned %v, want the step cap to reach the caller", err)
+	}
+	if !strings.Contains(err.Error(), `send "continue" to resume`) {
+		t.Errorf("the step cap does not say how to resume: %v", err)
 	}
 }
