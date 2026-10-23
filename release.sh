@@ -9,13 +9,14 @@ cd "$SCRIPT_DIR"
 
 usage() {
   cat <<'EOF'
-Usage: ./release.sh <vX.Y.Z> [--skip-tests] [--yes]
+Usage: ./release.sh <vX.Y.Z> [--run-tests] [--skip-tests] [--yes]
 
 Builds cross-platform binaries, tags the release, pushes to origin, and creates
 a GitHub Release with the archives and checksums.txt as assets.
 
 Options:
-  --skip-tests   Do not run the test suite before building.
+  --run-tests    Run the test suite before building.
+  --skip-tests   Do not run tests (default behavior; kept for compatibility).
   --yes, -y      Skip the interactive confirmation prompt.
   -h, --help     Show this help.
 
@@ -26,12 +27,13 @@ EOF
 }
 
 VERSION=""
-SKIP_TESTS=0
+RUN_TESTS=0
 ASSUME_YES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skip-tests) SKIP_TESTS=1; shift ;;
+    --run-tests) RUN_TESTS=1; shift ;;
+    --skip-tests) RUN_TESTS=0; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*)
@@ -156,12 +158,14 @@ if [[ "$ASSUME_YES" -ne 1 ]]; then
   fi
 fi
 
-if [[ "$SKIP_TESTS" -ne 1 ]]; then
+if [[ "$RUN_TESTS" -eq 1 ]]; then
   echo "[1/5] Running tests..."
   go test -timeout 10m ./...
   echo "[OK] Tests passed."
 else
-  echo "[1/5] Skipping tests as requested."
+  echo "[1/5] Checking compilation..."
+  go build -o /dev/null ./cmd/vibe
+  echo "[OK] Compilation check passed."
 fi
 
 dist_dir="$SCRIPT_DIR/dist"

@@ -269,7 +269,7 @@ On Linux/macOS, publish a release with:
 GITHUB_TOKEN=<token> ./release.sh v1.0.5
 ```
 
-`release.sh` runs the test suite (unless `--skip-tests`), builds all platform
+`release.sh` verifies that the binary compiles cleanly (or runs the test suite if `--run-tests` is provided), builds all platform
 archives into `dist/`, writes `dist/checksums.txt`, then creates the Git tag and
 the GitHub Release and uploads the assets. `--yes` skips the confirmation prompt
 for non-interactive use. It needs a token with `repo` scope in `GITHUB_TOKEN`

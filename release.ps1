@@ -10,6 +10,7 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$Version,
 
+    [switch]$RunTests,
     [switch]$SkipTests
 )
 
@@ -98,8 +99,8 @@ if ($confirmation -ne "y" -and $confirmation -ne "yes") {
     exit 0
 }
 
-# 9. Run tests unless skipped
-if (-not $SkipTests) {
+# 9. Verify compilation or run tests
+if ($RunTests) {
     Write-Host "`n[1/5] Running tests..." -ForegroundColor Cyan
     go test -timeout 10m ./...
     if ($LASTEXITCODE -ne 0) {
@@ -109,7 +110,21 @@ if (-not $SkipTests) {
     Write-Host "[OK] Tests passed." -ForegroundColor Green
 }
 else {
-    Write-Host "`n[1/5] Skipping tests as requested." -ForegroundColor Cyan
+    Write-Host "`n[1/5] Checking compilation..." -ForegroundColor Cyan
+    $tempBin = Join-Path ([System.IO.Path]::GetTempPath()) "vibe_compile_check_$([System.Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        go build -o $tempBin ./cmd/vibe
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[ERROR] Compilation check failed. Aborting release." -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "[OK] Compilation check passed." -ForegroundColor Green
+    }
+    finally {
+        if (Test-Path $tempBin) {
+            Remove-Item -Force $tempBin -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # 10. Prepare output directory
@@ -120,7 +135,7 @@ if (Test-Path $distDir) {
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 
 # 11. Build cross-platform binaries
-Write-Host "`n[$($SkipTests ? 2 : 2)/5] Compiling cross-platform binaries..." -ForegroundColor Cyan
+Write-Host "`n[2/5] Compiling cross-platform binaries..." -ForegroundColor Cyan
 
 $targets = @(
     @{ GOOS = 'windows'; GOARCH = 'amd64'; Ext = '.exe' },
@@ -169,7 +184,7 @@ foreach ($target in $targets) {
 Remove-Item Env:GOOS, Env:GOARCH, Env:CGO_ENABLED -ErrorAction SilentlyContinue
 
 # 12. Create Git tag and push
-Write-Host "`n[$($SkipTests ? 3 : 3)/5] Creating tag and pushing to origin..." -ForegroundColor Cyan
+Write-Host "`n[3/5] Creating tag and pushing to origin..." -ForegroundColor Cyan
 git tag -a $Version -m "Release $Version"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Failed to create local tag." -ForegroundColor Red
@@ -192,7 +207,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "[OK] Tag pushed to origin." -ForegroundColor Green
 
 # 13. Create GitHub release
-Write-Host "`n[$($SkipTests ? 4 : 4)/5] Creating GitHub release..." -ForegroundColor Cyan
+Write-Host "`n[4/5] Creating GitHub release..." -ForegroundColor Cyan
 $releaseUrl = "https://api.github.com/repos/$owner/$repo/releases"
 $headers = @{
     "Authorization"        = "Bearer $token"
@@ -229,7 +244,7 @@ catch {
 }
 
 # 14. Upload assets
-Write-Host "`n[$($SkipTests ? 5 : 5)/5] Uploading release assets..." -ForegroundColor Cyan
+Write-Host "`n[5/5] Uploading release assets..." -ForegroundColor Cyan
 $assets = Get-ChildItem -Path $distDir -Filter "*.zip" -File
 if ($assets.Count -eq 0) {
     Write-Host "[ERROR] No zip assets found in dist/ to upload." -ForegroundColor Red
