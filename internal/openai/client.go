@@ -338,7 +338,11 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 				// (stream_options include_usage), so read it before the
 				// choices check.
 				if chunk.Usage != nil {
-					usage = chunk.Usage.toUsage()
+					usage = chunk.Usage.toUsage(chunk.Timings)
+				} else if t := chunk.Timings; t != nil {
+					// A server can send the timing block on its own; the token
+					// counts it already carries still fill the report.
+					usage = (&usageReport{PromptTokens: t.PromptN, CompletionTokens: t.PredictedN}).toUsage(t)
 				}
 
 				if len(chunk.Choices) == 0 {

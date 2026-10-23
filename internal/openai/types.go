@@ -1,6 +1,10 @@
 package openai
 
-import "github.com/jonathanhecl/vibe-coder/internal/ollama"
+import (
+	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+)
 
 // chatCompletionRequest represents the standard OpenAI chat completions request payload.
 type chatCompletionRequest struct {
@@ -25,15 +29,55 @@ type usageReport struct {
 	CompletionTokens int `json:"completion_tokens"`
 }
 
-// toUsage converts the wire report into the shared Usage shape.
-func (u *usageReport) toUsage() *ollama.Usage {
+// serverTimings is llama.cpp's non-standard timing block, sent beside the usage
+// report on the include_usage chunk. Its `predicted_per_second` is the number a
+// user reads as "tokens/s"; standard OpenAI usage carries token counts only, so
+// without this block the footer has no generation time to show at all.
+type serverTimings struct {
+	PromptN         int     `json:"prompt_n"`
+	PromptMS        float64 `json:"prompt_ms"`
+	PredictedN      int     `json:"predicted_n"`
+	PredictedMS     float64 `json:"predicted_ms"`
+	PredictedPerSec float64 `json:"predicted_per_second"`
+}
+
+// toUsage converts the wire report into the shared Usage shape, folding in a
+// llama.cpp timing block when the server sent one. Durations stay zero for
+// servers that report counts only, and the footer keeps omitting the speed
+// segment rather than printing a wall-clock number with a different meaning.
+func (u *usageReport) toUsage(t *serverTimings) *ollama.Usage {
 	if u == nil {
 		return nil
 	}
-	return &ollama.Usage{
+	usage := &ollama.Usage{
 		PromptTokens:     u.PromptTokens,
 		CompletionTokens: u.CompletionTokens,
 	}
+	if t != nil {
+		usage.EvalDuration = t.evalDuration()
+		usage.PromptEvalDuration = msDuration(t.PromptMS)
+	}
+	return usage
+}
+
+// evalDuration is the generation time llama.cpp measured. The milliseconds are
+// authoritative; a server that reports only the rate still yields a usable
+// duration from the token count.
+func (t *serverTimings) evalDuration() time.Duration {
+	if t.PredictedMS > 0 {
+		return msDuration(t.PredictedMS)
+	}
+	if t.PredictedPerSec > 0 && t.PredictedN > 0 {
+		return time.Duration(float64(t.PredictedN) / t.PredictedPerSec * float64(time.Second))
+	}
+	return 0
+}
+
+func msDuration(ms float64) time.Duration {
+	if ms <= 0 {
+		return 0
+	}
+	return time.Duration(ms * float64(time.Millisecond))
 }
 
 // chatMessage represents one message in an OpenAI conversation history.
@@ -112,6 +156,7 @@ type chatCompletionChunk struct {
 	Object  string            `json:"object"`
 	Choices []chatChunkChoice `json:"choices"`
 	Usage   *usageReport      `json:"usage,omitempty"`
+	Timings *serverTimings    `json:"timings,omitempty"`
 	Error   *apiError         `json:"error,omitempty"`
 }
 
