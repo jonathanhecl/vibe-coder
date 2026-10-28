@@ -74,6 +74,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	emptyChatErrRetries := 0
 	noProgressRetries := 0
 	for i := 0; i < MaxIterations; i++ {
+		// A Ctrl+C between calls ends the turn here. Every further iteration
+		// would only replay an already cancelled request, which is what kept
+		// the loop spinning to the step cap while the user pressed Ctrl+C.
+		if ctx.Err() != nil {
+			return turnCancelledErr(ctx.Err())
+		}
 		if wantsTool {
 			tool := a.reg.Get(toolName)
 			if tool == nil {
@@ -86,7 +92,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					wantsTool = false
 					continue
 				}
-				return noAnswerStopErr(err)
+				return stopErr(ctx, err)
 			} else if outcome == toolBlocked || outcome == toolCancelled {
 				return nil
 			}
@@ -117,6 +123,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			return err
 		}
 		emptyChatErrRetries = 0
+		// The provider stream answers a cancelled request with a marker reply.
+		// Counting it as visible text is what let a pending checklist send the
+		// loop back for another iteration instead of stopping the turn.
+		if ctx.Err() != nil || strings.TrimSpace(reply) == cancelledReply {
+			return turnCancelledErr(ctx.Err())
+		}
 		if len(nativeCalls) > 0 {
 			// Native function calling wins over the XML envelope: the
 			// model already chose exact tools, so execute them directly.
@@ -195,7 +207,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					if a.recoverNoProgress(ctx, batchErr, &noProgressRetries) {
 						continue
 					}
-					return noAnswerStopErr(batchErr)
+					return stopErr(ctx, batchErr)
 				}
 				if batchHalted {
 					return nil
@@ -239,7 +251,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 					if a.recoverNoProgress(ctx, err, &noProgressRetries) {
 						break
 					}
-					return noAnswerStopErr(err)
+					return stopErr(ctx, err)
 				}
 				if outcome == toolBlocked || outcome == toolCancelled {
 					return nil

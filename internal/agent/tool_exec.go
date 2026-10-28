@@ -100,6 +100,15 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 
 	logger.Infof("Calling Tool Execute: tool=%s", toolName)
 	a.noteToolExecuted()
+	// Open the card before the work, not after: the "running…" line is the
+	// only sign of life while a slow command runs, and printing it once the
+	// tool already returned left the terminal silent for as long as the tool
+	// took (a Bash timeout meant two minutes of nothing after the footer, which
+	// reads exactly like a hang). TodoWrite renders its own checklist instead.
+	showCard := toolName != "TodoWrite"
+	if showCard {
+		a.ui.ShowToolCall(toolName, toolParams)
+	}
 	result := tool.Execute(tools.WithExecutor(ctx, a.executeDelegatedTool), toolParams)
 	if toolName == "Write" || toolName == "Edit" {
 		var checkpointErr error
@@ -142,13 +151,10 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		toolParams["_diff"] = result.Diff
 	}
 	a.paths.RememberToolResult(toolName, toolParams, result.Output, result.IsError)
-	if toolName == "TodoWrite" {
-		a.maybeShowTodos(toolName)
-	} else {
-		a.ui.ShowToolCall(toolName, toolParams)
+	if showCard {
 		a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
-		a.maybeShowTodos(toolName)
 	}
+	a.maybeShowTodos(toolName)
 	if !mode.skipSessionRecord {
 		a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
 	}

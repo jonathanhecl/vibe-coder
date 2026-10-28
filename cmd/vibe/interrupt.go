@@ -31,10 +31,14 @@ func (i *interrupter) disarm() {
 
 // interrupt cancels the current operation if one is running. Returns true
 // when an in-flight operation was cancelled.
+//
+// The cancel function stays armed until disarm: the turn is still unwinding
+// while the tool notices the cancellation, and clearing it here made a second
+// Ctrl+C print "type /exit or press Ctrl+D to quit" - advice that is wrong
+// while the agent is still the one in control of the terminal.
 func (i *interrupter) interrupt() bool {
 	i.mu.Lock()
 	c := i.current
-	i.current = nil
 	i.mu.Unlock()
 	if c != nil {
 		c()

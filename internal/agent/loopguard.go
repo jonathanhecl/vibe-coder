@@ -22,6 +22,30 @@ func IsNoProgressErr(err error) bool {
 	return err != nil && errors.Is(err, ErrNoProgress)
 }
 
+// ErrTurnCancelled marks a turn the user interrupted with Ctrl+C. It is a
+// normal outcome, not a failure: the session, the checklist, and every tool
+// result stay intact, so the caller reports it plainly instead of as an error
+// and the user can resume with "continue".
+var ErrTurnCancelled = errors.New("turn cancelled by user")
+
+// IsTurnCancelledErr reports whether err is the user's own interrupt.
+func IsTurnCancelledErr(err error) bool {
+	return err != nil && errors.Is(err, ErrTurnCancelled)
+}
+
+// turnCancelledErr converts a cancelled context into the turn's stop signal so
+// a Ctrl+C ends the run on the spot. Without it the loop kept spinning: the
+// provider stream answers "[Cancelled by user]" instantly, that reply counts as
+// visible text, and a pending checklist sends the loop straight back for
+// another iteration - up to the step cap, while the user presses Ctrl+C again
+// and nothing appears to happen.
+func turnCancelledErr(err error) error {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return ErrTurnCancelled
+	}
+	return fmt.Errorf("%w: %v", ErrTurnCancelled, err)
+}
+
 // noProgressLimit is how many consecutive identical (call, output) pairs are
 // tolerated before the run stops. Kept comfortably above common legitimate
 // repeats such as polling a job whose status output stays "running" for a few
@@ -89,6 +113,20 @@ func (a *Agent) recoverNoProgress(ctx context.Context, err error, retries *int) 
 	a.sess.AddRuntimeReminder(message)
 	a.compactBestEffort(ctx)
 	return true
+}
+
+// cancelledReply is what the chat stream returns when it was interrupted
+// mid-flight. It is a marker, not an answer: the loop must never treat it as
+// visible assistant text.
+const cancelledReply = "[Cancelled by user]"
+
+// stopErr converts a cancelled context into the turn's stop signal and
+// otherwise explains a stop that produced no answer.
+func stopErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return turnCancelledErr(err)
+	}
+	return noAnswerStopErr(err)
 }
 
 // noAnswerStopErr explains a turn that stopped without an answer. The session

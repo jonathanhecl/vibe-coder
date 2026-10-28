@@ -98,26 +98,20 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 	if handled {
 		ui.SetPlanMode(ag.InPlanMode())
 		if task, ok := planTaskFromSlash(line); ok {
-			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
+			printTurnOutcome(ag, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
 			_ = slashCtx.Session.Save()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
 		}
 		if task, ok := reviewTaskFromSlash(line); ok {
-			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
+			printTurnOutcome(ag, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
 			_ = slashCtx.Session.Save()
 			ag.ExitReviewMode()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
 		}
 		if task, ok := slash.PasteTaskFromSlash(slashCtx, line); ok {
-			if err := runAgentWithEmptyRetry(rootCtx, ag, ui, task); err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
+			printTurnOutcome(ag, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
 			_ = slashCtx.Session.Save()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
@@ -125,9 +119,7 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 		if task, ok := slash.GoalTaskFromSlash(line); ok {
 			if ag.MissionActive() && ag.MissionSnapshot().Goal == task {
 				prompt := slash.FormatGoalPrompt(task)
-				if err := runPrompt(rootCtx, ag, ui, prompt); err != nil {
-					fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				}
+				printTurnOutcome(ag, runPrompt(rootCtx, ag, ui, prompt))
 				_ = slashCtx.Session.Save()
 				return false
 			}
@@ -136,11 +128,41 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 	}
 
 	ui.SetPlanMode(ag.InPlanMode())
-	if err := runPrompt(rootCtx, ag, ui, line); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-	}
+	printTurnOutcome(ag, runPrompt(rootCtx, ag, ui, line))
 	_ = slashCtx.Session.Save()
 	return false
+}
+
+// printTurnOutcome closes every turn the same way: it names an interruption and
+// an error plainly, and then reports the work that is still open. A turn stops
+// for many reasons - the step cap, a repeated tool call, an interrupt, a paused
+// mission - and returning to a bare prompt made all of them look like the task
+// had simply vanished.
+func printTurnOutcome(ag *agent.Agent, err error) {
+	switch {
+	case err == nil:
+	case agent.IsTurnCancelledErr(err):
+		st := tui.NewStyle(os.Stdout)
+		fmt.Fprintln(os.Stderr, st.Yellow("Turn cancelled — the session, the checklist and every tool result are intact."))
+	default:
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+	reportPendingWork(ag)
+}
+
+// reportPendingWork prints one line about the checklist and mission state the
+// finished turn left behind, so the user always knows whether something is
+// still open before typing the next prompt.
+func reportPendingWork(ag *agent.Agent) {
+	if ag == nil {
+		return
+	}
+	summary := ag.PendingWorkSummary()
+	if summary == "" {
+		return
+	}
+	st := tui.NewStyle(os.Stdout)
+	fmt.Fprintf(os.Stdout, "%s %s\n", st.Yellow("⏳"), summary)
 }
 
 // runPrompt runs one user prompt and then honours any mission the agent

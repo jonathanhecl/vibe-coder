@@ -321,7 +321,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 				cancel()
 				a.recordChatAttempt(systemPrompt, wstats, chatStart, 0, err)
 				if isCancelledByUser(rootCtx, err) {
-					return "[Cancelled by user]", nil, nil
+					return cancelledReply, nil, nil
 				}
 				if strings.Contains(strings.ToLower(err.Error()), "model not found") {
 					if pulled := a.tryAutoPullModel(rootCtx); pulled {
@@ -673,7 +673,7 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			if chunk.Err != nil {
 				if isCancelledByUser(rootCtx, chunk.Err) {
 					finishAssistant()
-					return "[Cancelled by user]", nil, nil
+					return cancelledReply, nil, nil
 				}
 				a.ui.StopWaiting()
 				endThinking()
