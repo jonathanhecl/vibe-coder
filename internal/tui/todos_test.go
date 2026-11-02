@@ -114,7 +114,7 @@ func TestCompactToolHeaderPerTool(t *testing.T) {
 			name:   "Bash truncated",
 			tool:   "Bash",
 			params: map[string]any{"command": "go test ./..."},
-			want:   "Bash $ go test ./...",
+			want:   "Shell $ go test ./...",
 		},
 		{
 			name:   "TodoWrite count",

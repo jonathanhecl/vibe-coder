@@ -77,6 +77,10 @@ type PlainUI struct {
 	pendingTool   string
 	pendingHeader string
 	pendingActive bool
+	// pendingStart is when the tool card opened, so the final line can report
+	// how long the command itself ran. The card opens after the permission
+	// prompt, so the user's own thinking time is not counted.
+	pendingStart time.Time
 
 	streamingAssistant     bool
 	thinkingActive         bool
@@ -139,6 +143,7 @@ const (
 	iconAssistant = "🤖"
 	iconRunning   = "🔄"
 	iconTool      = "🔨"
+	iconShell     = "🛡️"
 	iconDone      = "✅"
 	iconErr       = "❌"
 	iconThink     = "☁️"

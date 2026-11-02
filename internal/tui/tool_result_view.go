@@ -188,8 +188,8 @@ func cursorEditWriteChip(st Style, name string, params map[string]any) string {
 		if n == 0 {
 			n = 1
 		}
-		return st.BrightGreen("+") + st.Green(fmt.Sprintf("%d", n)) + " " + st.Dim("lines") +
-			" · " + st.Dim(FormatBytes(len(c)))
+		return st.BrightGreen(fmt.Sprintf("+%d", n)) + st.Dim(" lines") +
+			st.Dim(" · ") + st.BrightGreen("+"+FormatBytes(len(c)))
 	case "Edit":
 		oldS, _ := params["old_string"].(string)
 		newS, _ := params["new_string"].(string)
@@ -200,16 +200,18 @@ func cursorEditWriteChip(st Style, name string, params map[string]any) string {
 		delta := len(newS) - len(oldS)
 		deltaStr := ""
 		if delta != 0 {
-			sign := "+"
-			d := delta
+			// The byte delta follows the direction of the change: growth is
+			// lime like the added lines, a shrink is red like the removed ones.
+			sign, d, paint := "+", delta, st.BrightGreen
 			if delta < 0 {
-				sign = "−"
-				d = -delta
+				sign, d, paint = "−", -delta, st.Red
 			}
-			deltaStr = " · " + st.Dim(sign+FormatBytes(d))
+			deltaStr = st.Dim(" · ") + paint(sign+FormatBytes(d))
 		}
-		return st.BrightGreen("+") + st.Green(fmt.Sprintf("%d", ln)) + " " +
-			st.Red("−") + st.Red(fmt.Sprintf("%d", lo)) + " " + st.Dim("lines") + deltaStr
+		// +6/−8 lines reads as one stat: the added count in lime, the removed
+		// one in red, and the byte delta in lime because it is growth too.
+		return st.BrightGreen(fmt.Sprintf("+%d", ln)) + st.Dim("/") +
+			st.Red(fmt.Sprintf("−%d lines", lo)) + deltaStr
 	default:
 		return ""
 	}

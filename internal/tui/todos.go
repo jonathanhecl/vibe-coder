@@ -99,6 +99,15 @@ func todoGlyph(st Style, status string) (string, func(string) string) {
 // Bash command was truncated and print it in full below the card.
 const maxToolHeaderLen = 52
 
+// bashCommandRunes is how much of a shell command a card shows. Enough for a
+// chained one-liner ("cd … && echo …; …") to stay readable, while the summary
+// after the arrow still fits on a normal terminal.
+const bashCommandRunes = 100
+
+// bashHeaderRunes is the whole shell header budget: the label, " $ " and the
+// command with room for its ellipsis.
+const bashHeaderRunes = len("Shell $ ") + bashCommandRunes
+
 // CompactToolHeader renders a Cursor-style one-line label for a tool call,
 // e.g. "Read foo.go", "Glob *.go in src/", "Bash $ ls -la". Tool-specific
 // formatting falls back to the generic key=value list for unknown tools.
@@ -136,7 +145,7 @@ func CompactToolHeader(name string, params map[string]any) string {
 		}
 	case "Bash":
 		if cmd, ok := params["command"].(string); ok && cmd != "" {
-			out = "Bash $ " + truncateInline(strings.TrimSpace(cmd), 80)
+			out = "Shell $ " + truncateInline(strings.TrimSpace(cmd), bashCommandRunes)
 		}
 	case "TodoWrite":
 		if todos, ok := params["todos"].([]any); ok {
@@ -188,6 +197,11 @@ func CompactToolHeader(name string, params map[string]any) string {
 		} else {
 			out = name
 		}
+	}
+	if name == "Bash" {
+		// A shell card earns the wider budget: the command is the useful part,
+		// and 52 runes cut every realistic "cd … && …" into an ellipsis.
+		return truncateInline(out, bashHeaderRunes)
 	}
 	return truncateInline(out, maxToolHeaderLen)
 }
