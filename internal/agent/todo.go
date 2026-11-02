@@ -64,6 +64,33 @@ func (a *Agent) todoProgressNote() string {
 	return b.String()
 }
 
+// nextPendingTodo names the item the model should be executing right now: the
+// first one in progress, else the first pending. The repeated-reply reminder
+// and its stop message point at it by name, because "continue with the pending
+// steps" is the instruction the loop was already ignoring.
+func (a *Agent) nextPendingTodo() string {
+	tw := a.todoWriteTool()
+	if tw == nil {
+		return ""
+	}
+	snap := tw.Store().Snapshot()
+	for _, want := range []string{tools.TodoStatusInProgress, tools.TodoStatusPending} {
+		for _, it := range snap {
+			if !isMeaningfulTodoContent(it.Content) {
+				continue
+			}
+			status := it.Status
+			if status == "" {
+				status = tools.TodoStatusPending
+			}
+			if status == want {
+				return strings.TrimSpace(it.Content)
+			}
+		}
+	}
+	return ""
+}
+
 func (a *Agent) todoWriteTool() *tools.TodoWriteTool {
 	// Tests may use partial registries, so missing or replaced TodoWrite is valid.
 	tw, _ := a.reg.Get("TodoWrite").(*tools.TodoWriteTool)

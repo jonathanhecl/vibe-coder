@@ -200,6 +200,17 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 				pauseReported = true
 				break
 			}
+			if agent.IsRepeatedReplyErr(err) {
+				// The model kept restating the same answer while the checklist
+				// stood still: pausing is what stops a mission from spending
+				// every remaining turn on the same paragraph.
+				ag.BlockActiveMission("The agent kept repeating the same answer while checklist items stayed pending; mission paused to avoid an infinite loop.")
+				fmt.Fprintln(os.Stderr, "Mission paused: repeated answer with no progress. The agent needs your input.")
+				saveMissionProgress(ag)
+				ag.LogMissionTurn(err)
+				pauseReported = true
+				break
+			}
 			// A hard failure (network, permission, cancellation) stops the run.
 			return err
 		}

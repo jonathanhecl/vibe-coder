@@ -59,6 +59,8 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	// The repeated-call budget is per turn: a streak left by an earlier request
 	// must not abort this one on its first identical call.
 	a.noProgress.reset()
+	// The repeated-answer budget is per turn for the same reason.
+	a.replyRepeat.reset()
 	// Keep permission mode in sync with the mission at the start of every turn
 	// so unattended approval can never leak into a non-mission run.
 	if a.perm != nil {
@@ -290,7 +292,20 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		thinkingOnlyRetries = 0
 		if a.hasPendingTodos() {
 			a.sess.AddAssistant(reply)
-			a.sess.AddRuntimeReminder("There are still pending TODO items. Continue executing the remaining steps with tool calls — do not finish the turn with plain text.")
+			// A checklist that does not move while the answer repeats is a
+			// stall no other guard can see: there is no tool call to compare
+			// and the reply is not empty. Name the repetition, point at the
+			// next item, then stop instead of asking up to MaxIterations times.
+			streak := a.replyRepeat.observe(reply)
+			if streak > maxRepeatedReplies {
+				a.compactBestEffort(ctx)
+				return repeatedReplyErr(streak, a.nextPendingTodo())
+			}
+			if streak > 1 {
+				a.sess.AddRuntimeReminder(a.repeatedReplyNote(reply))
+			} else {
+				a.sess.AddRuntimeReminder("There are still pending TODO items. Continue executing the remaining steps with tool calls — do not finish the turn with plain text.")
+			}
 			a.compactBestEffort(ctx)
 			continue
 		}

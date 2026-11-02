@@ -86,7 +86,10 @@ Network tools are auto-approved so nothing blocks waiting for the user, while
 mandatory dangerous-command confirmations are denied (never prompted) so the
 agent gets a denial and can adapt or call `MissionBlocked`. Empty responses are
 retried automatically and, if they persist, or if several turns run no tools at
-all, the mission is paused instead of spinning. The mission, checklist, and tasks
+all, the mission is paused instead of spinning. A turn whose visible answer
+repeats while the checklist does not move is stopped after the second repeat,
+with the pending item named, instead of asking the model the same thing up to
+the 50-step cap. The mission, checklist, and tasks
 are written to disk after every turn, so `--resume` continues an interrupted
 mission exactly where it stopped and tells you a mission is waiting. `/status`
 shows the current mission, and every turn is appended to the redacted run log at

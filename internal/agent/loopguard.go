@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
@@ -160,4 +161,166 @@ func toolCallSignature(name string, params map[string]any) string {
 func toolOutputSignature(result tools.Result) string {
 	sum := sha256.Sum256([]byte(result.Output))
 	return fmt.Sprintf("%t:%x", result.IsError, sum[:8])
+}
+
+// ErrRepeatedReply marks a turn whose visible answer came back with the same
+// content while TODO items stayed pending. One repeat is tolerated (a model
+// re-reading its own checklist); the third identical answer stops the turn,
+// because asking again only grows a transcript that already argues for the
+// loop: the model sees its own repeated summary as the thing to continue.
+var ErrRepeatedReply = errors.New("repeated reply with pending TODO items")
+
+// IsRepeatedReplyErr reports whether err is the repeated-answer stop.
+func IsRepeatedReplyErr(err error) bool {
+	return err != nil && errors.Is(err, ErrRepeatedReply)
+}
+
+const (
+	// maxRepeatedReplies is how many repeats one turn tolerates before stopping.
+	maxRepeatedReplies = 2
+	// repeatedReplySimilarity is the word-set overlap (Jaccard) at which two
+	// answers count as the same one: a rephrase such as "decidió" / "confirmó"
+	// still matches, while an answer about a different step does not.
+	repeatedReplySimilarity = 0.6
+	// repeatedReplyWindow is how many previous answers are compared against, so
+	// alternating between two phrasings cannot dodge the guard.
+	repeatedReplyWindow = 3
+)
+
+// repeatedReplyWords are dropped before comparing, so function words cannot
+// make two different answers look alike (or hide a rephrase of one).
+var repeatedReplyWords = map[string]struct{}{
+	"a": {}, "al": {}, "and": {}, "are": {}, "as": {}, "at": {}, "by": {}, "con": {},
+	"de": {}, "del": {}, "e": {}, "el": {}, "en": {}, "es": {}, "for": {}, "in": {},
+	"is": {}, "it": {}, "la": {}, "las": {}, "lo": {}, "los": {}, "of": {}, "o": {},
+	"on": {}, "or": {}, "para": {}, "por": {}, "que": {}, "se": {}, "son": {}, "su": {},
+	"sus": {}, "that": {}, "the": {}, "to": {}, "u": {}, "un": {}, "una": {}, "unas": {},
+	"unos": {}, "with": {}, "y": {},
+}
+
+type replyRepeatGuard struct {
+	mu     sync.Mutex
+	recent []map[string]struct{}
+	streak int
+}
+
+// observe records one visible answer and returns the run of consecutive
+// near-identical answers it closes: 1 for new content, 2 for the first repeat.
+func (g *replyRepeatGuard) observe(reply string) int {
+	words := replyWordSet(reply)
+	if len(words) == 0 {
+		return 0
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.similarToRecent(words) {
+		g.streak++
+	} else {
+		g.streak = 1
+	}
+	g.recent = append(g.recent, words)
+	if len(g.recent) > repeatedReplyWindow {
+		g.recent = g.recent[len(g.recent)-repeatedReplyWindow:]
+	}
+	return g.streak
+}
+
+func (g *replyRepeatGuard) similarToRecent(words map[string]struct{}) bool {
+	for _, prev := range g.recent {
+		if wordSetOverlap(prev, words) >= repeatedReplySimilarity {
+			return true
+		}
+	}
+	return false
+}
+
+// reset clears the guard for a new turn, like noProgressGuard.reset: a streak
+// belongs to the turn that spent it.
+func (g *replyRepeatGuard) reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.recent = nil
+	g.streak = 0
+}
+
+// replyWordSet lowercases an answer into its set of meaningful words.
+func replyWordSet(reply string) map[string]struct{} {
+	words := make(map[string]struct{})
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		w := b.String()
+		b.Reset()
+		if _, skip := repeatedReplyWords[w]; skip {
+			return
+		}
+		words[w] = struct{}{}
+	}
+	for _, r := range strings.ToLower(reply) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return words
+}
+
+// wordSetOverlap is the Jaccard similarity of two word sets.
+func wordSetOverlap(a, b map[string]struct{}) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	shared := 0
+	for w := range a {
+		if _, ok := b[w]; ok {
+			shared++
+		}
+	}
+	return float64(shared) / float64(len(a)+len(b)-shared)
+}
+
+// repeatedReplyNote is the reminder sent back after a repeat. It names the
+// repetition and, when the checklist has one, the exact item to execute now:
+// the generic "continue with the remaining steps" text is what the model was
+// already ignoring, so repeating it verbatim only feeds the loop.
+func (a *Agent) repeatedReplyNote(reply string) string {
+	note := "Your last reply repeats what you already sent"
+	if quote := repeatedReplyQuote(reply); quote != "" {
+		note += fmt.Sprintf(" (%q)", quote)
+	}
+	note += ". Restating it does not finish the checklist."
+	if next := a.nextPendingTodo(); next != "" {
+		note += fmt.Sprintf(" Execute this item now with a tool call: %q.", next)
+	}
+	note += " If it is already done or no longer applies, update the checklist with TodoWrite and answer in one short sentence."
+	return note
+}
+
+// repeatedReplyQuote shortens an answer to the line the reminder shows back, so
+// the model reads its own duplicate right next to the instruction to stop.
+func repeatedReplyQuote(reply string) string {
+	const limit = 120
+	line := strings.TrimSpace(reply)
+	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+		line = strings.TrimSpace(line[:i])
+	}
+	if len(line) > limit {
+		line = strings.TrimSpace(line[:limit]) + "…"
+	}
+	return line
+}
+
+// repeatedReplyErr ends the turn instead of asking for the same answer again,
+// and names what is still open so the user can resume in a clean turn.
+func repeatedReplyErr(streak int, next string) error {
+	detail := fmt.Sprintf("the same answer came back %d times and the checklist did not move", streak)
+	if next != "" {
+		detail += fmt.Sprintf(" (next pending item: %q)", next)
+	}
+	return fmt.Errorf("%w: %s. Nothing was lost: the session and the checklist are intact — send \"continue\" to resume from a fresh turn, or tell the model what to change", ErrRepeatedReply, detail)
 }

@@ -8,8 +8,8 @@ import (
 )
 
 // maxPendingNames caps how many open TODO items a summary names. A long
-// checklist would turn the notice into a second /todos listing, so the rest is
-// reported as a count.
+// checklist would turn the notice into a full listing, so the rest is reported
+// as a count.
 const maxPendingNames = 2
 
 // pendingNameMaxLen trims one TODO title so the whole notice stays on a line.
@@ -42,7 +42,7 @@ func (a *Agent) PendingWorkSummary() string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, "; ") + ` — send "continue" to resume, or /todos to review the checklist.`
+	return strings.Join(parts, "; ") + ` — send "continue" to resume.`
 }
 
 // openTodoItems splits the meaningful checklist items that are not done.
