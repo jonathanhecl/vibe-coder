@@ -285,29 +285,79 @@ func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
 	if timeout > 0 && u.countdownAvailable() {
 		key, timedOut := u.readPermissionKeyCountdown(timeout)
 		if timedOut {
-			u.rewriteInputLine(u.style.BoldYellow(fmt.Sprintf("⏳ no answer after %s — permission denied", formatBadgeWait(timeout))))
-			fmt.Fprint(u.out, "\n")
+			u.settlePermissionCard(fmt.Sprintf("⏳ no answer after %s — denied", formatBadgeWait(timeout)))
 			return DecisionTimeout
 		}
 		if key != 0 {
-			u.repaintPermissionLine(0)
-			fmt.Fprintf(u.out, "%c\n", key)
-			return permissionDecision(strings.ToLower(string(key)))
+			decision := permissionDecision(strings.ToLower(string(key)))
+			u.settlePermissionCard(permissionDecisionLabel(decision))
+			return decision
 		}
 	}
 
 	var s string
 	if ch, ok := u.readSingleChar(); ok {
-		fmt.Fprintf(u.out, "%c\n", ch)
 		s = strings.ToLower(string(ch))
 	} else {
 		line, err := u.reader.ReadString('\n')
 		if err != nil {
+			u.settlePermissionCard(permissionDecisionLabel(DecisionDenyOnce))
 			return DecisionDenyOnce
 		}
 		s = strings.TrimSpace(strings.ToLower(trimLine(line)))
 	}
-	return permissionDecision(s)
+	decision := permissionDecision(s)
+	u.settlePermissionCard(permissionDecisionLabel(decision))
+	return decision
+}
+
+// permissionCardAnswerRows is how many rows sit above the card's input line and
+// below the request payload: the leading blank line, the seven option rows and
+// the separator. Answered prompts erase exactly these, so a long run keeps one
+// line per decision instead of a menu nobody can act on anymore.
+const permissionCardAnswerRows = 9
+
+// settlePermissionCard replaces the option menu with the answer the user gave.
+// The card ends up as the prompt line plus the chosen label ("... [default:
+// deny]: Always allow"), which is the part a transcript is worth keeping: the
+// key that produced it and the rows that were on offer are both noise once the
+// decision is made.
+func (u *PlainUI) settlePermissionCard(answer string) {
+	if u.out == nil {
+		return
+	}
+	line := optionPromptLine(u.style, "", permissionInstruction) + answer
+	if u.outIsTTY {
+		// Clear the input line, then walk up over the menu and its blank line,
+		// erasing as we go. The cursor lands where the menu started, which is
+		// where the single answered line is printed.
+		fmt.Fprint(u.out, "\r\x1b[K")
+		for i := 0; i < permissionCardAnswerRows; i++ {
+			fmt.Fprint(u.out, "\x1b[1A\x1b[K")
+		}
+	}
+	fmt.Fprintf(u.out, "%s\n", line)
+}
+
+// permissionDecisionLabel is the human name of a decision, shared by the card
+// rows and the collapsed answer so a label can never drift from its key.
+func permissionDecisionLabel(d Decision) string {
+	switch d {
+	case DecisionAllowOnce:
+		return "Allow once"
+	case DecisionAllowSession:
+		return "Allow this session"
+	case DecisionAllowPersistent:
+		return "Always allow"
+	case DecisionDenySession:
+		return "Block this session"
+	case DecisionDenyPersistent:
+		return "Always deny"
+	case DecisionCancel:
+		return "Cancel"
+	default:
+		return "Deny once"
+	}
 }
 
 // permissionDecision maps the key or line the user typed to a Decision. An empty
@@ -394,12 +444,6 @@ func (u *PlainUI) readKeyUntil(deadline time.Time, tick func(time.Duration) erro
 // shape when the clock starts.
 func (u *PlainUI) repaintPermissionLine(remaining time.Duration) {
 	fmt.Fprintf(u.out, "\r\x1b[K%s", optionPromptLine(u.style, askBadge(remaining), permissionInstruction))
-}
-
-// rewriteInputLine replaces the card's input line with text, for the states that
-// end it: the denial that follows a timeout, or the prompt without a clock.
-func (u *PlainUI) rewriteInputLine(text string) {
-	fmt.Fprintf(u.out, "\r\x1b[K%s", text)
 }
 
 // ceilSeconds rounds a wait up to whole seconds. Both countdowns share it so

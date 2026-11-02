@@ -51,6 +51,7 @@ func (s *Session) Clear() {
 	s.messages = s.messages[:0]
 	s.tokenEstimate = 0
 	s.mem = newSessionMemory(s.cfg, s.client)
+	s.permState = nil
 	s.revision++
 	s.generation++
 	if s.cfg != nil && s.cfg.Cwd != "" {
@@ -295,6 +296,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	var pinned []string
 	var loadedWorkState []byte
 	var loadedMemory []string
+	var loadedPermState json.RawMessage
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSessionLineBytes)
 	for scanner.Scan() {
@@ -309,6 +311,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 					Pinned      []string        `json:"pinned_contexts"`
 					WorkState   json.RawMessage `json:"work_state"`
 					MemoryTexts []string        `json:"memory_texts"`
+					Permissions json.RawMessage `json:"permissions"`
 				} `json:"_meta"`
 			}
 			if err := json.Unmarshal([]byte(line), &wrapper); err == nil {
@@ -320,6 +323,9 @@ func (s *Session) LoadIsolated() (bool, error) {
 					loadedWorkState = append([]byte(nil), wrapper.Meta.WorkState...)
 				}
 				loadedMemory = wrapper.Meta.MemoryTexts
+				if len(wrapper.Meta.Permissions) > 0 {
+					loadedPermState = append(json.RawMessage(nil), wrapper.Meta.Permissions...)
+				}
 			}
 			continue
 		}
@@ -343,6 +349,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	s.messages = loaded
 	s.pinnedContexts = pinned
 	s.workState = loadedWorkState
+	s.permState = append([]byte(nil), loadedPermState...)
 	if s.mem == nil {
 		s.mem = newSessionMemory(s.cfg, s.client)
 	}
@@ -411,6 +418,7 @@ func (s *Session) saveIsolated() error {
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
 	workState := append([]byte(nil), s.workState...)
+	permState := append([]byte(nil), s.permState...)
 	mem := s.mem
 	rev := s.revision
 	savedRev := s.lastSavedRevision
@@ -441,6 +449,9 @@ func (s *Session) saveIsolated() error {
 		}
 		if len(memTexts) > 0 {
 			metaMap["memory_texts"] = memTexts
+		}
+		if len(permState) > 0 {
+			metaMap["permissions"] = json.RawMessage(permState)
 		}
 		meta := map[string]any{
 			"_meta": metaMap,

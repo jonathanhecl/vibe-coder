@@ -103,6 +103,11 @@ func (m *Manager) tryLoadLegacyPermissionsFile() {
 }
 
 func (m *Manager) savePersistentLocked() error {
+	// An isolated session carries its rules in its own file: writing them to the
+	// user's global store would leak a throwaway project's answers everywhere.
+	if m.isolated {
+		return nil
+	}
 	if strings.TrimSpace(m.file) == "" {
 		return nil
 	}

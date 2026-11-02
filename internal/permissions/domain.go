@@ -888,6 +888,7 @@ func (m *Manager) AllowOutDomainSession(targetPath string) {
 			}
 		}
 	}
+	m.notifyRulesLocked()
 }
 
 // DenyOutDomainSession records in-memory block for an out-of-domain path.
@@ -905,6 +906,7 @@ func (m *Manager) DenyOutDomainSession(targetPath string) {
 		delete(m.allowedOutDomain, clean)
 	}
 	m.deniedOutDomain[clean] = struct{}{}
+	m.notifyRulesLocked()
 }
 
 // AllowOutDomainPersistent records persistent permission for an out-of-domain path.
@@ -919,6 +921,7 @@ func (m *Manager) AllowOutDomainPersistent(targetPath string) {
 	delete(m.persistent, "out_domain:"+clean)
 	m.persistent["out_domain:"+clean] = "allow"
 	_ = m.savePersistentLocked()
+	m.notifyRulesLocked()
 }
 
 // DenyOutDomainPersistent records persistent denial for an out-of-domain path.
@@ -933,4 +936,5 @@ func (m *Manager) DenyOutDomainPersistent(targetPath string) {
 	delete(m.persistent, "out_domain:"+clean)
 	m.persistent["out_domain:"+clean] = "deny"
 	_ = m.savePersistentLocked()
+	m.notifyRulesLocked()
 }

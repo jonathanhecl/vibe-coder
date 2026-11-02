@@ -291,6 +291,7 @@ func main() {
 	if err != nil {
 		exitWithError(err)
 	}
+	applyIsolatedPermissions(cfg, sess, perm)
 	if resumed {
 		restoreSessionContexts(sess, ctxStore)
 		// Restore the durable TODO/task state so a resumed autonomous run
@@ -360,6 +361,30 @@ func printAvailableModels(rootCtx context.Context, client ollama.Client) error {
 		fmt.Fprintf(os.Stdout, "- %s\n", model.Name)
 	}
 	return nil
+}
+
+// applyIsolatedPermissions keeps an isolated session self-contained. Its file
+// already carries the work state and the memory; the answers the user gives to
+// the permission prompt belong there too, both the session-scoped ones ("allow
+// this session", "block this session") and the saved ones ("always allow/deny"),
+// so a resume restores them and nothing leaks into the user's global permission
+// store. Every rule change is written at once: a crash must not lose "always".
+func applyIsolatedPermissions(cfg *config.Config, sess *session.Session, perm *permissions.Manager) {
+	if cfg == nil || sess == nil || perm == nil || !cfg.Isolated {
+		return
+	}
+	perm.SetIsolated(true)
+	if raw := sess.PermissionState(); len(raw) > 0 {
+		if err := perm.RestoreRules(raw); err != nil {
+			logger.Infof("isolated session: could not restore the permission rules: %v", err)
+		}
+	}
+	perm.OnRulesChanged(func(raw []byte) {
+		sess.SetPermissionState(raw)
+		if err := sess.Save(); err != nil {
+			logger.Infof("isolated session: could not save the permission rules: %v", err)
+		}
+	})
 }
 
 // resolveSession loads or starts the session this run works on.

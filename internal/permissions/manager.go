@@ -85,6 +85,11 @@ type Manager struct {
 	allow    map[string]struct{}
 	deny     map[string]struct{}
 	file     string
+	// ruleSink receives the JSON snapshot after every rule change; an isolated
+	// session installs it to keep its own file in step.
+	ruleSink func([]byte)
+	// isolated keeps the rules out of the user's global permission store.
+	isolated bool
 
 	workspaceDir     string
 	allowedOutDomain map[string]struct{}
@@ -317,6 +322,7 @@ func (m *Manager) AllowSession(tool string) {
 	norm := normalizeTool(tool)
 	delete(m.deny, norm)
 	m.allow[norm] = struct{}{}
+	m.notifyRulesLocked()
 }
 
 func (m *Manager) AllowAll(tool string) {
@@ -329,6 +335,7 @@ func (m *Manager) AllowAll(tool string) {
 		m.persistent[norm] = "allow"
 		_ = m.savePersistentLocked()
 	}
+	m.notifyRulesLocked()
 }
 
 // DenySession blocks the tool for this process only (not written to disk).
@@ -338,6 +345,7 @@ func (m *Manager) DenySession(tool string) {
 	norm := normalizeTool(tool)
 	delete(m.allow, norm)
 	m.deny[norm] = struct{}{}
+	m.notifyRulesLocked()
 }
 
 func (m *Manager) DenyAll(tool string) {
@@ -348,6 +356,7 @@ func (m *Manager) DenyAll(tool string) {
 	m.deny[norm] = struct{}{}
 	m.persistent[norm] = "deny"
 	_ = m.savePersistentLocked()
+	m.notifyRulesLocked()
 }
 
 // WasCancelled reports whether the last Check ended with an explicit Cancel choice.

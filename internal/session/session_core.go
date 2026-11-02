@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -43,6 +44,11 @@ type Session struct {
 	// persisted in a session sidecar so long autonomous runs can resume
 	// without losing what is done and what remains.
 	workState []byte
+	// permState is an opaque JSON blob with the permission answers an isolated
+	// session must keep across a resume: the rules scoped to the session and the
+	// saved ones. It lives in the isolated session file's metadata, not in a
+	// sidecar, so the folder holds the whole state of the run.
+	permState []byte
 	// projectPath stores the filesystem path where the session was initialized
 	// or saved, allowing session listings to display the project origin.
 	projectPath string
@@ -451,4 +457,29 @@ func cloneMessages(messages []Message) []Message {
 	out := make([]Message, len(messages))
 	copy(out, messages)
 	return out
+}
+
+// SetPermissionState stores the permission rules an isolated session carries in
+// its file. The blob is opaque here: the permissions package owns the shape, and
+// the session only promises to keep it with the rest of the durable state.
+// Changing it marks the session dirty so the next Save rewrites the file.
+func (s *Session) SetPermissionState(raw []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if bytes.Equal(s.permState, raw) {
+		return
+	}
+	s.permState = append([]byte(nil), raw...)
+	s.revision++
+}
+
+// PermissionState returns the stored permission rules, or nil when there are
+// none. The slice is a copy: callers cannot mutate the session's state.
+func (s *Session) PermissionState() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.permState) == 0 {
+		return nil
+	}
+	return append([]byte(nil), s.permState...)
 }
