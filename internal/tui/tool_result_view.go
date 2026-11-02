@@ -188,7 +188,7 @@ func cursorEditWriteChip(st Style, name string, params map[string]any) string {
 		if n == 0 {
 			n = 1
 		}
-		return st.BrightGreen(fmt.Sprintf("+%d", n)) + st.Dim(" lines") +
+		return st.BrightGreen(fmt.Sprintf("+%d", n)) + " lines" +
 			st.Dim(" · ") + st.BrightGreen("+"+FormatBytes(len(c)))
 	case "Edit":
 		oldS, _ := params["old_string"].(string)
@@ -208,10 +208,11 @@ func cursorEditWriteChip(st Style, name string, params map[string]any) string {
 			}
 			deltaStr = st.Dim(" · ") + paint(sign+FormatBytes(d))
 		}
-		// +6/−8 lines reads as one stat: the added count in lime, the removed
-		// one in red, and the byte delta in lime because it is growth too.
+		// +6/−8 lines reads as one stat: lime for what was added, red for what
+		// was removed. "lines" stays in the terminal's own color, like the rest
+		// of the summary text.
 		return st.BrightGreen(fmt.Sprintf("+%d", ln)) + st.Dim("/") +
-			st.Red(fmt.Sprintf("−%d lines", lo)) + deltaStr
+			st.Red(fmt.Sprintf("−%d", lo)) + " lines" + deltaStr
 	default:
 		return ""
 	}

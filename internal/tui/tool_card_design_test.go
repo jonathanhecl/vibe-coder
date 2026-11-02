@@ -99,13 +99,13 @@ func TestEditChipIsOneNumberPair(t *testing.T) {
 		"old_string": strings.Repeat("a\n", 7), // 8 lines
 		"new_string": strings.Repeat("b\n", 5), // 6 lines
 	})
-	if !strings.Contains(chip, st.BrightGreen("+6")+st.Dim("/")+st.Red("−8 lines")) {
+	if !strings.Contains(chip, st.BrightGreen("+6")+st.Dim("/")+st.Red("−8")+" lines") {
 		t.Fatalf("unexpected edit chip: %q", chip)
 	}
 	write := toolResultSummary(st, "Write", "Write successful.", false, map[string]any{
 		"contents": "a\nb\nc",
 	})
-	if !strings.Contains(write, st.BrightGreen("+3")+st.Dim(" lines")) {
+	if !strings.Contains(write, st.BrightGreen("+3")+" lines") {
 		t.Fatalf("unexpected write chip: %q", write)
 	}
 
