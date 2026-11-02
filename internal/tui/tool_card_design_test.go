@@ -29,26 +29,31 @@ func TestShowToolResultShellCard(t *testing.T) {
 	}
 }
 
-// The command earns the wider budget: a realistic chained one-liner keeps its
-// visible part instead of collapsing to an ellipsis at 52 runes.
-func TestShellHeaderKeepsAHundredRunes(t *testing.T) {
+// A shell command is shown as it ran, up to a safety cap: a card that hides
+// half the command cannot be reviewed.
+func TestShellHeaderShowsTheWholeCommandUpToTheSafetyCap(t *testing.T) {
 	t.Parallel()
 	cmd := "cd /mnt/store/carpeta && echo \"cookie hex:\" && ls -la | head -20 && df -h | grep store"
 	header := toolHeader(Style{}, "Bash", map[string]any{"command": cmd})
-	if !strings.HasPrefix(header, "Shell $ "+cmd[:60]) {
-		t.Fatalf("the command was cut too early: %q", header)
-	}
-	if strings.Contains(header, "…") && len([]rune(header)) < 60 {
-		t.Fatalf("header collapsed: %q", header)
+	if header != "Shell $ "+cmd {
+		t.Fatalf("the card must show the command as it ran:\n got %q\nwant %q", header, "Shell $ "+cmd)
 	}
 
-	long := strings.Repeat("x", 300)
-	clipped := toolHeader(Style{}, "Bash", map[string]any{"command": long})
+	long := strings.Repeat("x", 400)
+	if got := toolHeader(Style{}, "Bash", map[string]any{"command": long}); !strings.Contains(got, long) {
+		t.Fatalf("a 400-rune command is under the safety cap and must not be clipped")
+	}
+
+	huge := strings.Repeat("y", bashCommandRunes+200)
+	clipped := toolHeader(Style{}, "Bash", map[string]any{"command": huge})
 	if !strings.HasSuffix(clipped, "…") {
-		t.Fatalf("a 300-rune command must be clipped: %q", clipped)
+		t.Fatalf("a command past the safety cap must be clipped: %q", clipped)
 	}
 	if n := len([]rune(clipped)); n > bashHeaderRunes {
 		t.Fatalf("clipped header has %d runes, want at most %d", n, bashHeaderRunes)
+	}
+	if bashCommandRunes < 512 {
+		t.Fatalf("the safety cap shrank: %d", bashCommandRunes)
 	}
 }
 
@@ -142,12 +147,9 @@ func TestWebCardsShowTheWholeTarget(t *testing.T) {
 		t.Fatalf("the whole query must be shown in gray: %q", search)
 	}
 
-	// The animated line is the exception: it must still fit one row.
+	// The animated line carries the same text; the painter counts its rows.
 	label := pendingLabel(NewStyleForTest(false), "WebFetch", map[string]any{"url": url})
-	if n := len([]rune(label)); n > maxToolHeaderLen {
-		t.Fatalf("pending label has %d runes, want at most %d: %q", n, maxToolHeaderLen, label)
-	}
-	if !strings.HasSuffix(label, "… running…") {
-		t.Fatalf("the clipped URL must end in an ellipsis: %q", label)
+	if !strings.Contains(label, url) {
+		t.Fatalf("the running line must show the whole URL too: %q", label)
 	}
 }

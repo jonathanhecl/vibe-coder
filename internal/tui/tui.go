@@ -81,6 +81,10 @@ type PlainUI struct {
 	// how long the command itself ran. The card opens after the permission
 	// prompt, so the user's own thinking time is not counted.
 	pendingStart time.Time
+	// pendingRows is how many terminal rows the animated line occupied the last
+	// time it was painted. A long command wraps, and clearing it with a
+	// single-row escape left the wrapped tail on screen.
+	pendingRows int
 
 	streamingAssistant     bool
 	thinkingActive         bool
@@ -230,7 +234,7 @@ func (u *PlainUI) flushPendingToolLocked() {
 	if !u.pendingActive {
 		return
 	}
-	fmt.Fprint(u.out, u.style.ClearPendingLine())
+	u.clearPendingLocked()
 	fmt.Fprintf(u.out, "%s %s %s\n",
 		u.style.BoldYellow("•"), u.pendingHeader, u.style.Yellow("interrupted"),
 	)

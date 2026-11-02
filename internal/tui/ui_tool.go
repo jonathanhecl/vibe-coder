@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // ShowToolCall opens a "running" tool card. In TTY mode the card is rendered
@@ -75,7 +74,7 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 	}
 
 	if u.pendingActive {
-		fmt.Fprint(u.out, u.style.ClearPendingLine())
+		u.clearPendingLocked()
 	}
 	arrow := u.style.DimGreen("→ ")
 	switch {
@@ -130,35 +129,18 @@ func bashCommandTruncated(cmd string) bool {
 // pendingRunningSuffix is what follows the header while the tool runs.
 const pendingRunningSuffix = " running…"
 
-// pendingLabel renders the animated line that spins while a tool works. It
-// carries the same shield, green name and gray command as the card that
-// replaces it, because a line that changes design half a second later reads as
-// two different tools. The text is cut before the colors are applied and stays
-// within one row: the animated line is erased with a single-line escape, and a
-// wrapped line would leave its tail behind.
+// pendingLabel renders the animated line that spins while a tool works. It is
+// the final card's header, shield included, plus the "running…" note: a line
+// that changes design half a second later reads as two different tools. It is
+// not shortened here — the painter measures how many rows it wraps into and
+// clears them all, so the command keeps the same budget it will have when the
+// card lands.
 func pendingLabel(st Style, name string, params map[string]any) string {
+	label := toolHeader(st, name, params)
 	if name == "Bash" {
-		header := iconShell + " " + st.BoldGreen("Shell")
-		// The budget counts runes, and the shield is two of them (emoji plus its
-		// variation selector), so measure the rendered prefix instead of guessing.
-		budget := maxToolHeaderLen -
-			utf8.RuneCountInString(iconShell+" Shell $ ") -
-			utf8.RuneCountInString(pendingRunningSuffix)
-		if cmd := bashCommand(params); cmd != "" && budget > 1 {
-			header += " " + st.Gray("$ "+truncateInline(cmd, budget))
-		}
-		return header + st.DimBlue(pendingRunningSuffix)
+		label = iconShell + " " + label
 	}
-	// Every other card keeps the same budget rule: the parameter is cut so the
-	// whole line, suffix included, still fits one row.
-	if _, ok := headerParam(name, params); ok {
-		budget := maxToolHeaderLen -
-			utf8.RuneCountInString(name) - 1 -
-			utf8.RuneCountInString(pendingRunningSuffix)
-		return toolHeaderLimited(st, name, params, budget) + st.DimBlue(pendingRunningSuffix)
-	}
-	return st.BoldBlue(truncateInline(CompactToolHeader(name, params),
-		maxToolHeaderLen-utf8.RuneCountInString(pendingRunningSuffix))) + st.DimBlue(pendingRunningSuffix)
+	return label + st.DimBlue(pendingRunningSuffix)
 }
 
 // bashCommand returns the trimmed command a Bash card shows.

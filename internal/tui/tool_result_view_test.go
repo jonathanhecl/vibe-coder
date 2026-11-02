@@ -105,7 +105,7 @@ func TestPrintColoredDiffTruncates(t *testing.T) {
 }
 
 func TestShowToolResultPrintsFullBashCommandOnError(t *testing.T) {
-	long := "cd /d C:/Users/gense/Desktop/dev/repos/superlong-project && ffprobe -v error output.mp4 && echo done && ls -la"
+	long := "cd /d C:/Users/gense/Desktop/dev/repos/superlong-project && ffprobe -v error output.mp4 && echo done && ls -la && " + strings.Repeat("x", 512)
 	if !bashCommandTruncated(long) {
 		t.Fatalf("test command should exceed the header limit: %q", long)
 	}

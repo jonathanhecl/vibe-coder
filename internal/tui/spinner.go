@@ -2,8 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // spinnerFrames is the Braille dot animation Cursor and most modern CLI tools
@@ -72,7 +75,7 @@ func (u *PlainUI) stopSpinner() {
 	<-sp.doneCh
 
 	u.mu.Lock()
-	fmt.Fprint(u.out, u.style.ClearPendingLine())
+	u.clearPendingLocked()
 	u.mu.Unlock()
 }
 
@@ -97,12 +100,21 @@ func (u *PlainUI) runSpinner(sp *spinner) {
 	frame := 0
 	paintFrame := func() {
 		elapsed := formatElapsed(time.Since(sp.started))
-		u.mu.Lock()
-		fmt.Fprintf(u.out, "\r%s %s %s\x1b[K",
+		text := fmt.Sprintf("%s %s %s",
 			u.style.BrightBlue(spinnerFrames[frame%len(spinnerFrames)]),
 			sp.label,
 			u.style.Dim("("+elapsed+")"),
 		)
+		u.mu.Lock()
+		// A single row keeps the seamless in-place rewrite; a wrapped one has to
+		// be cleared first, because after a wrap the cursor sits at the end of
+		// the last row and a bare \r would repaint the line one row too low.
+		prefix := "\r"
+		if u.pendingRows > 1 {
+			prefix = clearPendingRows(u.pendingRows)
+		}
+		fmt.Fprintf(u.out, "%s%s\x1b[K", prefix, text)
+		u.pendingRows = wrapRows(text, u.terminalCols())
 		u.mu.Unlock()
 	}
 
@@ -152,3 +164,57 @@ func formatElapsed(d time.Duration) string {
 }
 
 var _ = sync.Mutex{} // keep sync import for future extensions
+
+// clearPendingLocked erases the animated line, however many rows it wrapped
+// into, and forgets its height. The cursor is left at the start of its first
+// row so the caller can print the final card over it.
+func (u *PlainUI) clearPendingLocked() {
+	if u.out == nil {
+		return
+	}
+	if u.pendingRows > 0 {
+		fmt.Fprint(u.out, clearPendingRows(u.pendingRows))
+		u.pendingRows = 0
+		return
+	}
+	fmt.Fprint(u.out, u.style.ClearPendingLine())
+}
+
+// clearPendingRows returns the escape sequence that erases rows rows of an
+// animated line and leaves the cursor at the start of the first one.
+func clearPendingRows(rows int) string {
+	if rows < 1 {
+		rows = 1
+	}
+	var b strings.Builder
+	b.WriteString("\r\x1b[2K")
+	for i := 1; i < rows; i++ {
+		b.WriteString("\x1b[1A\x1b[2K")
+	}
+	return b.String()
+}
+
+// wrapRows is how many terminal rows text occupies at cols columns. Escape
+// sequences are not counted: the terminal does not reserve space for them.
+func wrapRows(text string, cols int) int {
+	if cols <= 0 {
+		cols = 80
+	}
+	width := visibleWidth(text)
+	if width <= 0 {
+		return 1
+	}
+	return (width + cols - 1) / cols
+}
+
+// terminalCols is the terminal width the animated line must fit, or a plain 80
+// when the writer cannot report one.
+func (u *PlainUI) terminalCols() int {
+	type fdHaver interface{ Fd() uintptr }
+	if f, ok := u.out.(fdHaver); ok {
+		if width, _, err := term.GetSize(int(f.Fd())); err == nil && width > 0 {
+			return width
+		}
+	}
+	return 80
+}

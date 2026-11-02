@@ -99,10 +99,12 @@ func todoGlyph(st Style, status string) (string, func(string) string) {
 // Bash command was truncated and print it in full below the card.
 const maxToolHeaderLen = 52
 
-// bashCommandRunes is how much of a shell command a card shows. Enough for a
-// chained one-liner ("cd … && echo …; …") to stay readable, while the summary
-// after the arrow still fits on a normal terminal.
-const bashCommandRunes = 100
+// bashCommandRunes is the safety cap on a shell command, not a display budget:
+// the card shows the command as it was run, because half a command is not
+// reviewable. It only stops a pathological line (a generated one-liner could be
+// kilobytes) from swallowing the transcript. The animated line wraps and is
+// cleared row by row, so it carries the same text.
+const bashCommandRunes = 512
 
 // bashHeaderRunes is the whole shell header budget: the label, " $ " and the
 // command with room for its ellipsis.
