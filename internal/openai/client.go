@@ -55,6 +55,10 @@ type Client struct {
 	// streamOptionsUnsupported remembers models/endpoints that answered 400
 	// to stream_options so later turns skip the doomed field.
 	streamOptionsUnsupported map[string]bool
+	// reasoningUnsupported remembers models whose server rejected the thinking
+	// fields (reasoning_effort, chat_template_kwargs), so later turns send
+	// neither instead of paying the 400 round trip again.
+	reasoningUnsupported map[string]bool
 }
 
 // New creates an OpenAI-compatible client.
@@ -73,6 +77,7 @@ func New(baseURL string, opts ...Option) *Client {
 		toolsDisabledModels:      make(map[string]bool),
 		modelsCache:              make(map[string]modelData),
 		streamOptionsUnsupported: make(map[string]bool),
+		reasoningUnsupported:     make(map[string]bool),
 	}
 
 	for _, opt := range opts {
@@ -132,6 +137,49 @@ func isStreamOptionsError(body string) bool {
 	return strings.Contains(strings.ToLower(body), "stream_options")
 }
 
+func (c *Client) markReasoningUnsupported(model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.reasoningUnsupported == nil {
+		c.reasoningUnsupported = make(map[string]bool)
+	}
+	c.reasoningUnsupported[model] = true
+}
+
+func (c *Client) isReasoningUnsupported(model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reasoningUnsupported[strings.TrimSpace(model)]
+}
+
+// isReasoningError detects a 400 caused by the thinking fields so the client
+// can retry once without them. Providers that never heard of
+// reasoning_effort/chat_template_kwargs (a strict OpenAI API, a small
+// gateway) must keep answering, just without the thinking level.
+func isReasoningError(body string) bool {
+	low := strings.ToLower(body)
+	return strings.Contains(low, "reasoning_effort") ||
+		strings.Contains(low, "chat_template_kwargs") ||
+		strings.Contains(low, "enable_thinking") ||
+		strings.Contains(low, "reasoning effort")
+}
+
+// carriesThinking reports whether a built request still asks for a thinking
+// level, so a rejection of those fields is worth one retry without them.
+func carriesThinking(wireReq chatCompletionRequest) bool {
+	return wireReq.ReasoningEffort != "" || wireReq.ChatTemplateKwargs != nil
+}
+
+// dropThinking removes the thinking fields from a request for the retry.
+func dropThinking(wireReq *chatCompletionRequest) {
+	wireReq.ReasoningEffort = ""
+	wireReq.ChatTemplateKwargs = nil
+}
+
 func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
 	url := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
@@ -175,6 +223,9 @@ func (c *Client) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollam
 		if c.isStreamOptionsUnsupported(attempt.Model) {
 			wireReq.StreamOptions = nil
 		}
+		if c.isReasoningUnsupported(attempt.Model) {
+			dropThinking(&wireReq)
+		}
 
 		payload, err := json.Marshal(wireReq)
 		if err != nil {
@@ -202,6 +253,11 @@ func (c *Client) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollam
 		if resp.StatusCode == http.StatusBadRequest && wireReq.StreamOptions != nil && isStreamOptionsError(bodyStr) {
 			logger.Infof("OpenAI model %q rejected stream_options; retrying without it", attempt.Model)
 			c.markStreamOptionsUnsupported(attempt.Model)
+			continue
+		}
+		if resp.StatusCode == http.StatusBadRequest && carriesThinking(wireReq) && isReasoningError(bodyStr) {
+			logger.Infof("OpenAI model %q rejected the thinking fields; retrying without them", attempt.Model)
+			c.markReasoningUnsupported(attempt.Model)
 			continue
 		}
 		if resp.StatusCode == http.StatusBadRequest && len(attempt.Tools) > 0 && isToolError(bodyStr) {
@@ -396,6 +452,9 @@ func (c *Client) ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.C
 		if err != nil {
 			return ollama.ChatResponse{}, fmt.Errorf("build chat sync request: %w", err)
 		}
+		if c.isReasoningUnsupported(attempt.Model) {
+			dropThinking(&wireReq)
+		}
 
 		payload, err := json.Marshal(wireReq)
 		if err != nil {
@@ -430,6 +489,11 @@ func (c *Client) ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.C
 		}
 
 		bodyStr := string(bodyBytes)
+		if resp.StatusCode == http.StatusBadRequest && carriesThinking(wireReq) && isReasoningError(bodyStr) {
+			logger.Infof("OpenAI model %q rejected the thinking fields; retrying without them", attempt.Model)
+			c.markReasoningUnsupported(attempt.Model)
+			continue
+		}
 		if resp.StatusCode == http.StatusBadRequest && len(attempt.Tools) > 0 && isToolError(bodyStr) {
 			logger.Infof("OpenAI model %q does not support tools; retrying without tools", attempt.Model)
 			c.markToolsUnsupported(attempt.Model)

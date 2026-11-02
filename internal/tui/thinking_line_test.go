@@ -63,17 +63,18 @@ func TestThinkingRowCapabilitySuffix(t *testing.T) {
 	}
 }
 
-// An OpenAI-compatible main model never receives the level, so the row says so
-// instead of implying the effort is applied.
-func TestThinkingRowReportsUndeliverableLevel(t *testing.T) {
+// An OpenAI-compatible main model receives the level too (reasoning_effort, or
+// the template switch for off), so the row reports it as supported instead of
+// warning that it never leaves vibe.
+func TestThinkingRowReportsLevelDeliveredOnOpenAI(t *testing.T) {
 	cfg := thinkingCfg(t, config.ProviderOpenAI, "low")
 	cfg.ThinkingKnown, cfg.ThinkingSupported = true, true
 	got := ThinkingRow(cfg).Plain
-	if !strings.Contains(got, "low") || !strings.Contains(got, "not applied") {
-		t.Fatalf("row = %q, want the level plus the undeliverable note", got)
+	if got != "low (supported)" {
+		t.Fatalf("row = %q, want low (supported)", got)
 	}
-	if strings.Contains(got, "supported") {
-		t.Fatalf("a level that cannot be delivered must not be reported as supported: %q", got)
+	if strings.Contains(got, "not applied") {
+		t.Fatalf("the level is delivered on OpenAI-compatible providers: %q", got)
 	}
 }
 
@@ -82,9 +83,6 @@ func TestThinkingRowUnsetLevelOnOpenAIIsQuiet(t *testing.T) {
 	cfg := thinkingCfg(t, config.ProviderOpenAI, "")
 	if got := ThinkingRow(cfg).Plain; got != "default" {
 		t.Fatalf("row = %q, want a bare default", got)
-	}
-	if note := ThinkingProviderNote(cfg); note != "" {
-		t.Fatalf("expected no note without a configured level, got %q", note)
 	}
 }
 

@@ -9,6 +9,35 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
+// applyThinking writes the thinking level a request carries onto the wire.
+// "off" disables reasoning through the chat template (the only hard switch a
+// local thinking model exposes); a level travels as reasoning_effort, with
+// "max" sent as "high" because that is the top standard level and servers map
+// it to their own maximum (Strata turns high into its xhigh). A default-on
+// request leaves both fields out: every provider already thinks by default,
+// and an unknown parameter on a remote API would cost a retry.
+func applyThinking(out *chatCompletionRequest, setting *ollama.ThinkSetting) {
+	if setting == nil {
+		return
+	}
+	if setting.Level != "" {
+		out.ReasoningEffort = wireReasoningEffort(setting.Level)
+		return
+	}
+	if !setting.Enabled {
+		off := false
+		out.ChatTemplateKwargs = &chatTemplateKwargs{EnableThinking: &off}
+	}
+}
+
+// wireReasoningEffort maps a vibe thinking level to the OpenAI field value.
+func wireReasoningEffort(level string) string {
+	if strings.EqualFold(strings.TrimSpace(level), "max") {
+		return "high"
+	}
+	return strings.ToLower(strings.TrimSpace(level))
+}
+
 // buildChatRequest converts an ollama.ChatRequest into an OpenAI chatCompletionRequest.
 func buildChatRequest(req ollama.ChatRequest) (chatCompletionRequest, error) {
 	out := chatCompletionRequest{
@@ -27,6 +56,8 @@ func buildChatRequest(req ollama.ChatRequest) (chatCompletionRequest, error) {
 		maxTokens := req.Options.NumPredict
 		out.MaxTokens = &maxTokens
 	}
+
+	applyThinking(&out, req.Think)
 
 	if len(req.Tools) > 0 {
 		out.Tools = make([]chatTool, 0, len(req.Tools))

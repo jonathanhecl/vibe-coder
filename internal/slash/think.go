@@ -49,11 +49,6 @@ func printThinkStatus(c *Ctx) {
 }
 
 func thinkCapabilitySuffix(c *Ctx) string {
-	// A configured level that cannot be delivered is the most useful thing to
-	// say, so it outranks what the model advertises.
-	if note := tui.ThinkingProviderNote(c.Cfg); note != "" {
-		return " (" + note + ")"
-	}
 	switch {
 	case c.Cfg.ThinkingKnown && c.Cfg.ThinkingSupported:
 		return fmt.Sprintf(" (%s supports thinking)", c.Cfg.Model)

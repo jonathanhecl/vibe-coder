@@ -512,3 +512,153 @@ func TestChatStreamingStall(t *testing.T) {
 		t.Fatalf("expected stall error message, got %v", stallErr)
 	}
 }
+
+// sseReply writes one content chunk and the end of the stream.
+func sseReply(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	_, _ = w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}` + "\n\n"))
+	_, _ = w.Write([]byte("data: [DONE]\n\n"))
+}
+
+// TestChatSendsThinkingRequest checks the thinking level reaches the wire on
+// the OpenAI path: it used to be dropped here, so a server whose template
+// thinks by default (Strata, vLLM) ignored /think off and /think low.
+func TestChatSendsThinkingRequest(t *testing.T) {
+	var bodies []chatCompletionRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request failed: %v", err)
+		}
+		bodies = append(bodies, req)
+		sseReply(w)
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, WithHTTPClient(srv.Client()))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	drain := func(think *ollama.ThinkSetting) {
+		t.Helper()
+		ch, err := client.Chat(ctx, ollama.ChatRequest{
+			Model:    "m",
+			Stream:   true,
+			Messages: []ollama.Message{{Role: "user", Content: "hi"}},
+			Think:    think,
+		})
+		if err != nil {
+			t.Fatalf("Chat failed: %v", err)
+		}
+		for range ch {
+		}
+	}
+
+	drain(ollama.ThinkLevel("low"))
+	drain(ollama.ThinkOff())
+
+	if len(bodies) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(bodies))
+	}
+	if bodies[0].ReasoningEffort != "low" {
+		t.Errorf("low level = %q on the wire, want low", bodies[0].ReasoningEffort)
+	}
+	if bodies[0].ChatTemplateKwargs != nil {
+		t.Errorf("effort request should not send chat_template_kwargs: %+v", bodies[0].ChatTemplateKwargs)
+	}
+	off := bodies[1]
+	if off.ReasoningEffort != "" {
+		t.Errorf("off request carries reasoning_effort %q", off.ReasoningEffort)
+	}
+	if off.ChatTemplateKwargs == nil || off.ChatTemplateKwargs.EnableThinking == nil || *off.ChatTemplateKwargs.EnableThinking {
+		t.Errorf("off request does not disable thinking in the template: %+v", off.ChatTemplateKwargs)
+	}
+}
+
+// TestChatRetriesWithoutThinkingFields keeps non-thinking providers working:
+// a 400 that names the thinking fields retries once without them and is
+// remembered, so later turns do not pay the round trip again.
+func TestChatRetriesWithoutThinkingFields(t *testing.T) {
+	var bodies []chatCompletionRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request failed: %v", err)
+		}
+		bodies = append(bodies, req)
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","message":"unknown field chat_template_kwargs"}}`))
+			return
+		}
+		sseReply(w)
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, WithHTTPClient(srv.Client()))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ch, err := client.Chat(ctx, ollama.ChatRequest{
+		Model:    "plain",
+		Stream:   true,
+		Messages: []ollama.Message{{Role: "user", Content: "hi"}},
+		Think:    ollama.ThinkOff(),
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	for range ch {
+	}
+
+	if len(bodies) != 2 {
+		t.Fatalf("expected a retry, got %d requests", len(bodies))
+	}
+	if bodies[1].ChatTemplateKwargs != nil || bodies[1].ReasoningEffort != "" {
+		t.Errorf("retry still carries the thinking fields: %+v", bodies[1])
+	}
+	if !client.isReasoningUnsupported("plain") {
+		t.Error("expected the model to be remembered as unable to take a thinking level")
+	}
+}
+
+// TestChatSyncRetriesWithoutReasoningEffort covers the non-streaming path,
+// which has its own request loop.
+func TestChatSyncRetriesWithoutReasoningEffort(t *testing.T) {
+	var bodies []chatCompletionRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request failed: %v", err)
+		}
+		bodies = append(bodies, req)
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"unknown parameter reasoning_effort"}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(chatCompletionResponse{
+			Choices: []chatChoice{{Message: chatResponseMessage{Role: "assistant", Content: "ok"}}},
+		})
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, WithHTTPClient(srv.Client()))
+	res, err := client.ChatSync(context.Background(), ollama.ChatRequest{
+		Model:    "plain-sync",
+		Messages: []ollama.Message{{Role: "user", Content: "hi"}},
+		Think:    ollama.ThinkLevel("medium"),
+	})
+	if err != nil {
+		t.Fatalf("ChatSync failed: %v", err)
+	}
+	if res.Content != "ok" {
+		t.Errorf("unexpected content: %q", res.Content)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("expected a retry, got %d requests", len(bodies))
+	}
+	if bodies[1].ReasoningEffort != "" {
+		t.Errorf("retry still carries reasoning_effort %q", bodies[1].ReasoningEffort)
+	}
+}

@@ -1,10 +1,70 @@
 package openai
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
+
+// TestBuildChatRequestThinking covers the thinking level on the OpenAI wire:
+// an explicit "off" travels as chat_template_kwargs.enable_thinking=false,
+// the levels travel as reasoning_effort, and the default (on) leaves both out
+// so a server that thinks by default keeps doing it.
+func TestBuildChatRequestThinking(t *testing.T) {
+	messages := []ollama.Message{{Role: "user", Content: "hi"}}
+	off := false
+
+	tests := []struct {
+		name    string
+		setting *ollama.ThinkSetting
+		effort  string
+		enable  *bool
+	}{
+		{"unset", nil, "", nil},
+		{"on", ollama.ThinkOn(), "", nil},
+		{"off", ollama.ThinkOff(), "", &off},
+		{"low", ollama.ThinkLevel("low"), "low", nil},
+		{"medium", ollama.ThinkLevel("medium"), "medium", nil},
+		{"high", ollama.ThinkLevel("high"), "high", nil},
+		{"max", ollama.ThinkLevel("max"), "high", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildChatRequest(ollama.ChatRequest{Model: "m", Messages: messages, Think: tt.setting})
+			if err != nil {
+				t.Fatalf("buildChatRequest failed: %v", err)
+			}
+			if got.ReasoningEffort != tt.effort {
+				t.Errorf("reasoning_effort = %q, want %q", got.ReasoningEffort, tt.effort)
+			}
+			switch {
+			case tt.enable == nil:
+				if got.ChatTemplateKwargs != nil {
+					t.Errorf("chat_template_kwargs = %+v, want omitted", got.ChatTemplateKwargs)
+				}
+			case got.ChatTemplateKwargs == nil || got.ChatTemplateKwargs.EnableThinking == nil:
+				t.Errorf("chat_template_kwargs missing enable_thinking, want %t", *tt.enable)
+			case *got.ChatTemplateKwargs.EnableThinking != *tt.enable:
+				t.Errorf("enable_thinking = %t, want %t", *got.ChatTemplateKwargs.EnableThinking, *tt.enable)
+			}
+
+			payload, err := json.Marshal(got)
+			if err != nil {
+				t.Fatalf("marshal failed: %v", err)
+			}
+			body := string(payload)
+			if tt.enable != nil && !strings.Contains(body, `"chat_template_kwargs":{"enable_thinking":false}`) {
+				t.Errorf("wire body does not carry the thinking switch turned off: %s", body)
+			}
+			if tt.enable == nil && strings.Contains(body, "chat_template_kwargs") {
+				t.Errorf("wire body carries chat_template_kwargs when it should not: %s", body)
+			}
+		})
+	}
+}
 
 func TestBuildChatRequestToolCallMatching(t *testing.T) {
 	req := ollama.ChatRequest{

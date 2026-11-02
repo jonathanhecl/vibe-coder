@@ -87,8 +87,9 @@ func TestStatusShowsThinking(t *testing.T) {
 	}
 }
 
-// The thinking row must not imply an effort the main provider never receives.
-func TestStatusReportsUndeliverableThinkingLevel(t *testing.T) {
+// The thinking row must report the level reached the main provider: an
+// OpenAI-compatible endpoint receives reasoning_effort, so there is no caveat.
+func TestStatusReportsDeliveredThinkingLevelOnOpenAI(t *testing.T) {
 	ctx, _, out := newContextTestCtx(t)
 	if err := ctx.Cfg.AddProvider(config.Provider{Name: "local", Endpoint: "http://127.0.0.1:8080/v1", Kind: config.ProviderOpenAI}); err != nil {
 		t.Fatal(err)
@@ -100,16 +101,16 @@ func TestStatusReportsUndeliverableThinkingLevel(t *testing.T) {
 	if _, _, err := Dispatch(ctx, "/status"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Thinking: low (not applied: main provider is openai)") {
-		t.Fatalf("expected the provider caveat, got %q", out.String())
+	if !strings.Contains(out.String(), "Thinking: low") || strings.Contains(out.String(), "not applied") {
+		t.Fatalf("expected the plain level, got %q", out.String())
 	}
 
 	out.Reset()
 	if _, _, err := Dispatch(ctx, "/think"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Thinking level: low (not applied: main provider is openai)") {
-		t.Fatalf("expected /think to report the same caveat, got %q", out.String())
+	if !strings.Contains(out.String(), "Thinking level: low") || strings.Contains(out.String(), "not applied") {
+		t.Fatalf("expected /think to report the plain level, got %q", out.String())
 	}
 }
 

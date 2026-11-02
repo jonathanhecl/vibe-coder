@@ -595,8 +595,8 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 - `--max-tokens <n>` — max generated tokens
 - `--temperature <f>` — sampling temperature
 - `--context-window <n>` — model context window
-- `--no-think` — disable Ollama native thinking (faster replies)
-- `--think <level>` — thinking effort: `off|low|medium|high|max` (default: model default; persisted with `--save` as `THINK`)
+- `--no-think` — disable model thinking (faster replies)
+- `--think <level>` — thinking effort: `off|low|medium|high|max` (default: model default; persisted with `--save` as `THINK`). On an OpenAI-compatible provider `off` is sent as `chat_template_kwargs: {"enable_thinking": false}` and a level as `reasoning_effort` (`max` as `high`); a server that rejects those fields gets one retry without them, remembered per model.
 - `--hide-think` — hide Ollama thinking blocks in CLI output
 - `--show-think` — show Ollama thinking blocks in CLI output (overrides config/env)
 - `--context <file>` — pin a `.md`/`.txt` guide file as a persistent session instruction (repeatable, accumulated; also `VIBE_CODER_CONTEXT` env and `CONTEXT=` config key)
@@ -820,7 +820,7 @@ These settings persist as `PROVIDER_<NAME>_KIND`, `PROVIDER_<NAME>_ENDPOINT`, `P
 - `/models [PROVIDER]` — list the provider's models, numbered and tagged
 - `/setmodel [PROVIDER] <role> <number|name>` — bind a role to a model
 - `/think` — show the thinking level and model capability
-- `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it)
+- `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it; on Ollama it travels as the native `think` field, on an OpenAI-compatible provider as `reasoning_effort` plus the template's `enable_thinking` switch for `off`)
 - `/sidecar on|off` — toggle the sidecar for this session
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/settimeout` — show how long a permission prompt waits before it auto-denies

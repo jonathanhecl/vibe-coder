@@ -122,7 +122,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.version, "version", "show version")
 	fs.Var(&opts.thinkLevel, "think", "thinking effort: off|low|medium|high|max")
 	fs.Var(&opts.thinkLevel, "think-level", "thinking effort: off|low|medium|high|max")
-	fs.BoolVar(&opts.noThink, "no-think", false, "disable Ollama native thinking")
+	fs.BoolVar(&opts.noThink, "no-think", false, "disable model thinking (faster replies)")
 	fs.BoolVar(&opts.hideThink, "hide-think", false, "hide Ollama thinking blocks in CLI output")
 	fs.BoolVar(&opts.showThink, "show-think", false, "show Ollama thinking blocks in CLI output")
 

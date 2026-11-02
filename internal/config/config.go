@@ -358,7 +358,7 @@ Flags:
   --rag-path string         RAG path
   --rag-topk int            RAG top-k chunks
   --rag-index string        Build/index RAG path and exit
-  --no-think                Disable Ollama native thinking (faster replies)
+  --no-think                Disable model thinking (faster replies)
   --think <level>           Thinking effort: off|low|medium|high|max (default: model default)
   --hide-think              Hide Ollama thinking blocks in CLI output
   --show-think              Show Ollama thinking blocks in CLI output (overrides config/env)

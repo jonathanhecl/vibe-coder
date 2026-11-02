@@ -8,13 +8,23 @@ import (
 
 // chatCompletionRequest represents the standard OpenAI chat completions request payload.
 type chatCompletionRequest struct {
-	Model         string         `json:"model"`
-	Messages      []chatMessage  `json:"messages"`
-	Stream        bool           `json:"stream"`
-	StreamOptions *streamOptions `json:"stream_options,omitempty"`
-	Temperature   *float64       `json:"temperature,omitempty"`
-	MaxTokens     *int           `json:"max_tokens,omitempty"`
-	Tools         []chatTool     `json:"tools,omitempty"`
+	Model              string              `json:"model"`
+	Messages           []chatMessage       `json:"messages"`
+	Stream             bool                `json:"stream"`
+	StreamOptions      *streamOptions      `json:"stream_options,omitempty"`
+	Temperature        *float64            `json:"temperature,omitempty"`
+	MaxTokens          *int                `json:"max_tokens,omitempty"`
+	Tools              []chatTool          `json:"tools,omitempty"`
+	ReasoningEffort    string              `json:"reasoning_effort,omitempty"`
+	ChatTemplateKwargs *chatTemplateKwargs `json:"chat_template_kwargs,omitempty"`
+}
+
+// chatTemplateKwargs carries the switches a chat template exposes to an
+// OpenAI-compatible server. enable_thinking=false is how a local server
+// (vLLM, llama.cpp, Strata, Ollama's /v1) turns reasoning off for a model
+// whose template thinks by default; reasoning_effort alone cannot do it.
+type chatTemplateKwargs struct {
+	EnableThinking *bool `json:"enable_thinking,omitempty"`
 }
 
 // streamOptions asks the server to append a trailing usage-only chunk.

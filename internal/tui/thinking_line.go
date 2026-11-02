@@ -49,11 +49,9 @@ func thinkingLevelAndNote(cfg *config.Config) (string, string) {
 	if cfg.OllamaNoThink && level == "default" {
 		level = "off"
 	}
-	// The provider decides whether the level is even delivered, so it outranks
-	// what the model advertises.
-	if note := ThinkingProviderNote(cfg); note != "" {
-		return level, note
-	}
+	// The model decides whether it can honor the level: the provider is no
+	// longer a limit, since an OpenAI-compatible endpoint receives it as
+	// reasoning_effort (or the template's enable_thinking switch).
 	switch {
 	case cfg.ThinkingKnown && cfg.ThinkingSupported:
 		return level, "supported"
@@ -61,23 +59,4 @@ func thinkingLevelAndNote(cfg *config.Config) (string, string) {
 		return level, "not supported by the model"
 	}
 	return level, ""
-}
-
-// ThinkingProviderNote explains why a configured level cannot reach the main
-// model: an OpenAI-compatible endpoint takes no `think` field and vibe sends no
-// reasoning effort there, so /think only changes what the Ollama roles receive.
-// It returns "" when the level is deliverable or when nothing is configured.
-func ThinkingProviderNote(cfg *config.Config) string {
-	if cfg == nil {
-		return ""
-	}
-	if strings.TrimSpace(cfg.OllamaThinkLevel) == "" && !cfg.OllamaNoThink {
-		return ""
-	}
-	status := cfg.RoleStatus(config.RoleMain)
-	provider, ok := cfg.Provider(status.Provider)
-	if !ok || provider.Kind != config.ProviderOpenAI {
-		return ""
-	}
-	return "not applied: main provider is openai"
 }
