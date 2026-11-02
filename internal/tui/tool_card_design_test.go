@@ -153,3 +153,33 @@ func TestWebCardsShowTheWholeTarget(t *testing.T) {
 		t.Fatalf("the running line must show the whole URL too: %q", label)
 	}
 }
+
+// Grep and Glob follow the same design: the tool in green, the pattern in gray
+// and the directory in blue. All blue made them read like the old cards.
+func TestSearchCardsAreStyled(t *testing.T) {
+	t.Parallel()
+	st := NewStyleForTest(true)
+
+	grep := toolHeader(st, "Grep", map[string]any{"pattern": "TODO", "path": "/home/u/proyecto/abs/foo"})
+	want := st.BoldGreen("Grep") + " " + st.Gray(`"TODO"`) + st.Dim(" in ") + st.BoldBlue("abs/foo")
+	if grep != want {
+		t.Fatalf("grep header =\n%q\nwant\n%q", grep, want)
+	}
+
+	bare := toolHeader(st, "Grep", map[string]any{"pattern": "needle"})
+	if bare != st.BoldGreen("Grep")+" "+st.Gray(`"needle"`) {
+		t.Fatalf("grep without a path = %q", bare)
+	}
+
+	glob := toolHeader(st, "Glob", map[string]any{"pattern": "**/*.go", "target_directory": "/home/u/proyecto"})
+	if !strings.HasPrefix(glob, st.BoldGreen("Glob")+" "+st.Gray("**/*.go")) {
+		t.Fatalf("glob header must keep the pattern unquoted: %q", glob)
+	}
+	if !strings.Contains(glob, st.BoldBlue("u/proyecto")) {
+		t.Fatalf("glob directory must be blue: %q", glob)
+	}
+
+	if got := toolHeader(st, "Grep", nil); got != st.BoldBlue("Grep") {
+		t.Fatalf("a Grep without params falls back to its name: %q", got)
+	}
+}

@@ -143,59 +143,62 @@ func pendingLabel(st Style, name string, params map[string]any) string {
 	return label + st.DimBlue(pendingRunningSuffix)
 }
 
-// bashCommand returns the trimmed command a Bash card shows.
-func bashCommand(params map[string]any) string {
-	if params == nil {
-		return ""
-	}
-	cmd, _ := params["command"].(string)
-	return strings.TrimSpace(cmd)
-}
-
 // toolHeader renders the styled header of a tool card. The green name marks
-// what ran; the parameter beside it says on what, and keeps its own color: the
-// shell command in the thinking gray (it is context, not a result), the file
-// path in blue, a URL or a search query in gray as well. The final card shows
-// the whole URL/query — a truncated link is useless — while the animated line
-// goes through toolHeaderLimited so it never wraps.
+// what ran; the value beside it says on what and keeps its own color: a command,
+// a pattern or a query in the thinking gray (it is context, not a result), a
+// path or a directory in blue. Nothing is cut here except by the shell's safety
+// cap, because the painter measures the wrapped rows.
 func toolHeader(st Style, name string, params map[string]any) string {
-	return toolHeaderLimited(st, name, params, 0)
-}
-
-// toolHeaderLimited is toolHeader with a cap on the parameter text. A zero cap
-// means no cap.
-func toolHeaderLimited(st Style, name string, params map[string]any, cap int) string {
-	clip := func(s string) string {
-		if cap > 0 {
-			return truncateInline(s, cap)
+	switch name {
+	case "Grep", "Glob":
+		if header := searchCardHeader(st, name, params); header != "" {
+			return header
 		}
-		return s
-	}
-	if param, ok := headerParam(name, params); ok {
-		switch name {
-		case "Bash":
-			limit := bashCommandRunes
-			if cap > 0 && cap < limit {
-				limit = cap
-			}
-			return st.BoldGreen("Shell") + " " + st.Gray("$ "+truncateInline(param, limit))
-		case "Read", "Write", "Edit", "NotebookEdit":
-			return st.BoldGreen(name) + " " + st.BoldBlue(clip(compactPath(param)))
-		case "WebFetch", "WebSearch":
-			return st.BoldGreen(name) + " " + st.Gray(clip(param))
+	case "Bash":
+		cmd, ok := headerParam(name, params)
+		if !ok {
+			return st.BoldGreen("Shell")
 		}
-	}
-	if name == "Bash" {
-		return st.BoldGreen("Shell")
-	}
-	if cap > 0 {
-		return st.BoldBlue(truncateInline(CompactToolHeader(name, params), cap))
+		return st.BoldGreen("Shell") + " " + st.Gray("$ "+truncateInline(cmd, bashCommandRunes))
+	case "Read", "Write", "Edit", "NotebookEdit":
+		if path, ok := headerParam(name, params); ok {
+			return st.BoldGreen(name) + " " + st.BoldBlue(compactPath(path))
+		}
+	case "WebFetch", "WebSearch":
+		if target, ok := headerParam(name, params); ok {
+			return st.BoldGreen(name) + " " + st.Gray(target)
+		}
 	}
 	return st.BoldBlue(CompactToolHeader(name, params))
 }
 
+// searchCardHeader renders Grep and Glob: the pattern in gray, quoted for Grep
+// (a regex reads as prose, a glob does not), and the directory in blue when the
+// call named one.
+func searchCardHeader(st Style, name string, params map[string]any) string {
+	pattern, ok := headerParam(name, params)
+	if !ok {
+		return ""
+	}
+	shown := pattern
+	if name == "Grep" {
+		shown = fmt.Sprintf("%q", pattern)
+	}
+	header := st.BoldGreen(name) + " " + st.Gray(shown)
+	key := "path"
+	if name == "Glob" {
+		key = "target_directory"
+	}
+	if params != nil {
+		if dir, ok := params[key].(string); ok && strings.TrimSpace(dir) != "" {
+			header += st.Dim(" in ") + st.BoldBlue(compactPath(strings.TrimSpace(dir)))
+		}
+	}
+	return header
+}
+
 // headerParam is the one value a card shows beside its tool name, when the tool
-// has one: the command, the path, the URL or the query.
+// has one: the command, the path, the URL, the query or the pattern.
 func headerParam(name string, params map[string]any) (string, bool) {
 	if params == nil {
 		return "", false
@@ -210,6 +213,8 @@ func headerParam(name string, params map[string]any) (string, bool) {
 		key = "url"
 	case "WebSearch":
 		key = "query"
+	case "Grep", "Glob":
+		key = "pattern"
 	default:
 		return "", false
 	}
