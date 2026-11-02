@@ -118,3 +118,36 @@ func TestEditChipIsOneNumberPair(t *testing.T) {
 		t.Fatalf("a shrinking edit must report the byte delta in red: %q", shrink)
 	}
 }
+
+// A web card shows its whole target: a truncated URL cannot be checked or
+// re-opened, and the query is the only thing that says what was searched.
+func TestWebCardsShowTheWholeTarget(t *testing.T) {
+	t.Parallel()
+	st := NewStyleForTest(true)
+	url := "https://example.com/docs/" + strings.Repeat("segmento/", 20) + "?page=2&q=" + strings.Repeat("x", 40)
+	header := toolHeader(st, "WebFetch", map[string]any{"url": url})
+	if !strings.HasPrefix(header, st.BoldGreen("WebFetch")+" ") {
+		t.Fatalf("the tool name must be bold green: %q", header)
+	}
+	if !strings.Contains(header, st.Gray(url)) {
+		t.Fatalf("the whole URL must be shown in gray: %q", header)
+	}
+	if strings.Contains(header, "…") {
+		t.Fatalf("a URL must not be clipped on the final card: %q", header)
+	}
+
+	query := "cómo consultar el clima de GCHQ Global Climate Change Hub con ejemplos y varias palabras"
+	search := toolHeader(st, "WebSearch", map[string]any{"query": query})
+	if !strings.Contains(search, st.Gray(query)) {
+		t.Fatalf("the whole query must be shown in gray: %q", search)
+	}
+
+	// The animated line is the exception: it must still fit one row.
+	label := pendingLabel(NewStyleForTest(false), "WebFetch", map[string]any{"url": url})
+	if n := len([]rune(label)); n > maxToolHeaderLen {
+		t.Fatalf("pending label has %d runes, want at most %d: %q", n, maxToolHeaderLen, label)
+	}
+	if !strings.HasSuffix(label, "… running…") {
+		t.Fatalf("the clipped URL must end in an ellipsis: %q", label)
+	}
+}

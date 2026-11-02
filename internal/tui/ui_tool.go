@@ -149,7 +149,16 @@ func pendingLabel(st Style, name string, params map[string]any) string {
 		}
 		return header + st.DimBlue(pendingRunningSuffix)
 	}
-	return toolHeader(st, name, params) + st.DimBlue(pendingRunningSuffix)
+	// Every other card keeps the same budget rule: the parameter is cut so the
+	// whole line, suffix included, still fits one row.
+	if _, ok := headerParam(name, params); ok {
+		budget := maxToolHeaderLen -
+			utf8.RuneCountInString(name) - 1 -
+			utf8.RuneCountInString(pendingRunningSuffix)
+		return toolHeaderLimited(st, name, params, budget) + st.DimBlue(pendingRunningSuffix)
+	}
+	return st.BoldBlue(truncateInline(CompactToolHeader(name, params),
+		maxToolHeaderLen-utf8.RuneCountInString(pendingRunningSuffix))) + st.DimBlue(pendingRunningSuffix)
 }
 
 // bashCommand returns the trimmed command a Bash card shows.
@@ -161,25 +170,73 @@ func bashCommand(params map[string]any) string {
 	return strings.TrimSpace(cmd)
 }
 
-// toolHeader renders the styled header of a tool card. A shell command keeps
-// its command beside the tool name so the transcript reads like a log line:
-// "Shell $ cd … && …". Write/Edit keep their path, which is the part that
-// identifies the change.
+// toolHeader renders the styled header of a tool card. The green name marks
+// what ran; the parameter beside it says on what, and keeps its own color: the
+// shell command in the thinking gray (it is context, not a result), the file
+// path in blue, a URL or a search query in gray as well. The final card shows
+// the whole URL/query — a truncated link is useless — while the animated line
+// goes through toolHeaderLimited so it never wraps.
 func toolHeader(st Style, name string, params map[string]any) string {
-	if params != nil {
+	return toolHeaderLimited(st, name, params, 0)
+}
+
+// toolHeaderLimited is toolHeader with a cap on the parameter text. A zero cap
+// means no cap.
+func toolHeaderLimited(st Style, name string, params map[string]any, cap int) string {
+	clip := func(s string) string {
+		if cap > 0 {
+			return truncateInline(s, cap)
+		}
+		return s
+	}
+	if param, ok := headerParam(name, params); ok {
 		switch name {
 		case "Bash":
-			if cmd := bashCommand(params); cmd != "" {
-				return st.BoldGreen("Shell") + " " + st.Gray("$ "+truncateInline(cmd, bashCommandRunes))
+			limit := bashCommandRunes
+			if cap > 0 && cap < limit {
+				limit = cap
 			}
-			return st.BoldGreen("Shell")
+			return st.BoldGreen("Shell") + " " + st.Gray("$ "+truncateInline(param, limit))
 		case "Read", "Write", "Edit", "NotebookEdit":
-			if p, ok := params["file_path"].(string); ok && p != "" {
-				return st.BoldGreen(name) + " " + st.BoldBlue(compactPath(p))
-			}
+			return st.BoldGreen(name) + " " + st.BoldBlue(clip(compactPath(param)))
+		case "WebFetch", "WebSearch":
+			return st.BoldGreen(name) + " " + st.Gray(clip(param))
 		}
 	}
+	if name == "Bash" {
+		return st.BoldGreen("Shell")
+	}
+	if cap > 0 {
+		return st.BoldBlue(truncateInline(CompactToolHeader(name, params), cap))
+	}
 	return st.BoldBlue(CompactToolHeader(name, params))
+}
+
+// headerParam is the one value a card shows beside its tool name, when the tool
+// has one: the command, the path, the URL or the query.
+func headerParam(name string, params map[string]any) (string, bool) {
+	if params == nil {
+		return "", false
+	}
+	key := ""
+	switch name {
+	case "Bash":
+		key = "command"
+	case "Read", "Write", "Edit", "NotebookEdit":
+		key = "file_path"
+	case "WebFetch":
+		key = "url"
+	case "WebSearch":
+		key = "query"
+	default:
+		return "", false
+	}
+	value, ok := params[key].(string)
+	if !ok {
+		return "", false
+	}
+	value = strings.TrimSpace(value)
+	return value, value != ""
 }
 
 // formatToolDuration renders a tool's own duration: a decimal under ten
