@@ -56,12 +56,17 @@ func visionFingerprint(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	available, known := "0", "0"
+	available, known, sideVis := "0", "0", "0"
 	if cfg.VisionAvailable {
 		available = "1"
 	}
 	if cfg.VisionKnown {
 		known = "1"
 	}
-	return strings.TrimSpace(cfg.Model) + "|" + available + known
+	if cfg.SidecarVisionAvailable {
+		sideVis = "1"
+	}
+	visionRole := strings.TrimSpace(cfg.RoleModelName(config.RoleVision))
+	sideModel := strings.TrimSpace(cfg.SidecarModel)
+	return strings.TrimSpace(cfg.Model) + "|" + available + known + "|" + visionRole + "|" + sideModel + "|" + sideVis
 }

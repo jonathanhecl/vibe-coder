@@ -104,3 +104,76 @@ func TestParseSubAgentInvokes(t *testing.T) {
 		t.Fatalf("unexpected calls: %#v", calls)
 	}
 }
+
+type nativeSubClient struct {
+	turns   []ollama.Chunk
+	calls   int
+	lastReq ollama.ChatRequest
+}
+
+func (c *nativeSubClient) Tags(context.Context) ([]ollama.Model, error) { return nil, nil }
+func (c *nativeSubClient) Version(context.Context) (string, error)      { return "0.0.0", nil }
+func (c *nativeSubClient) ChatSync(context.Context, ollama.ChatRequest) (ollama.ChatResponse, error) {
+	return ollama.ChatResponse{Content: "summary"}, nil
+}
+func (c *nativeSubClient) Pull(context.Context, string, func(ollama.PullEvent)) error {
+	return nil
+}
+func (c *nativeSubClient) Chat(_ context.Context, req ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	c.lastReq = req
+	var chunk ollama.Chunk
+	if c.calls < len(c.turns) {
+		chunk = c.turns[c.calls]
+	} else {
+		chunk = ollama.Chunk{Delta: "done", Done: true}
+	}
+	c.calls++
+	ch := make(chan ollama.Chunk, 1)
+	ch <- chunk
+	close(ch)
+	return ch, nil
+}
+
+func TestSubAgentRunsNativeToolCalls(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "native.txt")
+	if err := os.WriteFile(target, []byte("native tool output\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	cfg := &config.Config{
+		Model:          "test-native",
+		ContextWindow:  4096,
+		MaxTokens:      128,
+		ToolsKnown:     true,
+		ToolsSupported: true,
+	}
+	client := &nativeSubClient{
+		turns: []ollama.Chunk{
+			{
+				ToolCalls: []ollama.MessageToolCall{{
+					Function: ollama.MessageToolCallFunction{
+						Name:      "Read",
+						Arguments: map[string]any{"file_path": filepath.ToSlash(target)},
+					},
+				}},
+				Done: true,
+			},
+			{
+				Delta: "Read via native tool call: native tool output",
+				Done:  true,
+			},
+		},
+	}
+	sub := NewSubAgentTool(cfg, client)
+	out := sub.Execute(context.Background(), map[string]any{"prompt": "read native.txt", "max_turns": 3})
+	if out.IsError {
+		t.Fatalf("subagent native execution failed: %s", out.Output)
+	}
+	if !strings.Contains(out.Output, "native tool output") {
+		t.Fatalf("expected native tool output in final answer, got %q", out.Output)
+	}
+	if len(client.lastReq.Tools) == 0 {
+		t.Fatal("expected ChatRequest.Tools to be populated for native-capable subagent")
+	}
+}

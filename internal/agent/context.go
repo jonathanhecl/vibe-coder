@@ -17,6 +17,11 @@ func (a *Agent) addRunContext(ctx context.Context, userInput string) {
 	a.runContextBlocks = nil
 	a.mu.Unlock()
 	a.sess.AddUser(userInput)
+	// Compact before computing the wire window or recalling memory when the
+	// incoming transcript already exceeds the compaction threshold (e.g. a
+	// resumed or long multi-turn session), so old turns are summarized and
+	// demoted instead of dropped by windowStartForBudget.
+	a.compactBestEffort(ctx)
 
 	// Experimental session-history RAG: make earlier turns recallable before
 	// the first compaction, including sessions resumed from disk.
@@ -201,6 +206,64 @@ func (a *Agent) compactBestEffort(ctx context.Context) {
 	if a.metrics != nil {
 		a.metrics.NoteCompaction()
 	}
+	a.refreshRecalledMemory(ctx)
+}
+
+// refreshRecalledMemory updates the active turn's ephemeral memory recall block
+// right after a mid-turn compaction so demoted turns remain accessible during
+// the remaining steps of the same Run().
+func (a *Agent) refreshRecalledMemory(ctx context.Context) {
+	if a == nil || a.sess == nil || a.cfg == nil {
+		return
+	}
+	a.mu.RLock()
+	goal := strings.TrimSpace(a.currentGoal)
+	existing := append([]string(nil), a.runContextBlocks...)
+	a.mu.RUnlock()
+	if goal == "" {
+		return
+	}
+	k := a.cfg.RAGTopK
+	if k <= 0 {
+		k = 3
+	}
+	block := strings.TrimSpace(a.sess.Recall(ctx, goal, k))
+	if block == "" {
+		return
+	}
+	updated := make([]string, 0, len(existing)+1)
+	for _, b := range existing {
+		if strings.HasPrefix(strings.TrimSpace(b), "[Session memory]") {
+			continue
+		}
+		updated = append(updated, b)
+	}
+	updated = append(updated, block)
+	a.mu.Lock()
+	a.runContextBlocks = updated
+	a.mu.Unlock()
+}
+
+// CompactNow forces an immediate compaction against the agent's computed
+// transcript budget (accounting for system prompt and native tool schema
+// overhead) and marks the session for memory recall on the next turn.
+func (a *Agent) CompactNow(ctx context.Context) error {
+	if a == nil || a.sess == nil || a.cfg == nil {
+		return nil
+	}
+	gen := a.sess.Generation()
+	budget := a.computeBudget(a.buildSystemPrompt())
+	keepTailTokens := budget.Transcript * 40 / 100
+	if err := a.sess.CompactTo(ctx, keepTailTokens); err != nil {
+		return err
+	}
+	if a.sess.Generation() != gen {
+		a.compactedPending.Store(true)
+		if a.metrics != nil {
+			a.metrics.NoteCompaction()
+		}
+	}
+	return nil
 }
 func (a *Agent) BuildEmptyResponseRetryInput(baseInput string, repeatedState bool) string {
 	baseInput = strings.TrimSpace(baseInput)

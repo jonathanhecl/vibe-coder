@@ -435,3 +435,84 @@ func TestRenderMessagesForSummaryKeepsMessageLineOrder(t *testing.T) {
 		t.Fatalf("older message must come before newer:\n%s", out)
 	}
 }
+
+// TestCompactKeepsMultiToolBatchResults verifies that when an assistant turn
+// issues multiple native tool calls in one batch, every consecutive role:"tool"
+// result in the kept tail remains role:"tool" after compaction instead of
+// having the 2nd+ results falsely converted to user observation envelopes.
+func TestCompactKeepsMultiToolBatchResults(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 32768,
+		SidecarModel:  "sidecar",
+	}
+	s := New(cfg)
+	s.SetClient(capturingSidecarClient{summary: "summary"})
+
+	for i := 0; i < 20; i++ {
+		s.AddUser(strings.Repeat("x", 200))
+	}
+
+	calls := []ollama.MessageToolCall{
+		{Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{"file_path": "a.go"}}},
+		{Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{"file_path": "b.go"}}},
+		{Function: ollama.MessageToolCallFunction{Name: "Grep", Arguments: map[string]any{"pattern": "foo"}}},
+	}
+	s.AddAssistantToolCalls("", calls)
+	s.AddToolResult("Read", "content of a.go")
+	s.AddToolResult("Read", "content of b.go")
+	s.AddToolResult("Grep", "match in c.go")
+	s.AddAssistant("All three tools succeeded.")
+
+	if err := s.CompactTo(context.Background(), 200); err != nil {
+		t.Fatalf("CompactTo failed: %v", err)
+	}
+
+	msgs := s.Messages()
+	toolCount := 0
+	for _, m := range msgs {
+		if m.Role == "tool" {
+			toolCount++
+		}
+		if m.Role == "user" && (strings.Contains(m.Content, "content of b.go") || strings.Contains(m.Content, "match in c.go")) {
+			t.Fatalf("multi-tool batch result was falsely converted to user envelope: %#v", m)
+		}
+	}
+	if toolCount != 3 {
+		t.Fatalf("expected all 3 batch tool results to remain role:tool, got %d in %#v", toolCount, msgs)
+	}
+}
+
+func TestCompactUsesDedicatedSidecarClientWhenSet(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 32,
+		Model:         "main-model",
+		SidecarModel:  "sidecar-model",
+	}
+	s := New(cfg)
+	mainCalled := false
+	sideCalled := false
+	s.SetClient(capturingSidecarClient{
+		summary: "from-main",
+		onChat:  func(ollama.ChatRequest) { mainCalled = true },
+	})
+	s.SetSidecarClient(capturingSidecarClient{
+		summary: "from-dedicated-sidecar",
+		onChat:  func(ollama.ChatRequest) { sideCalled = true },
+	})
+
+	for i := 0; i < 40; i++ {
+		s.AddUser(strings.Repeat("x", 40))
+	}
+	if err := s.Compact(context.Background(), true); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if !sideCalled || mainCalled {
+		t.Fatalf("expected dedicated sidecar client to run compaction: sideCalled=%t mainCalled=%t", sideCalled, mainCalled)
+	}
+}

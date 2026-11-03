@@ -29,6 +29,7 @@ type Session struct {
 	id            string
 	messages      []Message
 	client        ollama.Client
+	sideClient    ollama.Client
 	tokenEstimate int
 	revision      uint64
 	// generation increments whenever messages is replaced or truncated
@@ -130,6 +131,18 @@ func (s *Session) SetClient(client ollama.Client) {
 	}
 	s.mu.Unlock()
 	mem.bind(cfg, client)
+}
+
+// SetSidecarClient sets the optional dedicated client for the sidecar role so
+// compaction summaries route to the sidecar's provider when it differs from
+// the main model's provider. When nil, compaction falls back to the main client.
+func (s *Session) SetSidecarClient(client ollama.Client) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sideClient = client
 }
 
 // ensureMemory returns the demotion store, building it from the current client

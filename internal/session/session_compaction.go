@@ -52,6 +52,7 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	s.mu.RLock()
 	cfg := s.cfg
 	client := s.client
+	sideClient := s.sideClient
 	if cfg == nil || len(s.messages) == 0 {
 		s.mu.RUnlock()
 		return nil
@@ -92,7 +93,11 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	s.ensureMemory().demote(ctx, demoteTexts(old))
 
 	var summary string
-	if client != nil {
+	compactClient := client
+	if cfg.SidecarInUse() && sideClient != nil {
+		compactClient = sideClient
+	}
+	if compactClient != nil {
 		model := ""
 		if cfg.SidecarInUse() {
 			model = cfg.SidecarModel
@@ -107,7 +112,7 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 			if cfg.SidecarInUse() {
 				keepAlive = cfg.KeepAliveFor(config.RoleSidecar)
 			}
-			resp, err := client.ChatSync(compactCtx, ollama.ChatRequest{
+			resp, err := compactClient.ChatSync(compactCtx, ollama.ChatRequest{
 				Model: model,
 				Messages: []ollama.Message{
 					// The compaction prompt is a compile-time template: it tells the
@@ -117,7 +122,11 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 					{Role: "user", Content: renderMessagesForSummary(old)},
 				},
 				Stream:    false,
+				Think:     ollama.ResolveThinkSetting("", true, false, false),
 				KeepAlive: keepAlive,
+				Options: ollama.ChatOptions{
+					NumPredict: 1024,
+				},
 			})
 			cancel()
 			if err == nil && strings.TrimSpace(resp.Content) != "" {
@@ -165,9 +174,11 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 // for Ollama /api/chat and preserves the tool output for the model.
 func normalizeKeptMessages(msgs []Message) []Message {
 	out := make([]Message, 0, len(msgs))
-	for i, m := range msgs {
-		if m.Role == "tool" {
-			if i == 0 || !hasToolCalls(msgs[i-1]) {
+	pendingToolResults := 0
+	for _, m := range msgs {
+		switch m.Role {
+		case "tool":
+			if pendingToolResults <= 0 {
 				// Orphaned tool result: convert to user observation envelope.
 				out = append(out, Message{
 					Role:      "user",
@@ -176,6 +187,11 @@ func normalizeKeptMessages(msgs []Message) []Message {
 				})
 				continue
 			}
+			pendingToolResults--
+		case "assistant":
+			pendingToolResults = len(m.ToolCalls)
+		case "user":
+			pendingToolResults = 0
 		}
 		out = append(out, m)
 	}

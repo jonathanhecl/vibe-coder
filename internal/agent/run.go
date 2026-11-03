@@ -244,24 +244,39 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				a.ui.CollapseAssistantOutput()
 			}
 			a.sess.AddAssistant(reply)
+			var auxNotes []func()
 			for _, c := range calls {
 				tool := a.reg.Get(c.Name)
 				_, outcome, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
 					showPermissionDeniedResult: true,
+					auxiliaryNotes:             &auxNotes,
 				})
 				if err != nil {
+					for _, fn := range auxNotes {
+						fn()
+					}
 					if a.recoverNoProgress(ctx, err, &noProgressRetries) {
+						auxNotes = nil
 						break
 					}
 					return stopErr(ctx, err)
 				}
 				if outcome == toolBlocked || outcome == toolCancelled {
+					for _, fn := range auxNotes {
+						fn()
+					}
 					return nil
 				}
 				a.persistMissionProgress()
 				if isMissionEndTool(c.Name) {
+					for _, fn := range auxNotes {
+						fn()
+					}
 					return nil
 				}
+			}
+			for _, fn := range auxNotes {
+				fn()
 			}
 			a.compactBestEffort(ctx)
 			continue

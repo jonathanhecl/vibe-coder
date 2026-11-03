@@ -73,9 +73,9 @@ func (t *SubAgentTool) Schema() Schema {
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"prompt":       map[string]any{"type": "string"},
-					"max_turns":    map[string]any{"type": "integer"},
-					"allow_writes": map[string]any{"type": "boolean"},
+					"prompt":       map[string]any{"type": "string", "description": "Self-contained research or execution prompt for the isolated sub-agent."},
+					"max_turns":    map[string]any{"type": "integer", "description": "Maximum tool-call turns (1-10, default 5)."},
+					"allow_writes": map[string]any{"type": "boolean", "description": "When true, enables Write, Edit, and Bash in addition to read-only tools."},
 				},
 				"required": []string{"prompt"},
 			},
@@ -132,13 +132,70 @@ func (t *SubAgentTool) runLoop(ctx context.Context, userPrompt string, turns int
 		{Role: "system", Content: buildSubAgentPrompt(t.cfg, allowWrites, allowed)},
 		{Role: "user", Content: userPrompt},
 	}
+	chatTools := buildSubAgentChatTools(t.cfg, allowed)
 	lastReply := ""
 	for turn := 0; turn < turns; turn++ {
-		reply, err := t.chat(ctx, messages, !allowWrites)
+		reply, nativeCalls, err := t.chat(ctx, messages, !allowWrites, chatTools)
 		if err != nil {
 			return "", err
 		}
 		lastReply = reply
+		if len(nativeCalls) > 0 {
+			if len(nativeCalls) > maxSubAgentInvokesPerTurn {
+				nativeCalls = nativeCalls[:maxSubAgentInvokesPerTurn]
+			}
+			wireCalls := make([]ollama.MessageToolCall, 0, len(nativeCalls))
+			for _, c := range nativeCalls {
+				wireCalls = append(wireCalls, ollama.MessageToolCall{
+					Function: ollama.MessageToolCallFunction{
+						Name:      c.name,
+						Arguments: c.params,
+					},
+				})
+			}
+			messages = append(messages, ollama.Message{
+				Role:      "assistant",
+				Content:   reply,
+				ToolCalls: wireCalls,
+			})
+			for _, c := range nativeCalls {
+				tool, ok := allowed[c.name]
+				if !ok {
+					messages = append(messages, ollama.Message{
+						Role:     "tool",
+						ToolName: c.name,
+						Content:  fmt.Sprintf("Error: tool %q is not allowed in this sub-agent.", c.name),
+					})
+					continue
+				}
+				if err := ctx.Err(); err != nil {
+					return "", err
+				}
+				var res Result
+				if executor != nil {
+					var err error
+					res, err = executor(ctx, tool, c.params)
+					if err != nil {
+						return "", err
+					}
+				} else {
+					res = tool.Execute(ctx, c.params)
+				}
+				out := res.Output
+				if len(out) > maxSubAgentObservationChars {
+					out = out[:maxSubAgentObservationChars] + "\n... (truncated) ..."
+				}
+				if strings.TrimSpace(out) == "" {
+					out = "(no output)"
+				}
+				messages = append(messages, ollama.Message{
+					Role:     "tool",
+					ToolName: c.name,
+					Content:  out,
+				})
+			}
+			continue
+		}
 		messages = append(messages, ollama.Message{Role: "assistant", Content: reply})
 		calls := parseSubAgentInvokes(reply, maxSubAgentInvokesPerTurn)
 		if len(calls) == 0 {
@@ -191,17 +248,21 @@ func (t *SubAgentTool) runOneTurn(root context.Context, userPrompt string) (stri
 	return t.runLoop(root, userPrompt, 1, false)
 }
 
-func (t *SubAgentTool) chat(ctx context.Context, messages []ollama.Message, readOnly bool) (string, error) {
+func (t *SubAgentTool) chat(ctx context.Context, messages []ollama.Message, readOnly bool, chatTools []ollama.ChatTool) (string, []subAgentCall, error) {
 	client := t.client
 	model, numCtx, numPredict, temperature := subAgentChatSettings(t.cfg)
 	if readOnly && t.fastClient != nil && t.fastModel != "" {
 		client = t.fastClient
 		model = t.fastModel
 	}
+	if u, ok := client.(interface{ ToolsUnsupported(model string) bool }); ok && u.ToolsUnsupported(model) {
+		chatTools = nil
+	}
 	stream, err := client.Chat(ctx, ollama.ChatRequest{
 		Model:     model,
 		Messages:  messages,
 		Stream:    true,
+		Tools:     chatTools,
 		KeepAlive: t.cfg.KeepAliveFor(config.RoleMain),
 		Options: ollama.ChatOptions{
 			NumCtx:      numCtx,
@@ -210,19 +271,61 @@ func (t *SubAgentTool) chat(ctx context.Context, messages []ollama.Message, read
 		},
 	})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var b strings.Builder
+	var rawCalls []ollama.MessageToolCall
 	for chunk := range stream {
 		if chunk.Err != nil {
-			return "", chunk.Err
+			return "", nil, chunk.Err
 		}
+		rawCalls = ollama.MergeToolCalls(rawCalls, chunk.ToolCalls)
 		b.WriteString(chunk.Delta)
 		if chunk.Done {
 			break
 		}
 	}
-	return b.String(), nil
+	var calls []subAgentCall
+	for _, rc := range rawCalls {
+		name := strings.TrimSpace(rc.Function.Name)
+		if name == "" {
+			continue
+		}
+		params := map[string]any{}
+		for k, v := range rc.Function.Arguments {
+			params[k] = v
+		}
+		calls = append(calls, subAgentCall{name: name, params: params})
+	}
+	return b.String(), calls, nil
+}
+
+func buildSubAgentChatTools(cfg *config.Config, allowed map[string]Tool) []ollama.ChatTool {
+	if cfg != nil && cfg.ToolsKnown && !cfg.ToolsSupported {
+		return nil
+	}
+	names := make([]string, 0, len(allowed))
+	for name := range allowed {
+		names = append(names, name)
+	}
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && names[j] < names[j-1]; j-- {
+			names[j], names[j-1] = names[j-1], names[j]
+		}
+	}
+	out := make([]ollama.ChatTool, 0, len(names))
+	for _, name := range names {
+		s := allowed[name].Schema()
+		out = append(out, ollama.ChatTool{
+			Type: "function",
+			Function: ollama.ChatToolFunction{
+				Name:        s.Function.Name,
+				Description: s.Function.Description,
+				Parameters:  s.Function.Parameters,
+			},
+		})
+	}
+	return out
 }
 
 func subAgentChatSettings(cfg *config.Config) (string, int, int, float64) {
@@ -267,17 +370,23 @@ func buildSubAgentPrompt(cfg *config.Config, allowWrites bool, allowed map[strin
 	var b strings.Builder
 	b.WriteString(base)
 	b.WriteString("\n\n# Sub-agent scope\n")
-	b.WriteString("You are an isolated research sub-agent. Answer the delegated prompt directly.\n")
+	b.WriteString("You are an isolated bounded sub-agent. Answer the delegated prompt directly and concisely.\n")
+	b.WriteString("Do NOT call TodoWrite, MissionStart, MissionComplete, or MissionBlocked; those belong only to the parent agent.\n")
 	if allowWrites {
-		b.WriteString("You may use these tools: ")
-		b.WriteString(strings.Join(names, ", "))
-		b.WriteString(".\n")
+		b.WriteString("You may use ONLY these tools:\n")
 	} else {
-		b.WriteString("You are read-only. Use only: ")
-		b.WriteString(strings.Join(names, ", "))
-		b.WriteString(". Do not edit files or run commands.\n")
+		b.WriteString("You are read-only. Do not edit files or run commands. You may use ONLY these tools:\n")
 	}
-	b.WriteString("To call a tool, reply with XML blocks: <invoke name=\"ToolName\">{\"param\":\"value\"}</invoke> (up to 3 per reply). ")
+	for _, name := range names {
+		tool := allowed[name]
+		params := summarizeParams(tool.Schema())
+		if params != "" {
+			fmt.Fprintf(&b, "- %s(%s): %s\n", name, params, strings.TrimSpace(tool.Description()))
+		} else {
+			fmt.Fprintf(&b, "- %s: %s\n", name, strings.TrimSpace(tool.Description()))
+		}
+	}
+	b.WriteString("To call a tool when native function calling is not used, reply with XML blocks: <invoke name=\"ToolName\">{\"param\":\"value\"}</invoke> (up to 3 per reply). ")
 	b.WriteString("A reply with no tool call is your final answer.")
 	return b.String()
 }
@@ -368,7 +477,19 @@ func (t *ParallelAgentsTool) Schema() Schema {
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"tasks": map[string]any{"type": "array"},
+					"tasks": map[string]any{
+						"type":        "array",
+						"description": "2 to 4 independent sub-agent task objects to execute in parallel.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"prompt":       map[string]any{"type": "string", "description": "Self-contained prompt for this sub-agent."},
+								"max_turns":    map[string]any{"type": "integer", "description": "Maximum turns for this sub-agent (1-10, default 5)."},
+								"allow_writes": map[string]any{"type": "boolean", "description": "Whether this sub-agent may call Write, Edit, and Bash."},
+							},
+							"required": []string{"prompt"},
+						},
+					},
 				},
 				"required": []string{"tasks"},
 			},

@@ -89,7 +89,14 @@ func shortModelName(name string) string {
 	return name
 }
 func inferSingleToolCall(input string) (string, map[string]any, bool) {
-	lower := strings.ToLower(input)
+	trimmed := strings.TrimSpace(input)
+	if len(trimmed) > 120 || strings.Contains(trimmed, "?") || strings.Contains(trimmed, "\n") {
+		return "", nil, false
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "not using glob") || strings.Contains(lower, "without using glob") || strings.Contains(lower, "don't use glob") {
+		return "", nil, false
+	}
 	if strings.Contains(lower, "using glob") || strings.Contains(lower, "use glob") {
 		targetPath := "."
 		if strings.Contains(lower, "./internal") || strings.Contains(lower, "internal") {

@@ -143,3 +143,31 @@ func TestNativeSystemPromptWithinTokenBudget(t *testing.T) {
 		t.Fatalf("native system prompt estimate %d exceeds ceiling %d", est, nativeSystemPromptTokenCeiling)
 	}
 }
+
+func TestSystemPromptInvalidatesOnVisionRoleAndSidecarVisionChanges(t *testing.T) {
+	t.Parallel()
+	ag := newPromptBudgetAgent(t, true, true)
+	ag.cfg.VisionKnown = true
+	ag.cfg.VisionAvailable = false
+
+	p1 := ag.buildSystemPrompt()
+	if !strings.Contains(p1, "Vision: NOT available") {
+		t.Fatalf("expected NOT available vision prompt initially, got:\n%s", p1)
+	}
+
+	ag.cfg.SidecarModel = "moondream:latest"
+	ag.cfg.SidecarVisionAvailable = true
+	p2 := ag.buildSystemPrompt()
+	if p2 == p1 || !strings.Contains(p2, "Vision: via SIDECAR") {
+		t.Fatalf("expected system prompt cache to invalidate when sidecar vision changes:\n%s", p2)
+	}
+
+	if ag.cfg.RoleModels == nil {
+		ag.cfg.RoleModels = make(map[config.Role]config.RoleModel)
+	}
+	ag.cfg.RoleModels[config.RoleVision] = config.RoleModel{Model: "qwen2-vl:7b"}
+	p3 := ag.buildSystemPrompt()
+	if p3 == p2 || !strings.Contains(p3, "Vision: via VISION MODEL") || !strings.Contains(p3, "qwen2-vl:7b") {
+		t.Fatalf("expected system prompt cache to invalidate when vision role changes:\n%s", p3)
+	}
+}

@@ -200,6 +200,9 @@ func (a *Agent) SetSidecar(p *sidecar.Pool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.side = p
+	if a.sess != nil && p != nil {
+		a.sess.SetSidecarClient(p.ChatClient())
+	}
 }
 
 // SetVisionRole installs the optional vision-role describer. A nil describer

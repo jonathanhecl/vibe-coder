@@ -244,7 +244,11 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, runOfflineCommand(c, fields[1:])
 	case "/compact":
 		before := c.Session.TokenEstimate()
-		if err := c.Session.Compact(context.Background(), true); err != nil {
+		if compactor, ok := c.Agent.(interface{ CompactNow(context.Context) error }); ok {
+			if err := compactor.CompactNow(context.Background()); err != nil {
+				return true, false, err
+			}
+		} else if err := c.Session.Compact(context.Background(), true); err != nil {
 			return true, false, err
 		}
 		after := c.Session.TokenEstimate()

@@ -133,6 +133,7 @@ func main() {
 
 	sess := session.New(cfg)
 	sess.SetClient(client)
+	sess.SetSidecarClient(sideClient)
 	resolveVisionSupport(cfg, client, sideClient)
 	ctxStore := contextfiles.NewStore()
 	preloadSessionContexts(cfg, ctxStore)
