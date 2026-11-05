@@ -377,6 +377,34 @@ func fileEditCompletionNote(toolName string, params map[string]any) string {
 	}
 	return fmt.Sprintf("File %s: %s.", verb, path)
 }
+// Condense only when the transcript is under real pressure. Per-tool
+// summarising at a fixed 6KB fires every 1-2 Shell outputs even in a fresh
+// session; instead we wait until the masked transcript reaches 70% of its
+// budget (compaction defaults to 85%). A single huge output still condenses
+// immediately so one Bash dump cannot blow the window in one shot.
+const (
+	condensePressurePercent = 70
+	alwaysCondenseBytes     = 24 * 1024
+)
+
+func (a *Agent) transcriptNearLimit() bool {
+	if a == nil || a.sess == nil || a.cfg == nil || a.cfg.ContextWindow <= 0 {
+		return false
+	}
+	budget := a.computeBudget(a.buildSystemPrompt())
+	if budget.Transcript <= 0 {
+		return false
+	}
+	hist := a.sess.MessagesReadOnly()
+	if len(hist) == 0 {
+		return false
+	}
+	gen := a.sess.Generation()
+	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, gen))
+	cost := a.calibratedTranscriptCost(masked)
+	return cost*100 >= budget.Transcript*condensePressurePercent
+}
+
 func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hintsForModel string, structured bool) {
 	a.mu.RLock()
 	side := a.side
@@ -396,7 +424,12 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 	// tests that lower it via WithSummariseThreshold still exercise the
 	// summary path and so users that raise it via env don't pay for a
 	// useless spinner on outputs the sidecar would skip anyway.
-	if side != nil && side.Enabled() && toolName != "Read" && len(obs) >= side.Threshold() {
+	// Gate on transcript pressure: small sessions keep raw outputs even
+	// above threshold; only near the main model's limit (or one huge dump)
+	// pays the sidecar round-trip.
+	needsSize := len(obs) >= side.Threshold()
+	huge := len(obs) >= alwaysCondenseBytes
+	if side != nil && side.Enabled() && toolName != "Read" && needsSize && (huge || a.transcriptNearLimit()) {
 		label := fmt.Sprintf("condensing %s output via %s…",
 			toolName, shortModelName(a.cfg.SidecarModel))
 		a.ui.StartWaiting(label)

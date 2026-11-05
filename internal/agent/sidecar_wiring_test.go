@@ -97,15 +97,17 @@ func TestRecordToolObservationSummarisesNonReadOutputWhenSidecarEnabled(t *testi
 	t.Parallel()
 	sc := &stubClient{reply: "- big file\n- many lines"}
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
+	a.cfg.ContextWindow = 4000
+	a.sess.AddUser(strings.Repeat("filler context ", 1500))
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
 
 	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("payload\n", 500), "", false)
 
 	msgs := a.sess.Messages()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message in session, got %d", len(msgs))
+	if len(msgs) == 0 {
+		t.Fatalf("expected messages in session, got 0")
 	}
-	body := msgs[0].Content
+	body := msgs[len(msgs)-1].Content
 	if !strings.Contains(body, "[sidecar-summary tool=Bash") {
 		t.Fatalf("expected summarised observation, got: %q", body)
 	}
@@ -117,8 +119,28 @@ func TestRecordToolObservationSummarisesNonReadOutputWhenSidecarEnabled(t *testi
 	}
 }
 
-func TestRecordToolObservationKeepsLargeReadOutputVerbatim(t *testing.T) {
+func TestRecordToolObservationSkipsSummariseFarFromLimit(t *testing.T) {
 	t.Parallel()
+	sc := &stubClient{reply: "should not be used"}
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
+	a.cfg.ContextWindow = 32768
+	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
+
+	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("payload\n", 500), "", false)
+
+	msgs := a.sess.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if strings.Contains(msgs[0].Content, "[sidecar-summary") {
+		t.Fatalf("far from limit should keep raw output, got: %q", msgs[0].Content[:200])
+	}
+	if atomic.LoadInt32(&sc.calls) != 0 {
+		t.Fatalf("sidecar should not be called far from limit, got %d", sc.calls)
+	}
+}
+
+func TestRecordToolObservationKeepsLargeReadOutputVerbatim(t *testing.T) {	t.Parallel()
 	sc := &stubClient{reply: "should not be used"}
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
 	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
