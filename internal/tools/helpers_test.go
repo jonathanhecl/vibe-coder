@@ -15,6 +15,7 @@ func TestAttemptedArgsSummary(t *testing.T) {
 		{"nil", nil, []string{"(none)"}},
 		{"empty", map[string]any{}, []string{"(none)"}},
 		{"small", map[string]any{"file_path": "a.txt"}, []string{"attempted args", "a.txt"}},
+		{"parse-error-only", map[string]any{ParseErrorKey: "boom", RawArgsKey: `{"x":`}, []string{"(none)"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -46,12 +46,19 @@ func truncateRunes(s string, max int) string {
 // AttemptedArgsSummary renders what the model actually sent, truncated.
 // Empty when there is nothing to show so callers can skip enrichment.
 func AttemptedArgsSummary(params map[string]any) string {
-	if len(params) == 0 {
+	visible := make(map[string]any, len(params))
+	for k, v := range params {
+		if k == ParseErrorKey || k == RawArgsKey {
+			continue
+		}
+		visible[k] = v
+	}
+	if len(visible) == 0 {
 		return "attempted args: (none)"
 	}
-	raw, err := json.Marshal(params)
+	raw, err := json.Marshal(visible)
 	if err != nil {
-		raw = []byte(fmt.Sprint(params))
+		raw = []byte(fmt.Sprint(visible))
 	}
 	full := string(raw)
 	if len(raw) == 0 {
