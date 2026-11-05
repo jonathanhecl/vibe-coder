@@ -109,7 +109,32 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if showCard {
 		a.ui.ShowToolCall(toolName, toolParams)
 	}
+	// A truncated JSON argument string (e.g. a 30KB Write cut by num_predict)
+	// arrives here as __parse_error/__raw_arguments instead of silently
+	// becoming {}. Fail fast with the raw head so the model and the user see
+	// what broke instead of a misleading "X is required".
+	if rawErr, ok := toolParams[tools.ParseErrorKey].(string); ok && strings.TrimSpace(rawErr) != "" {
+		raw, _ := toolParams[tools.RawArgsKey].(string)
+		msg := fmt.Sprintf("tool arguments are not valid JSON: %s\nraw arguments (%d bytes): %s", strings.TrimSpace(rawErr), len(raw), tools.TruncateRawArgs(raw))
+		if summary := tools.AttemptedArgsSummary(toolParams); summary != "" {
+			msg += "\n" + summary
+		}
+		result := tools.Result{Output: msg, IsError: true, HintsForModel: "The previous tool call had malformed JSON arguments (likely truncated output). Retry with smaller arguments or split the work; for large files write in chunks with append=true."}
+		a.paths.RememberToolResult(toolName, toolParams, result.Output, true)
+		if showCard {
+			a.ui.ShowToolResult(toolName, result.Output, true, toolParams)
+		}
+		if !mode.skipSessionRecord {
+			a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
+		}
+		return result, toolRan, nil
+	}
 	result := tool.Execute(tools.WithExecutor(ctx, a.executeDelegatedTool), toolParams)
+	if result.IsError && !strings.Contains(result.Output, "attempted args") {
+		if summary := tools.AttemptedArgsSummary(toolParams); summary != "" {
+			result.Output += "\n" + summary
+		}
+	}
 	if toolName == "Write" || toolName == "Edit" {
 		var checkpointErr error
 		if result.IsError {

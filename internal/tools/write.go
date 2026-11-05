@@ -41,11 +41,11 @@ func (t *WriteTool) Schema() Schema {
 func (t *WriteTool) Execute(_ context.Context, params map[string]any) Result {
 	path, ok := params["file_path"].(string)
 	if !ok || strings.TrimSpace(path) == "" {
-		return errResult("file_path is required")
+		return MissingParamError("file_path", params)
 	}
 	contents, ok := params["contents"].(string)
 	if !ok {
-		return errResult("contents must be a string")
+		return InvalidParamError("contents must be a string", params)
 	}
 	appendMode, _ := params["append"].(bool)
 	path = strings.TrimSpace(path)

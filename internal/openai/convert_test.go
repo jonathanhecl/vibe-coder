@@ -66,6 +66,38 @@ func TestBuildChatRequestThinking(t *testing.T) {
 	}
 }
 
+func TestParseResponseChoicePreservesJSONError(t *testing.T) {
+	truncated := `{"file_path": "a.txt", "contents": "abc`
+	choice := chatChoice{Message: chatResponseMessage{
+		ToolCalls: []chatToolCall{{Function: chatFunctionCall{Name: "Write", Arguments: truncated}}},
+	}}
+	got := parseResponseChoice(choice)
+	if len(got.ToolCalls) != 1 {
+		t.Fatalf("got %d calls", len(got.ToolCalls))
+	}
+	args := got.ToolCalls[0].Function.Arguments
+	if _, ok := args["__parse_error"]; !ok {
+		t.Errorf("missing __parse_error in %v", args)
+	}
+	if raw, _ := args["__raw_arguments"].(string); raw != truncated {
+		t.Errorf("raw not preserved: %q", raw)
+	}
+}
+
+func TestBuildToolCallsPreservesStreamJSONError(t *testing.T) {
+	acc := newStreamAccumulator()
+	acc.accumulate(chatDelta{ToolCalls: []chatToolCall{
+		{Index: 0, Function: chatFunctionCall{Name: "Write", Arguments: `{"file_path":`}},
+	}})
+	got := acc.buildToolCalls()
+	if len(got) != 1 {
+		t.Fatalf("got %d calls", len(got))
+	}
+	if _, ok := got[0].Function.Arguments["__parse_error"]; !ok {
+		t.Errorf("missing __parse_error in %v", got[0].Function.Arguments)
+	}
+}
+
 func TestBuildChatRequestToolCallMatching(t *testing.T) {
 	req := ollama.ChatRequest{
 		Model: "test-model",

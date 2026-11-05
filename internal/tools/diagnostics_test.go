@@ -62,7 +62,7 @@ func TestDiagnosticsToolRejectsAnEmptyPath(t *testing.T) {
 			if !result.IsError {
 				t.Errorf("IsError = false, want true")
 			}
-			if result.Output != "file_path is required" {
+			if !strings.Contains(result.Output, "file_path is required") {
 				t.Errorf("Output = %q", result.Output)
 			}
 			if len(source.calls) != 0 {

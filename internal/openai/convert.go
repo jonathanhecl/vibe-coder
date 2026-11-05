@@ -182,7 +182,12 @@ func parseResponseChoice(choice chatChoice) ollama.ChatResponse {
 			}
 			var args map[string]any
 			if tc.Function.Arguments != "" {
-				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+					args = map[string]any{
+						"__parse_error":   err.Error(),
+						"__raw_arguments": tc.Function.Arguments,
+					}
+				}
 			}
 			if args == nil {
 				args = map[string]any{}
@@ -255,7 +260,12 @@ func (s *streamAccumulator) buildToolCalls() []ollama.MessageToolCall {
 		var args map[string]any
 		argStr := strings.TrimSpace(stc.args.String())
 		if argStr != "" {
-			_ = json.Unmarshal([]byte(argStr), &args)
+			if err := json.Unmarshal([]byte(argStr), &args); err != nil {
+				args = map[string]any{
+					"__parse_error":   err.Error(),
+					"__raw_arguments": stc.args.String(),
+				}
+			}
 		}
 		if args == nil {
 			args = map[string]any{}
