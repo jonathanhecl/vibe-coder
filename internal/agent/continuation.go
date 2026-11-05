@@ -61,11 +61,10 @@ func shouldSkipForGoalExtraction(c string) bool {
 	return false
 }
 
-// extractPriorGoal returns the best-effort prior user request from the session
-// transcript, excluding tool envelopes and injected context blocks.
+// extractPriorGoal returns the most-recent substantive user request from the
+// session transcript, excluding tool envelopes and injected context blocks.
 func extractPriorGoal(sess *session.Session) string {
 	msgs := sess.MessagesReadOnly()
-	var best string
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role != "user" {
 			continue
@@ -74,11 +73,9 @@ func extractPriorGoal(sess *session.Session) string {
 		if shouldSkipForGoalExtraction(c) {
 			continue
 		}
-		if len(c) > len(best) {
-			best = c
-		}
+		return c
 	}
-	return best
+	return ""
 }
 
 // resolveGoalForRun chooses the goal string for currentGoal before the new user

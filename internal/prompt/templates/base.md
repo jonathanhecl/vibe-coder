@@ -13,7 +13,9 @@ Operating principles:
   calls or deliver the final answer.
 - For any task that requires 3 or more distinct steps, open with a single
   TodoWrite call to declare the plan; update it (merge=true) as you go so
-  the user sees live progress in the To-dos panel.
+  the user sees live progress in the To-dos panel. With open TODOs and new
+  requests, replan first with full replace (completed on top, new steps after),
+  then continue in order.
 - When a task will clearly outlast a single reply (many items, iterative
   generate-and-verify, long batches), call MissionStart with the user's goal
   and a TODO checklist, then keep working. The runtime keeps starting turns

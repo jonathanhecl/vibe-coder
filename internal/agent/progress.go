@@ -67,7 +67,8 @@ func (a *Agent) progressPromptBlock() string {
 		fmt.Fprintf(&b, "Open tasks: %d\n", openTasks)
 	}
 	b.WriteString("This summary comes from durable state and is always current; trust it over older transcript notes. " +
-		"Continue with the next pending step and mark items completed as they finish.")
+		"Continue in order with the next pending step top to bottom and mark items completed as they finish. " +
+		"Completed items never move; new steps always go after completed work.")
 	return strings.TrimSpace(b.String())
 }
 
@@ -115,11 +116,15 @@ func (a *Agent) runtimeStateNote() string {
 		a.mu.RLock()
 		goal := strings.TrimSpace(a.currentGoal)
 		a.mu.RUnlock()
-		if goal != "" {
-			if b.Len() > 0 {
-				b.WriteString("\n\n")
+		// When a mission is active its block already carries the goal;
+		// a second copy only wastes tokens and splits the model's focus.
+		if m := a.MissionSnapshot(); m.Status != tools.MissionStatusActive || strings.TrimSpace(m.Goal) == "" {
+			if goal != "" {
+				if b.Len() > 0 {
+					b.WriteString("\n\n")
+				}
+				b.WriteString(prompt.Render("goal", struct{ Goal string }{Goal: goal}))
 			}
-			b.WriteString(prompt.Render("goal", struct{ Goal string }{Goal: goal}))
 		}
 	}
 	return strings.TrimSpace(b.String())

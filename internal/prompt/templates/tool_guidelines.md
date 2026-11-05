@@ -12,5 +12,5 @@
 - Edit: the "     5|" prefix from Read is not file content. old_string must match the file exactly, including indentation. Prefer start_line/end_line for whole-line changes; when a string repeats, set replace_all=true or use a larger unique block.
 - GitStatus/GitDiff review working-tree changes; GitUndo restores the latest checkpoint after a bad edit.
 - After an edit, `[DIAGNOSTICS]` reports what the language server found in that file. It is authoritative: fix those errors before running the suite.
-- TodoWrite: only for tasks with 3+ steps. Declare the full plan once, keep exactly one item "in_progress", and call it again with merge=true as each step completes.
+- TodoWrite: only for tasks with 3+ steps. Declare the full plan once, keep exactly one item "in_progress", execute in listed order top to bottom, and call it again with merge=true as each step completes. For add/remove/reorder, replan with full replace: completed stay on top, new steps after them.
 - AskUserQuestion: ask the user to clarify ambiguities with labeled options. For one question use `{"prompt":"...","options":["A","B"]}`. For multiple questions use `{"questions":[{"id":"q1","prompt":"...","options":["A","B"]}]}`.

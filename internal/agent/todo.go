@@ -60,7 +60,7 @@ func (a *Agent) todoProgressNote() string {
 			fmt.Fprintf(&b, "  [PENDING] %s: %s\n", it.ID, it.Content)
 		}
 	}
-	b.WriteString("Use the data from earlier tool results to complete pending steps. Do not re-investigate what you already know.")
+	b.WriteString("Use the data from earlier tool results to complete pending steps in listed order top to bottom. Do not re-investigate what you already know. Completed items never move.")
 	return b.String()
 }
 
