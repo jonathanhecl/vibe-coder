@@ -9,9 +9,11 @@ import (
 
 // DefaultSummariseThreshold is the byte length above which a tool output is
 // considered "too big" and worth condensing through the sidecar before it
-// hits the main model's context. Picked empirically: roughly the size at
-// which a Read of a real source file starts dominating context usage.
-const DefaultSummariseThreshold = 6 * 1024
+// hits the main model's context. It is deliberately above 32 KiB: only a
+// single dump that can threaten a small local window on its own pays the
+// sidecar round-trip. Anything smaller stays verbatim and is left to masking
+// and compaction, which cost less and lose less detail.
+const DefaultSummariseThreshold = 33 * 1024
 
 const (
 	defaultMaxParallel = 2

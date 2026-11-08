@@ -7,6 +7,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
+	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
@@ -375,15 +376,52 @@ func fileEditCompletionNote(toolName string, params map[string]any) string {
 	}
 	return fmt.Sprintf("File %s: %s.", verb, path)
 }
-// Condense only when the transcript is under real pressure. Per-tool
-// summarising at a fixed 6KB fires every 1-2 Shell outputs even in a fresh
-// session; instead we wait until the masked transcript reaches 70% of its
-// budget (compaction defaults to 85%). A single huge output still condenses
-// immediately so one Bash dump cannot blow the window in one shot.
+
+// A single tool output is worth a sidecar round-trip only when it would eat
+// more than half of the transcript's remaining room. Anchoring on the free
+// room instead of a fixed byte count makes the rule proportional to the model
+// and to how full the conversation already is: with plenty of room a 20 KiB
+// dump is harmless, and as the window fills the bar drops on its own until
+// compaction (85% of the window) takes over. The pool's byte threshold stays
+// as the fallback for a model whose window is unknown.
+const (
+	condenseSharePercent = 50
+	// minCondenseTokens stops a nearly full transcript from spending a
+	// round-trip on trivial output: below ~2 KiB the summary costs more in
+	// latency than it saves in context.
+	minCondenseTokens = 512
+)
+
+// Superseded by condenseSharePercent, kept unused pending removal: this was the
+// old step-pressure gate, a fixed percentage of the whole transcript budget.
 const (
 	condensePressurePercent = 70
 	alwaysCondenseBytes     = 24 * 1024
 )
+
+// condenseLimitTokens reports how many calibrated tokens one tool output may
+// take before it is worth condensing, and whether the model's window is known.
+// The limit is half of the transcript's remaining room, floored at
+// minCondenseTokens so a full transcript never summarises trivial output.
+func (a *Agent) condenseLimitTokens() (int, bool) {
+	if a == nil || a.sess == nil || a.cfg == nil || a.cfg.ContextWindow <= 0 {
+		return 0, false
+	}
+	budget := a.computeBudget(a.buildSystemPrompt())
+	if budget.Transcript <= 0 {
+		return 0, false
+	}
+	free := budget.Transcript
+	if hist := a.sess.MessagesReadOnly(); len(hist) > 0 {
+		masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, a.sess.Generation()))
+		free -= a.calibratedTranscriptCost(masked)
+	}
+	limit := free * condenseSharePercent / 100
+	if limit < minCondenseTokens {
+		limit = minCondenseTokens
+	}
+	return limit, true
+}
 
 func (a *Agent) transcriptNearLimit() bool {
 	if a == nil || a.sess == nil || a.cfg == nil || a.cfg.ContextWindow <= 0 {
@@ -418,20 +456,24 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 		}
 		a.sess.AddToolObservation(name, output)
 	}
-	// Use the Pool's configured threshold (not the package default) so
-	// tests that lower it via WithSummariseThreshold still exercise the
-	// summary path and so users that raise it via env don't pay for a
-	// useless spinner on outputs the sidecar would skip anyway.
-	// Gate on transcript pressure: small sessions keep raw outputs even
-	// above threshold; only near the main model's limit (or one huge dump)
-	// pays the sidecar round-trip.
-	needsSize := len(obs) >= side.Threshold()
-	huge := len(obs) >= alwaysCondenseBytes
-	if side != nil && side.Enabled() && toolName != "Read" && needsSize && (huge || a.transcriptNearLimit()) {
+	// Condense only when the output would eat more than half of the transcript
+	// room still free; with plenty of room the raw output is kept. When the
+	// model's window is unknown, fall back to the pool's byte threshold.
+	shouldCondense := false
+	minBytes := 0
+	if side != nil && side.Enabled() && toolName != "Read" {
+		if limit, ok := a.condenseLimitTokens(); ok {
+			shouldCondense = a.calibrateTokens(session.EstimateTokens(obs)) > limit
+		} else {
+			minBytes = side.Threshold()
+			shouldCondense = len(obs) >= minBytes
+		}
+	}
+	if shouldCondense {
 		label := fmt.Sprintf("condensing %s output via %s…",
 			toolName, shortModelName(a.cfg.SidecarModel))
 		a.ui.StartWaiting(label)
-		summary, used, _ := side.SummariseToolOutput(ctx, toolName, obs)
+		summary, used, _ := side.SummariseToolOutputAt(ctx, toolName, obs, minBytes)
 		a.ui.StopWaiting()
 		if used && summary != "" {
 			record(toolName, summary)

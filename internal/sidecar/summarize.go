@@ -27,16 +27,25 @@ const summariseSystem = "You are a senior code reviewer producing extremely conc
 // SummariseToolOutput condenses a verbose tool output into a short bullet
 // summary. It returns (summary, true, nil) when a summary was produced and
 // should be substituted for the raw output, or ("", false, nil) when the
-// caller should keep the raw output (sidecar disabled, output too short, or
-// summary failed). An error is only returned for unexpected internal
-// failures the caller may want to log; a failed sidecar call is silent.
+// caller should keep the raw output (sidecar disabled, output below the pool
+// threshold, or summary failed). An error is only returned for unexpected
+// internal failures the caller may want to log; a failed sidecar call is
+// silent.
 func (p *Pool) SummariseToolOutput(ctx context.Context, toolName, output string) (string, bool, error) {
+	return p.SummariseToolOutputAt(ctx, toolName, output, p.Threshold())
+}
+
+// SummariseToolOutputAt condenses output that is at least minBytes long.
+// minBytes <= 0 skips the size check because the caller already decided: the
+// agent condenses below the pool's default threshold when the transcript has
+// little free room left, and a second opinion here would silently cancel it.
+func (p *Pool) SummariseToolOutputAt(ctx context.Context, toolName, output string, minBytes int) (string, bool, error) {
 	if !p.Enabled() {
 		return "", false, nil
 	}
 	body := strings.TrimSpace(output)
 	origBytes := len(body)
-	if origBytes < p.threshold {
+	if minBytes > 0 && origBytes < minBytes {
 		return "", false, nil
 	}
 

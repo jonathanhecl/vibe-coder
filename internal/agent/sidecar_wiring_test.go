@@ -140,6 +140,86 @@ func TestRecordToolObservationSkipsSummariseFarFromLimit(t *testing.T) {
 	}
 }
 
+// With room to spare the raw output is kept even though it clears the old
+// 6 KiB threshold: at a 32k window the limit is half of the free transcript.
+func TestRecordToolObservationKeepsOutputRawWhenTranscriptHasRoom(t *testing.T) {
+	t.Parallel()
+	sc := &stubClient{reply: "should not be used"}
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
+	a.cfg.ContextWindow = 32768
+	a.SetSidecar(sidecar.New(a.cfg, sc))
+
+	body := strings.Repeat("payload\n", 2500) // ~20 KiB, far below the limit
+	a.recordToolObservation(context.Background(), "Bash", body, "", false)
+
+	msgs := a.sess.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if strings.Contains(msgs[0].Content, "[sidecar-summary") {
+		t.Fatalf("a roomy transcript should keep the raw output")
+	}
+	if !strings.Contains(msgs[0].Content, body) {
+		t.Fatalf("expected raw output verbatim, got %d bytes", len(msgs[0].Content))
+	}
+	if atomic.LoadInt32(&sc.calls) != 0 {
+		t.Fatalf("sidecar should not be called, got %d", sc.calls)
+	}
+}
+
+// When little room is left, an output of the same size is condensed even
+// though it sits below the pool's 33 KiB default: the dynamic limit wins and
+// the pool must not re-gate it.
+func TestRecordToolObservationCondensesWhenFreeRoomIsTight(t *testing.T) {
+	t.Parallel()
+	sc := &stubClient{reply: "- big output\n- many lines"}
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
+	a.cfg.ContextWindow = 4000
+	a.sess.AddUser(strings.Repeat("filler context ", 1500))
+	a.SetSidecar(sidecar.New(a.cfg, sc))
+
+	a.recordToolObservation(context.Background(), "Bash", strings.Repeat("payload\n", 2500), "", false)
+
+	msgs := a.sess.Messages()
+	body := msgs[len(msgs)-1].Content
+	if !strings.Contains(body, "[sidecar-summary tool=Bash") {
+		t.Fatalf("expected summarised observation, got: %q", body)
+	}
+	if atomic.LoadInt32(&sc.calls) != 1 {
+		t.Fatalf("expected 1 sidecar call, got %d", sc.calls)
+	}
+}
+
+// The limit is half of the free transcript room, so it must shrink as the
+// conversation fills and never fall under the floor.
+func TestCondenseLimitTokensShrinksAsTranscriptFills(t *testing.T) {
+	t.Parallel()
+	empty, _ := newTestAgent(t, "qwen3.5:9b", &stubClient{})
+	empty.cfg.ContextWindow = 32768
+	roomyLimit, ok := empty.condenseLimitTokens()
+	if !ok {
+		t.Fatalf("expected a known window")
+	}
+	budget := empty.computeBudget(empty.buildSystemPrompt())
+	if want := budget.Transcript * condenseSharePercent / 100; roomyLimit != want {
+		t.Fatalf("empty transcript limit = %d, want half of %d", roomyLimit, budget.Transcript)
+	}
+
+	filled, _ := newTestAgent(t, "qwen3.5:9b", &stubClient{})
+	filled.cfg.ContextWindow = 32768
+	filled.sess.AddUser(strings.Repeat("filler context ", 3000))
+	tightLimit, ok := filled.condenseLimitTokens()
+	if !ok {
+		t.Fatalf("expected a known window")
+	}
+	if tightLimit >= roomyLimit {
+		t.Fatalf("limit should shrink as the transcript fills: empty=%d filled=%d", roomyLimit, tightLimit)
+	}
+	if tightLimit < minCondenseTokens {
+		t.Fatalf("limit fell under the floor: %d", tightLimit)
+	}
+}
+
 func TestRecordToolObservationKeepsLargeReadOutputVerbatim(t *testing.T) {	t.Parallel()
 	sc := &stubClient{reply: "should not be used"}
 	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
