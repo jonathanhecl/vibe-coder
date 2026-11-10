@@ -124,6 +124,12 @@ func (u *PlainUI) EndAssistant(usage TurnUsage) {
 	if u.streamingAssistant && !u.assistantHadVisible {
 		fmt.Fprint(u.out, "\r\x1b[2K")
 	}
+	// assistantLines belongs to the reply that printed it. A reply with no
+	// visible prose must not inherit the previous reply's count, or a later
+	// CollapseAssistantOutput moves the cursor up over that earlier answer.
+	if !u.assistantHadVisible {
+		u.assistantLines = 0
+	}
 	u.assistantReplyStart = time.Time{}
 	u.assistantHadVisible = false
 	if u.streamingAssistant {
