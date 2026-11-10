@@ -75,6 +75,8 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	thinkingOnlyRetries := 0
 	emptyChatErrRetries := 0
 	noProgressRetries := 0
+	unknownToolRounds := 0
+	thinkingLoopStops := 0
 	for i := 0; i < MaxIterations; i++ {
 		// A Ctrl+C between calls ends the turn here. Every further iteration
 		// would only replay an already cancelled request, which is what kept
@@ -111,6 +113,10 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		if err != nil {
 			if IsThinkingLoopLimitErr(err) {
 				emptyChatErrRetries = 0
+				thinkingLoopStops++
+				if thinkingLoopStops >= maxThinkingLoopStops {
+					return thinkingLoopStopErr(thinkingLoopStops)
+				}
 				a.sess.AddRuntimeReminder("Thinking loop error: The thinking process was interrupted because a cyclical reasoning loop was detected 3 consecutive times in this step. Please rethink the task using an alternative approach or different strategy.")
 				a.compactBestEffort(ctx)
 				continue
@@ -134,110 +140,130 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		if len(nativeCalls) > 0 {
 			// Native function calling wins over the XML envelope: the
 			// model already chose exact tools, so execute them directly.
-			// Unknown names fall through to the XML path below, which
-			// treats the turn as a final answer instead of partial work.
-			known := true
-			for _, c := range nativeCalls {
-				if a.reg.Get(c.Name) == nil {
-					known = false
+			thinkingOnlyRetries = 0
+			if len(nativeCalls) > MaxToolsPerReply {
+				nativeCalls = nativeCalls[:MaxToolsPerReply]
+			}
+			if strings.TrimSpace(reply) == "" {
+				a.ui.CollapseAssistantOutput()
+			}
+			// Rewrite hallucinated or mis-cased names to the registry's
+			// canonical spelling before they reach history; names that
+			// still do not resolve keep their original text and get an
+			// error result inside the batch below.
+			for i := range nativeCalls {
+				if resolved, ok := a.resolveToolName(nativeCalls[i].Name); ok {
+					nativeCalls[i].Name = resolved
+				}
+			}
+			// Persist the structured calls (and any visible text) so the
+			// next turn replays Ollama's native history shape instead of
+			// a text-only approximation that loses arguments.
+			a.sess.AddAssistantToolCalls(reply, toolCallsToWire(nativeCalls))
+			var auxNotes []func()
+			var batchErr error
+			batchHalted := false
+			unknownCount := 0
+			var unknownNames []string
+			seenUnknown := map[string]bool{}
+			for i, c := range nativeCalls {
+				tool := a.reg.Get(c.Name)
+				if tool == nil {
+					unknownCount++
+					if !seenUnknown[c.Name] {
+						seenUnknown[c.Name] = true
+						unknownNames = append(unknownNames, c.Name)
+					}
+					msg := a.unknownToolMessage(c.Name)
+					a.ui.ShowToolResult(c.Name, msg, true, c.Params)
+					a.sess.AddToolResult(c.Name, msg)
+					continue
+				}
+				_, outcome, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
+					showPermissionDeniedResult: true,
+					structured:                 true,
+					auxiliaryNotes:             &auxNotes,
+				})
+				if err != nil {
+					batchErr = err
+					for j := i + 1; j < len(nativeCalls); j++ {
+						a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch failed.")
+					}
 					break
 				}
-			}
-			if known {
-				thinkingOnlyRetries = 0
-				if len(nativeCalls) > MaxToolsPerReply {
-					nativeCalls = nativeCalls[:MaxToolsPerReply]
-				}
-				if strings.TrimSpace(reply) == "" {
-					a.ui.CollapseAssistantOutput()
-				}
-				// Persist the structured calls (and any visible text) so the
-				// next turn replays Ollama's native history shape instead of
-				// a text-only approximation that loses arguments.
-				a.sess.AddAssistantToolCalls(reply, toolCallsToWire(nativeCalls))
-				var auxNotes []func()
-				var batchErr error
-				batchHalted := false
-				for i, c := range nativeCalls {
-					tool := a.reg.Get(c.Name)
-					if tool == nil {
-						msg := fmt.Sprintf("Error: tool %q is not available.", c.Name)
-						a.ui.ShowToolResult(c.Name, msg, true, c.Params)
-						a.sess.AddToolResult(c.Name, msg)
-						continue
-					}
-					_, outcome, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
-						showPermissionDeniedResult: true,
-						structured:                 true,
-						auxiliaryNotes:             &auxNotes,
-					})
-					if err != nil {
-						batchErr = err
-						for j := i + 1; j < len(nativeCalls); j++ {
-							a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch failed.")
+				if outcome == toolCancelled || outcome == toolBlocked {
+					// Cancel ends the run; a policy block ends the turn. A plain
+					// denial does neither: that one call is recorded as refused
+					// and the batch keeps going, so the model still has its
+					// results to work with.
+					batchHalted = true
+					cancelled := outcome == toolCancelled
+					for j := i + 1; j < len(nativeCalls); j++ {
+						if cancelled {
+							a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: the user cancelled this run.")
+							continue
 						}
-						break
+						a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch was blocked by policy.")
 					}
-					if outcome == toolCancelled || outcome == toolBlocked {
-						// Cancel ends the run; a policy block ends the turn. A plain
-						// denial does neither: that one call is recorded as refused
-						// and the batch keeps going, so the model still has its
-						// results to work with.
-						batchHalted = true
-						cancelled := outcome == toolCancelled
-						for j := i + 1; j < len(nativeCalls); j++ {
-							if cancelled {
-								a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: the user cancelled this run.")
-								continue
-							}
-							a.sess.AddToolResult(nativeCalls[j].Name, "Tool execution skipped: previous tool call in batch was blocked by policy.")
-						}
-						break
-					}
-					a.persistMissionProgress()
-					if isMissionEndTool(c.Name) {
-						for _, fn := range auxNotes {
-							fn()
-						}
-						return nil
-					}
+					break
 				}
-				for _, fn := range auxNotes {
-					fn()
-				}
-				if batchErr != nil {
-					if a.recoverNoProgress(ctx, batchErr, &noProgressRetries) {
-						continue
+				a.persistMissionProgress()
+				if isMissionEndTool(c.Name) {
+					for _, fn := range auxNotes {
+						fn()
 					}
-					return stopErr(ctx, batchErr)
-				}
-				if batchHalted {
 					return nil
 				}
-				a.compactBestEffort(ctx)
-				continue
 			}
+			for _, fn := range auxNotes {
+				fn()
+			}
+			// A batch where every call was unknown means the model is
+			// inventing tool names; count consecutive rounds so a stuck
+			// model stops with a resumable error instead of churning
+			// until the iteration budget runs out.
+			if unknownCount == len(nativeCalls) {
+				unknownToolRounds++
+			} else {
+				unknownToolRounds = 0
+			}
+			if unknownToolRounds > maxUnknownToolRounds {
+				return fmt.Errorf("the model kept calling tools that do not exist (%s). Nothing was lost: send \"continue\" to resume, or tell the model which tool to use", strings.Join(unknownNames, ", "))
+			}
+			if batchErr != nil {
+				if a.recoverNoProgress(ctx, batchErr, &noProgressRetries) {
+					continue
+				}
+				return stopErr(ctx, batchErr)
+			}
+			if batchHalted {
+				return nil
+			}
+			a.compactBestEffort(ctx)
+			continue
 		}
 		if calls := parseXMLFallbackAll(reply, MaxToolsPerReply); len(calls) > 0 {
 			thinkingOnlyRetries = 0
-			// Verify every tool exists before executing any, so a reply
-			// mixing known and unknown envelopes falls back to a final
-			// answer instead of a confusing partial execution.
-			unknown := ""
-			for _, c := range calls {
-				if a.reg.Get(c.Name) == nil {
-					unknown = c.Name
-					break
+			// Resolve hallucinated or mis-cased envelope names to canonical
+			// spellings before looking them up; names that still do not
+			// resolve are answered with an error observation below.
+			for i := range calls {
+				if resolved, ok := a.resolveToolName(calls[i].Name); ok {
+					calls[i].Name = resolved
 				}
 			}
-			if unknown != "" {
+			unknownCount := 0
+			for _, c := range calls {
+				if a.reg.Get(c.Name) == nil {
+					unknownCount++
+				}
+			}
+			if unknownCount > 0 && assistantVisibleText(reply) != "" {
+				// Prose plus an unknown envelope is a final answer: the
+				// model already said what it had to say, so keep the turn
+				// ending on the reply instead of a partial execution.
 				a.sess.AddAssistant(reply)
 				a.compactBestEffort(ctx)
-				if assistantVisibleText(reply) == "" {
-					// An unknown tool envelope alone is not an answer: the user
-					// would see the turn end with no text at all.
-					return fmt.Errorf("model called unknown tool %q and produced no visible answer", unknown)
-				}
 				return nil
 			}
 			if assistantVisibleText(reply) == "" {
@@ -245,8 +271,18 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			}
 			a.sess.AddAssistant(reply)
 			var auxNotes []func()
+			var unknownNames []string
+			seenUnknown := map[string]bool{}
 			for _, c := range calls {
 				tool := a.reg.Get(c.Name)
+				if tool == nil {
+					if !seenUnknown[c.Name] {
+						seenUnknown[c.Name] = true
+						unknownNames = append(unknownNames, c.Name)
+					}
+					a.sess.AddToolObservation(c.Name, a.unknownToolMessage(c.Name))
+					continue
+				}
 				_, outcome, err := a.executeTool(ctx, tool, c.Name, c.Params, toolExecutionMode{
 					showPermissionDeniedResult: true,
 					auxiliaryNotes:             &auxNotes,
@@ -277,6 +313,17 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 			}
 			for _, fn := range auxNotes {
 				fn()
+			}
+			// Same unknown-name accounting as the native path: only a
+			// batch made entirely of unresolved calls counts toward the
+			// cap, and any known call resets the streak.
+			if unknownCount == len(calls) {
+				unknownToolRounds++
+			} else {
+				unknownToolRounds = 0
+			}
+			if unknownToolRounds > maxUnknownToolRounds {
+				return fmt.Errorf("the model kept calling tools that do not exist (%s). Nothing was lost: send \"continue\" to resume, or tell the model which tool to use", strings.Join(unknownNames, ", "))
 			}
 			a.compactBestEffort(ctx)
 			continue

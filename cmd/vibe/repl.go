@@ -211,6 +211,17 @@ func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string
 				pauseReported = true
 				break
 			}
+			if agent.IsThinkingLoopStopErr(err) {
+				// The model's reasoning kept looping without an answer; pause
+				// the mission so the user can resume, rephrase, or dampen
+				// thinking instead of burning turns on the same loop.
+				ag.BlockActiveMission("The model's reasoning looped repeatedly without reaching an answer; mission paused.")
+				fmt.Fprintln(os.Stderr, "Mission paused: the model's reasoning kept looping. The agent needs your input.")
+				saveMissionProgress(ag)
+				ag.LogMissionTurn(err)
+				pauseReported = true
+				break
+			}
 			// A hard failure (network, permission, cancellation) stops the run.
 			return err
 		}

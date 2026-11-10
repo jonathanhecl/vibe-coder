@@ -288,6 +288,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 	var lastErr error
 	thinkingLoopRetries := 0
 	notedEmptyReply := false
+	overflowCompacted := false
 
 	for {
 		for attempt := 0; attempt <= MaxRetries; attempt++ {
@@ -329,6 +330,12 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 						continue
 					}
 				}
+				if fatal, retry := a.classifyChatError(rootCtx, &overflowCompacted, err); fatal != nil {
+					return "", nil, fatal
+				} else if retry {
+					attempt--
+					continue
+				}
 				lastErr = err
 			} else if reply, toolCalls, err := a.streamAssistantResponse(rootCtx, cancel, stream); err != nil {
 				a.recordChatAttempt(systemPrompt, wstats, chatStart, len(toolCalls), err)
@@ -345,6 +352,14 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 				if errors.Is(err, ErrThinkingTimeoutNoDecision) {
 					cancel()
 					return "", nil, err
+				}
+				if fatal, retry := a.classifyChatError(rootCtx, &overflowCompacted, err); fatal != nil {
+					cancel()
+					return "", nil, fatal
+				} else if retry {
+					cancel()
+					attempt--
+					continue
 				}
 				lastErr = err
 			} else {

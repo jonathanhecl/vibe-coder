@@ -372,7 +372,7 @@ func TestRenderMessagesForSummaryClips(t *testing.T) {
 		{Role: "assistant", Content: strings.Repeat("a", 6000)},
 		{Role: "user", Content: "small"},
 	}
-	out := renderMessagesForSummary(msgs)
+	out := renderMessagesForSummary(msgs, defaultMaxSummaryChars)
 	if !strings.HasPrefix(out, "user: [Earlier conversation summary]") {
 		t.Fatalf("prior summary must come first:\n%.120s", out)
 	}
@@ -424,7 +424,7 @@ func TestRenderMessagesForSummaryKeepsMessageLineOrder(t *testing.T) {
 		{Role: "user", Content: "line1\nline2\nline3"},
 		{Role: "assistant", Content: "reply one\nreply two"},
 	}
-	out := renderMessagesForSummary(msgs)
+	out := renderMessagesForSummary(msgs, defaultMaxSummaryChars)
 	if !strings.Contains(out, "line1\nline2\nline3") {
 		t.Fatalf("multi-line message content got garbled:\n%s", out)
 	}
@@ -514,5 +514,48 @@ func TestCompactUsesDedicatedSidecarClientWhenSet(t *testing.T) {
 	}
 	if !sideCalled || mainCalled {
 		t.Fatalf("expected dedicated sidecar client to run compaction: sideCalled=%t mainCalled=%t", sideCalled, mainCalled)
+	}
+}
+
+// TestCompactRequestCarriesNumCtx verifies the summary request sizes num_ctx
+// to its prompt so Ollama does not silently truncate the transcript being
+// summarized with its own default context.
+func TestCompactRequestCarriesNumCtx(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 8192,
+		SidecarModel:  "sidecar",
+	}
+	s := New(cfg)
+	var captured ollama.ChatRequest
+	s.SetClient(capturingSidecarClient{
+		summary: "summary",
+		onChat:  func(req ollama.ChatRequest) { captured = req },
+	})
+
+	for i := 0; i < 80; i++ {
+		s.AddUser(strings.Repeat("z", 40))
+	}
+	if err := s.Compact(context.Background(), false); err != nil {
+		t.Fatalf("compact failed: %v", err)
+	}
+	if captured.Options.NumCtx <= 0 {
+		t.Fatalf("expected NumCtx > 0 on the compaction request, got %+v", captured.Options)
+	}
+	capTokens := ollama.NumCtxCap(cfg.ContextWindow)
+	totalChars := len(captured.Messages[0].Content) + len(captured.Messages[1].Content)
+	want := ollama.NumCtxFor(totalChars, 1024, capTokens)
+	if captured.Options.NumCtx != want {
+		t.Fatalf("NumCtx = %d, want %d (chars=%d cap=%d)", captured.Options.NumCtx, want, totalChars, capTokens)
+	}
+	if captured.Options.NumCtx > capTokens {
+		t.Fatalf("NumCtx %d exceeds cap %d", captured.Options.NumCtx, capTokens)
+	}
+	// The rendered input must fit under the cap uncapped, otherwise Ollama
+	// would truncate it even with num_ctx set.
+	if uncapped := ollama.NumCtxFor(totalChars, 1024, 0); uncapped > capTokens {
+		t.Fatalf("compaction input needs %d tokens but cap is %d", uncapped, capTokens)
 	}
 }

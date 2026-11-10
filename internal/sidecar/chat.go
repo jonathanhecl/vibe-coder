@@ -41,6 +41,9 @@ func (p *Pool) chat(ctx context.Context, system, user string, numPredict int) (s
 		Options: ollama.ChatOptions{
 			Temperature: 0,
 			NumPredict:  numPredict,
+			// Without num_ctx Ollama applies its own default (often 4096)
+			// and silently truncates larger sidecar prompts.
+			NumCtx: ollama.NumCtxFor(len(system)+len(user), numPredict, ollama.NumCtxCap(p.cfg.ContextWindow)),
 		},
 	})
 	if err != nil {

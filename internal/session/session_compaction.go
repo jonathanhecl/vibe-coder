@@ -16,6 +16,14 @@ import (
 const (
 	compactionTimeout  = 90 * time.Second
 	compactionKeepTail = 30
+	// compactionSummaryMaxChars bounds the rendered transcript sent to the
+	// summarizer; compactionSummaryMinChars is the floor so a tiny context
+	// window still leaves a usable summary input.
+	compactionSummaryMaxChars = 48 * 1024
+	compactionSummaryMinChars = 4096
+	// defaultMaxSummaryChars is the budget renderMessagesForSummary uses when
+	// the caller does not size it to a context window.
+	defaultMaxSummaryChars = 48 * 1024
 )
 
 func (s *Session) Compact(ctx context.Context, force bool) error {
@@ -112,20 +120,34 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 			if cfg.SidecarInUse() {
 				keepAlive = cfg.KeepAliveFor(config.RoleSidecar)
 			}
+			systemPrompt := prompt.Render("compaction_summary", nil)
+			// Size num_ctx and the rendered input to the context window:
+			// without num_ctx Ollama applies its own default (often 4096)
+			// and silently truncates the transcript being summarized.
+			capTokens := ollama.NumCtxCap(cfg.ContextWindow)
+			maxChars := (capTokens - 1024 - 512 - len(systemPrompt)/3) * 3
+			if maxChars > compactionSummaryMaxChars {
+				maxChars = compactionSummaryMaxChars
+			}
+			if maxChars < compactionSummaryMinChars {
+				maxChars = compactionSummaryMinChars
+			}
+			userPrompt := renderMessagesForSummary(old, maxChars)
 			resp, err := compactClient.ChatSync(compactCtx, ollama.ChatRequest{
 				Model: model,
 				Messages: []ollama.Message{
 					// The compaction prompt is a compile-time template: it tells the
 					// sidecar to preserve the task, decisions, file paths, TODO state,
 					// and what remains to do.
-					{Role: "system", Content: prompt.Render("compaction_summary", nil)},
-					{Role: "user", Content: renderMessagesForSummary(old)},
+					{Role: "system", Content: systemPrompt},
+					{Role: "user", Content: userPrompt},
 				},
 				Stream:    false,
 				Think:     ollama.ResolveThinkSetting("", true, false, false),
 				KeepAlive: keepAlive,
 				Options: ollama.ChatOptions{
 					NumPredict: 1024,
+					NumCtx:     ollama.NumCtxFor(len(systemPrompt)+len(userPrompt), 1024, capTokens),
 				},
 			})
 			cancel()
@@ -220,7 +242,12 @@ func clipRunes(s string, n int) string {
 	return string(runes[:n]) + "…[clipped]"
 }
 
-func renderMessagesForSummary(messages []Message) string {
+// renderMessagesForSummary renders the discarded transcript for the summary
+// call. maxChars budgets the rendered body (the prior-summary prefix is
+// carried on top of it); callers size it to the context window so the
+// request's num_ctx can hold the whole prompt, and maxChars <= 0 falls back
+// to the default 48 KB budget.
+func renderMessagesForSummary(messages []Message, maxChars int) string {
 	// Bound the sidecar input: at the compaction threshold the old
 	// transcript can hold megabytes (verbatim tool outputs), which would
 	// stall the small sidecar model past its timeout and degrade to the
@@ -228,8 +255,10 @@ func renderMessagesForSummary(messages []Message) string {
 	// stays continuous with the messages kept verbatim. Each message is
 	// clipped to a fixed rune budget so one giant tool output cannot crowd
 	// out everything else.
+	if maxChars <= 0 {
+		maxChars = defaultMaxSummaryChars
+	}
 	const (
-		maxSummaryChars      = 48 * 1024
 		maxPerMessageRunes   = 2000
 		maxPriorSummaryRunes = 8000
 		priorSummaryPrefix   = "[Earlier conversation summary]"
@@ -266,7 +295,7 @@ func renderMessagesForSummary(messages []Message) string {
 			}
 		}
 		entry += "\n"
-		if size+len(entry) > maxSummaryChars {
+		if size+len(entry) > maxChars {
 			clipped = true
 			break
 		}

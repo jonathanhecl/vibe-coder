@@ -48,7 +48,7 @@ func TestSetClientClearAndHelpers(t *testing.T) {
 		t.Fatal("clear should generate a new session ID")
 	}
 
-	if got := renderMessagesForSummary([]Message{{Role: "user", Content: "x"}}); !strings.Contains(got, "user: x") {
+	if got := renderMessagesForSummary([]Message{{Role: "user", Content: "x"}}, defaultMaxSummaryChars); !strings.Contains(got, "user: x") {
 		t.Fatalf("unexpected summary rendering: %q", got)
 	}
 }

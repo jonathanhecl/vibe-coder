@@ -244,3 +244,39 @@ func TestRunStepNewStepOnThinkingLoop(t *testing.T) {
 		t.Fatalf("expected 4 calls total across the two steps, got %d", calls)
 	}
 }
+
+// A model whose reasoning loops on every attempt must not restart forever:
+// after maxThinkingLoopStops consecutive ThinkingLoopLimitError rounds the
+// turn stops with a resumable ErrThinkingLoopStop. Each round costs
+// maxThinkingLoopRetries chat calls, so two rounds is six calls total.
+func TestRunThinkingLoopStopAfterRepeatedLimits(t *testing.T) {
+	origInterval := thinkingCheckInterval
+	thinkingCheckInterval = 25 * time.Millisecond
+	defer func() { thinkingCheckInterval = origInterval }()
+
+	cfg := &config.Config{Model: "thinker", ContextWindow: 4096}
+	client := &loopTestClient{loopAttemptsTill: 10} // always loops
+	stubDec := &stubDecider{
+		enabled:            true,
+		model:              "decision-v1",
+		thinkingLoopResult: true,
+	}
+
+	ag := New(cfg, client, tools.NewRegistry(), permissions.NewManager(&config.Config{YesMode: true}), session.New(cfg), &fakeUI{})
+	ag.SetDecider(stubDec)
+
+	err := ag.Run(context.Background(), "solve task")
+	if err == nil {
+		t.Fatal("expected thinking loop stop error, got nil")
+	}
+	if !IsThinkingLoopStopErr(err) {
+		t.Fatalf("expected IsThinkingLoopStopErr=true, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "looped 2 times") {
+		t.Fatalf("expected stop count in error, got %v", err)
+	}
+	wantCalls := int32(maxThinkingLoopStops * maxThinkingLoopRetries)
+	if calls := atomic.LoadInt32(&client.calls); calls != wantCalls {
+		t.Fatalf("expected %d chat calls (%d loop-limit rounds), got %d", wantCalls, maxThinkingLoopStops, calls)
+	}
+}

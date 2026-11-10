@@ -87,7 +87,23 @@ var (
 
 	// ErrThinkingTimeoutNoDecision is returned when continuous thinking exceeds 15 minutes without a decision model enabled.
 	ErrThinkingTimeoutNoDecision = errors.New("thinking timeout: exceeded 15 minutes of thinking without a decision model enabled")
+
+	// ErrThinkingLoopStop marks a turn that ended because the model's
+	// reasoning looped repeatedly without producing an answer. Callers use
+	// IsThinkingLoopStopErr to pause missions and offer a resumable stop.
+	ErrThinkingLoopStop = errors.New("thinking loop stop")
 )
+
+// maxThinkingLoopStops caps consecutive ThinkingLoopLimitError stops within
+// one Run. Each stop already bought a fresh set of chat attempts, so two
+// loops in a row means the model is stuck for this turn.
+const maxThinkingLoopStops = 2
+
+// thinkingLoopStopErr builds the resumable stop error for a turn whose
+// reasoning kept looping past maxThinkingLoopStops.
+func thinkingLoopStopErr(stops int) error {
+	return fmt.Errorf("%w: the model's reasoning looped %d times this turn without reaching an answer. Nothing was lost: send \"continue\" to retry, rephrase the request, or lower the thinking level (--think low or --no-think)", ErrThinkingLoopStop, stops)
+}
 
 // ThinkingLoopLimitError is returned when a cyclical thinking loop has failed 3 consecutive times in the same step.
 type ThinkingLoopLimitError struct {
@@ -107,4 +123,9 @@ func IsThinkingLoopLimitErr(err error) bool {
 // IsThinkingTimeoutNoDecisionErr reports whether err is a 15-minute thinking timeout without a decision model enabled.
 func IsThinkingTimeoutNoDecisionErr(err error) bool {
 	return errors.Is(err, ErrThinkingTimeoutNoDecision)
+}
+
+// IsThinkingLoopStopErr reports whether err is the repeated thinking-loop stop returned by Run.
+func IsThinkingLoopStopErr(err error) bool {
+	return err != nil && errors.Is(err, ErrThinkingLoopStop)
 }

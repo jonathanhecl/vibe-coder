@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 )
 
 // CallTimeout caps any individual sidecar request. Local models can stall
@@ -50,6 +53,7 @@ func (p *Pool) SummariseToolOutputAt(ctx context.Context, toolName, output strin
 	}
 
 	excerpt := clipToolOutputForSidecar(toolName, body)
+	excerpt = clipExcerptToContextCap(excerpt, ollama.NumCtxCap(p.cfg.ContextWindow))
 
 	key := cacheKey("summary", p.cfg.SidecarModel, toolName, excerpt)
 	if cached, ok := p.cache.get(key); ok {
@@ -93,6 +97,35 @@ func clipToolOutputForSidecar(toolName, body string) string {
 	return body[:maxSummaryInputBytes] + fmt.Sprintf(
 		"\n\n[excerpt truncated for sidecar speed: showing first %d of %d bytes]\n",
 		maxSummaryInputBytes, beforeByteCap,
+	)
+}
+
+// clipExcerptToContextCap shrinks the excerpt further when the configured
+// context window cannot hold the full sidecar input: the summary request
+// sizes num_ctx from the prompt, so an oversized excerpt would be silently
+// truncated by Ollama instead of summarized. The byte budget reserves the
+// system prompt, the NumPredict allowance and slack for the user envelope,
+// stays within the regular excerpt cap, and never drops below 2048 bytes.
+func clipExcerptToContextCap(excerpt string, capTokens int) string {
+	maxBytes := (capTokens - summaryNumPredict - 512 - len(summariseSystem)/3) * 3
+	if maxBytes > maxSummaryInputBytes {
+		maxBytes = maxSummaryInputBytes
+	}
+	if maxBytes < 2048 {
+		maxBytes = 2048
+	}
+	if len(excerpt) <= maxBytes {
+		return excerpt
+	}
+	// Back off to a rune boundary so the cut never splits a multi-byte
+	// character (the byte cap above is only a budget, not a hard edge).
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(excerpt[cut]) {
+		cut--
+	}
+	return excerpt[:cut] + fmt.Sprintf(
+		"\n\n[excerpt clipped to fit the model context window: showing first %d of %d bytes]\n",
+		cut, len(excerpt),
 	)
 }
 

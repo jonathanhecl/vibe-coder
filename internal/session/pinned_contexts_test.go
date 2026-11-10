@@ -162,8 +162,8 @@ func TestRenderMessagesForSummaryCapsInput(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		msgs = append(msgs, Message{Role: "user", Content: fmt.Sprintf("message-%02d-", i) + strings.Repeat("x", 2000)})
 	}
-	got := renderMessagesForSummary(msgs)
-	if len(got) > 48*1024+512 {
+	got := renderMessagesForSummary(msgs, defaultMaxSummaryChars)
+	if len(got) > compactionSummaryMaxChars+512 {
 		t.Fatalf("expected bounded summary input, got %d chars", len(got))
 	}
 	if !strings.Contains(got, "[earliest history omitted") {
@@ -187,7 +187,7 @@ func TestRenderMessagesForSummaryCapsInput(t *testing.T) {
 		t.Fatalf("expected chronological order after the note, got %q", lines[1][:20])
 	}
 
-	small := renderMessagesForSummary([]Message{{Role: "user", Content: "x"}})
+	small := renderMessagesForSummary([]Message{{Role: "user", Content: "x"}}, defaultMaxSummaryChars)
 	if small != "user: x\n" {
 		t.Fatalf("small input must stay verbatim, got %q", small)
 	}
