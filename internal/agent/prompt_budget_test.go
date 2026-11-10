@@ -131,9 +131,10 @@ func TestGoalAnchoredInRuntimeStateNoteOnMultiStepTurn(t *testing.T) {
 }
 
 // nativeSystemPromptTokenCeiling guards the prompt-size win from regressing.
-// Measured after the Phase-A overhaul at 1529 estimated tokens; the ceiling
-// is that value +10% — raise deliberately, never as a side effect.
-const nativeSystemPromptTokenCeiling = 1682
+// Measured after the SessionNotes tool and its base-prompt guidance landed at
+// 1832 estimated tokens; the ceiling is that value +10% — raise deliberately,
+// never as a side effect.
+const nativeSystemPromptTokenCeiling = 2015
 
 func TestNativeSystemPromptWithinTokenBudget(t *testing.T) {
 	t.Parallel()

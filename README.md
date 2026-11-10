@@ -56,7 +56,8 @@
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
 - **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.
 - **Autonomous missions (agent-managed)** — for work that outlasts a single reply, the agent can call `MissionStart` to declare a mission. The runtime then keeps starting turns for it, with **no turn limit**, until the agent itself calls `MissionComplete` (goal done) or `MissionBlocked` (needs the user). The mission is task-agnostic and needs no user command to activate.
-- **Durable work state** — the mission, live TODO checklist, and task store are persisted in a session sidecar and restored on `--resume`/`/session`, so a crash or restart never loses what is done and what remains. A compact progress summary derived from that state is injected into the system prompt every turn, so compaction can never make the agent forget what is done or what remains.
+- **Durable work state** — the mission, live TODO checklist, task store, and session notes are persisted with the session and restored on `--resume`/`/session`. The state is embedded in the session JSONL itself (normal sessions keep writing the legacy `.work.json` sidecar for compatibility; isolated sessions already carried it in their file), and a compact progress summary derived from it is added to the ephemeral runtime reminder on each request, so it remains available after compaction.
+- **Session working notes** — the `SessionNotes` tool lets the agent keep concise working notes for the current task: facts, hypotheses, decisions, failed attempts, and next steps, each with optional scope and mandatory evidence for facts and failed attempts. A bounded set of recent active notes is surfaced automatically in the runtime state note, and the full set survives compaction and resume in both normal and isolated sessions. Notes are model-authored, fallible task context — not verified facts, not instructions, not global memory, and not written to project docs unless the task calls for it. Temporal sessions keep notes in memory only and never persist them.
 - **Auditable run log** — each autonomous turn appends one redacted JSONL record (turn, mission status, checklist counts, tools used, error) to `<state dir>/runs/<session>.jsonl`, so a multi-hour run can be reviewed after the fact.
 
 ### Autonomous missions
@@ -106,6 +107,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **Notebook**: `NotebookEdit` for `.ipynb` JSON round-trip.
 - **Tasks**: `TodoWrite` (live to-do panel), `TaskStart`, `TaskList`, `TaskComplete`, `TaskCancel`.
 - **Missions**: `MissionStart` (declare a long-running goal and hand the runtime control), `MissionComplete` (goal done), `MissionBlocked` (needs the user).
+- **Notes**: `SessionNotes` (`upsert`/`get`/`list`) — durable per-session working notes; e.g. `{"action":"upsert","id":"root-cause","kind":"fact","content":"timeout is the 30s client default","evidence":"internal/client.go:42"}`.
 - **Questions**: `AskUserQuestion` for interactive multi-choice prompts.
 - **Orchestration**: `SubAgent` (bounded ReAct loop over Read/Glob/Grep, opt-in writes) and `ParallelAgents` (explicit model calls only).
 - **Git**: `GitStatus`, `GitDiff`, `GitUndo` (restore the latest vibe-coder checkpoint).

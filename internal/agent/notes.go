@@ -122,17 +122,20 @@ func clipNoteRunes(s string, max int) string {
 
 // persistSessionNotes writes the work state (which embeds the notes) into the
 // session file immediately after a successful SessionNotes upsert, so notes
-// are durable even outside a mission. A failed save is reported to the UI and
-// the transcript; the in-memory note is kept either way.
-func (a *Agent) persistSessionNotes(toolParams map[string]any) {
+// are durable even outside a mission. It returns a warning string when the
+// save fails — the caller decides where the warning lands so a native tool
+// batch can defer it until all tool results are recorded. A failed save never
+// rolls back the in-memory note.
+func (a *Agent) persistSessionNotes(toolParams map[string]any) string {
 	a.PersistWorkState()
 	if a.sess == nil {
-		return
+		return ""
 	}
 	if err := a.sess.Save(); err != nil {
 		warn := fmt.Sprintf("session notes were kept in memory but could not be written to the session file: %v", err)
 		logger.Errorf("SessionNotes persist failed: %v", err)
 		a.ui.ShowToolResult("SessionNotes", warn, true, toolParams)
-		a.sess.AddSystemNote(warn)
+		return warn
 	}
+	return ""
 }

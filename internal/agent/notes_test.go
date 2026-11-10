@@ -217,14 +217,28 @@ func TestSessionNotesUpsertTemporalWritesNoFile(t *testing.T) {
 	}
 }
 
+// newBlockedSaveAgent builds an agent whose SessionsDir is a regular file, so
+// every session Save fails deterministically (even when running as root).
+func newBlockedSaveAgent(t *testing.T) (*Agent, *recordingUI) {
+	t.Helper()
+	tmp := t.TempDir()
+	blocked := filepath.Join(tmp, "blocked-sessions")
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write blocker file: %v", err)
+	}
+	cfg := &config.Config{
+		Cwd:         tmp,
+		SessionsDir: blocked,
+		Model:       "main",
+	}
+	ui := &recordingUI{}
+	sess := session.New(cfg)
+	return New(cfg, fakeClient{}, tools.NewRegistry(), permissions.NewManager(cfg), sess, ui), ui
+}
+
 func TestSessionNotesSaveFailureWarnsWithoutFalseSuccess(t *testing.T) {
 	t.Parallel()
-	a, ui := newTestAgent(t, "", fakeClient{})
-	// Make the sessions dir unwritable so Save fails after the note is kept.
-	if err := os.Chmod(a.cfg.SessionsDir, 0o555); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
-	defer os.Chmod(a.cfg.SessionsDir, 0o755)
+	a, ui := newBlockedSaveAgent(t)
 
 	tool, _ := a.reg.Get("SessionNotes").(*tools.SessionNotesTool)
 	res, _, err := a.executeTool(context.Background(), tool, "SessionNotes", map[string]any{
@@ -256,6 +270,66 @@ func TestSessionNotesSaveFailureWarnsWithoutFalseSuccess(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected transcript warning for the model")
+	}
+}
+
+// A native batch records every tool result before deferred notes run: a failed
+// SessionNotes save must not wedge a runtime warning between role:"tool"
+// messages.
+func TestSessionNotesSaveFailureDefersWarningPastNativeBatch(t *testing.T) {
+	t.Parallel()
+	a, _ := newBlockedSaveAgent(t)
+
+	readFile := filepath.Join(a.cfg.Cwd, "target.txt")
+	if err := os.WriteFile(readFile, []byte("data"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	notesTool, _ := a.reg.Get("SessionNotes").(*tools.SessionNotesTool)
+	readTool := tools.NewReadTool()
+	a.reg.Register(readTool)
+
+	var aux []func()
+	mode := toolExecutionMode{structured: true, auxiliaryNotes: &aux}
+	if _, _, err := a.executeTool(context.Background(), notesTool, "SessionNotes", map[string]any{
+		"action": "upsert", "id": "batch", "kind": "decision", "content": "in batch",
+	}, mode); err != nil {
+		t.Fatalf("notes executeTool: %v", err)
+	}
+	if _, _, err := a.executeTool(context.Background(), readTool, "Read", map[string]any{
+		"file_path": readFile,
+	}, mode); err != nil {
+		t.Fatalf("read executeTool: %v", err)
+	}
+
+	// The save already ran and failed, but the transcript warning is deferred.
+	if len(aux) != 1 {
+		t.Fatalf("expected 1 deferred note, got %d", len(aux))
+	}
+	for _, m := range a.sess.Messages() {
+		if strings.Contains(m.Content, "could not be written") {
+			t.Fatalf("warning landed before the batch completed: %q", m.Content)
+		}
+	}
+	// The two tool results must be contiguous role:"tool" messages.
+	msgs := a.sess.Messages()
+	var toolIdx []int
+	for i, m := range msgs {
+		if m.Role == "tool" {
+			toolIdx = append(toolIdx, i)
+		}
+	}
+	if len(toolIdx) < 2 || toolIdx[len(toolIdx)-1]-toolIdx[0] != len(toolIdx)-1 {
+		t.Fatalf("tool results are not contiguous: %+v", msgs)
+	}
+
+	// Running the deferred notes appends the warning after both results.
+	for _, fn := range aux {
+		fn()
+	}
+	msgs = a.sess.Messages()
+	last := msgs[len(msgs)-1]
+	if last.Role != "assistant" || !strings.Contains(last.Content, "could not be written") {
+		t.Fatalf("warning should be the last message after the batch, got %+v", last)
 	}
 }
 
@@ -318,5 +392,58 @@ func TestSessionNotesNotExposedToSubAgent(t *testing.T) {
 		// explicitly. If this ever becomes true the sub-agent whitelist
 		// review is needed.
 		t.Fatalf("SessionNotes must not be part of RegisterDefaults")
+	}
+}
+
+// End-to-end: a note saved in a normal session survives Save → Load →
+// RestoreWorkState into a fresh agent, and the runtime reminder still reaches
+// the model after compaction.
+func TestSessionNotesNormalSessionSaveLoadRestoreAndCompaction(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	cfg := &config.Config{
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "_sessions"),
+		Model:         "main",
+		ContextWindow: 32768,
+	}
+	ui := &recordingUI{}
+	sess := session.New(cfg)
+	a := New(cfg, fakeClient{}, tools.NewRegistry(), permissions.NewManager(cfg), sess, ui)
+	a.sess.AddUser("investigate the flaky test")
+	upsertNote(t, a, map[string]any{
+		"action": "upsert", "id": "flaky-cause", "kind": "fact",
+		"content": "race in fixture setup", "evidence": "fixture_test.go:88",
+	})
+	a.PersistWorkState()
+	if err := sess.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Reload the session from disk like --resume does.
+	loaded := session.New(cfg)
+	if err := loaded.Load(sess.ID()); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	ws := loaded.WorkState()
+	if len(ws) == 0 || !strings.Contains(string(ws), "flaky-cause") {
+		t.Fatalf("loaded work state missing notes: %s", ws)
+	}
+	b := New(cfg, fakeClient{}, tools.NewRegistry(), permissions.NewManager(cfg), loaded, &recordingUI{})
+	b.RestoreWorkState(ws)
+	if _, ok := b.notes.Get("flaky-cause"); !ok {
+		t.Fatalf("notes missing after resume restore")
+	}
+
+	// Compact the restored transcript; the notes reminder must still render.
+	for i := 0; i < 8; i++ {
+		loaded.AddUser(strings.Repeat("filler message ", 200))
+	}
+	if err := loaded.CompactTo(context.Background(), 10); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	note := b.runtimeStateNote()
+	if !strings.Contains(note, "# Session Working Notes") || !strings.Contains(note, "flaky-cause") {
+		t.Fatalf("notes block missing from runtime state after compaction+resume: %q", note)
 	}
 }
