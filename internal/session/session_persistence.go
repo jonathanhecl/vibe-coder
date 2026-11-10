@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -109,17 +110,11 @@ func (s *Session) Save() error {
 		return err
 	}
 
+	serialized := transcriptSnapshotForSave(archived, messages)
 	if err := writeAtomicFile(cfg.SessionsDir, "*.jsonl.tmp", target, 0o600, func(w io.Writer) error {
 		writer := bufio.NewWriter(w)
 		enc := json.NewEncoder(writer)
-		// Archived messages come first so the file reads chronologically:
-		// everything compaction moved aside, then the live working view.
-		for _, msg := range archived {
-			if err := enc.Encode(msg); err != nil {
-				return fmt.Errorf("encode archived message: %w", err)
-			}
-		}
-		for _, msg := range messages {
+		for _, msg := range serialized {
 			if err := enc.Encode(msg); err != nil {
 				return fmt.Errorf("encode message: %w", err)
 			}
@@ -206,6 +201,7 @@ func (s *Session) Load(id string) error {
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("scan session file: %w", err)
 	}
+	loaded, archived = restoreWorkingOrder(loaded, archived)
 
 	s.mu.RLock()
 	sessionsDir := ""
@@ -364,6 +360,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	if len(loaded) == 0 {
 		return false, nil
 	}
+	loaded, archived = restoreWorkingOrder(loaded, archived)
 
 	s.mu.Lock()
 	if loadedID != "" {
@@ -406,7 +403,6 @@ func (s *Session) ClearIsolated() error {
 			return err
 		}
 		_ = os.Remove(filepath.Join(cwd, ".vibe-isolated-runs.jsonl"))
-		_ = os.Remove(filepath.Join(cwd, ".vibe-isolated-history.txt"))
 		_ = os.RemoveAll(filepath.Join(cwd, ".vibe-isolated-media"))
 	}
 	s.mu.Lock()
@@ -462,6 +458,7 @@ func (s *Session) saveIsolated() error {
 	}
 
 	target := filepath.Join(cfg.Cwd, IsolatedSessionFileName)
+	serialized := transcriptSnapshotForSave(archived, messages)
 	if err := writeAtomicFile(cfg.Cwd, "*.isolated.tmp", target, 0o600, func(w io.Writer) error {
 		writer := bufio.NewWriter(w)
 		enc := json.NewEncoder(writer)
@@ -485,14 +482,7 @@ func (s *Session) saveIsolated() error {
 		if err := enc.Encode(meta); err != nil {
 			return fmt.Errorf("encode isolated metadata: %w", err)
 		}
-		// Archived messages precede the working view so the file stays
-		// chronological, matching the normal session layout.
-		for _, msg := range archived {
-			if err := enc.Encode(msg); err != nil {
-				return fmt.Errorf("encode archived message: %w", err)
-			}
-		}
-		for _, msg := range messages {
+		for _, msg := range serialized {
 			if err := enc.Encode(msg); err != nil {
 				return fmt.Errorf("encode message: %w", err)
 			}
@@ -603,6 +593,53 @@ func writeAtomicFile(dir, pattern, target string, mode os.FileMode, write func(i
 	}
 	cleanup = false
 	return nil
+}
+
+// transcriptSnapshotForSave builds the on-disk message order: archived
+// entries unchanged plus working copies stamped with their position
+// (context_order), all stable-sorted by timestamp. Sorting by time places
+// each compaction summary where it was generated — after the tail messages
+// that already existed — so the file reads chronologically while the
+// working view keeps its exact order through the stamps.
+func transcriptSnapshotForSave(archived, working []Message) []Message {
+	out := make([]Message, 0, len(archived)+len(working))
+	out = append(out, archived...)
+	for i := range working {
+		m := working[i]
+		order := i
+		m.ContextOrder = &order
+		out = append(out, m)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Timestamp.Before(out[j].Timestamp)
+	})
+	return out
+}
+
+// restoreWorkingOrder puts working messages back into their saved order when
+// every one carries a context_order stamp (files written before the stamp
+// existed keep file order), then strips the persistence-only field from both
+// views so the in-memory transcript matches what Save saw.
+func restoreWorkingOrder(working, archived []Message) ([]Message, []Message) {
+	stamped := len(working) > 0
+	for i := range working {
+		if working[i].ContextOrder == nil {
+			stamped = false
+			break
+		}
+	}
+	if stamped {
+		sort.SliceStable(working, func(i, j int) bool {
+			return *working[i].ContextOrder < *working[j].ContextOrder
+		})
+	}
+	for i := range working {
+		working[i].ContextOrder = nil
+	}
+	for i := range archived {
+		archived[i].ContextOrder = nil
+	}
+	return working, archived
 }
 
 func sanitizeSessionID(id string) string {

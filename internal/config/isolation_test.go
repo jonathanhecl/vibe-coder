@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -31,7 +30,8 @@ func TestEnterIsolatedLayoutKeepsRecordsInFolder(t *testing.T) {
 		PermFile:    sharedConfig,
 		HistoryFile: filepath.Join(stateDir, "history.txt"),
 	}
-	// A stale history file from an older isolated run must be removed.
+	// A legacy history file from an older run must be left untouched: it may
+	// hold the only surviving prompts of already-compacted sessions.
 	legacyHistory := filepath.Join(cwd, ".vibe-isolated-history.txt")
 	if err := os.WriteFile(legacyHistory, []byte("old prompt\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -43,8 +43,8 @@ func TestEnterIsolatedLayoutKeepsRecordsInFolder(t *testing.T) {
 	if cfg.HistoryFile != "" {
 		t.Errorf("HistoryFile = %q, want empty (in-memory recall only)", cfg.HistoryFile)
 	}
-	if _, err := os.Stat(legacyHistory); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("legacy isolated history file must be removed, stat err = %v", err)
+	if _, err := os.Stat(legacyHistory); err != nil {
+		t.Errorf("legacy isolated history file must be preserved, stat err = %v", err)
 	}
 	if cfg.ConfigFile != sharedConfig || cfg.PermFile != sharedConfig {
 		t.Errorf("isolated settings must stay in the shared config, got %q and %q", cfg.ConfigFile, cfg.PermFile)

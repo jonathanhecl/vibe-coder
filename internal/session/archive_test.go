@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,8 +36,23 @@ func archiveTestConfig(t *testing.T, isolated bool) *config.Config {
 func fillTranscript(s *Session, first string, fillers int) {
 	s.AddUser(first)
 	for i := 0; i < fillers; i++ {
-		s.AddUser("filler-" + strings.Repeat("x", 30) + string(rune('a'+i%26)))
+		s.AddUser(fmt.Sprintf("filler-%03d-%s", i, strings.Repeat("x", 30)))
 	}
+}
+
+// decodeMessageLines parses session-file lines into messages, skipping
+// metadata lines and undecodable rows.
+func decodeMessageLines(t *testing.T, lines []string) []Message {
+	t.Helper()
+	out := make([]Message, 0, len(lines))
+	for _, line := range lines {
+		var msg Message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil || msg.Role == "" {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
 }
 
 // readSessionLines returns the raw JSONL lines of a saved session file.
@@ -67,22 +83,16 @@ func readSessionLines(t *testing.T, path string) []string {
 func assertArchiveRoundTrip(t *testing.T, before *Session, after *Session, fileLines []string) {
 	t.Helper()
 
-	// On disk: every archived message line comes before the first working
-	// (non-archived) message line.
-	seenWorking := false
+	// On disk the file is chronological: message timestamps never go
+	// backwards, and archived lines carry their marker.
+	diskMsgs := decodeMessageLines(t, fileLines)
 	archivedOnDisk := 0
-	for _, line := range fileLines {
-		var msg Message
-		if err := json.Unmarshal([]byte(line), &msg); err != nil || msg.Role == "" {
-			continue // isolated files start with a _meta line
-		}
+	for i, msg := range diskMsgs {
 		if msg.Archived {
-			if seenWorking {
-				t.Fatal("archived message found after a working message on disk")
-			}
 			archivedOnDisk++
-		} else {
-			seenWorking = true
+		}
+		if i > 0 && msg.Timestamp.Before(diskMsgs[i-1].Timestamp) {
+			t.Fatalf("session file is not chronological at line %d: %v before %v", i, msg.Timestamp, diskMsgs[i-1].Timestamp)
 		}
 	}
 	if archivedOnDisk != before.ArchivedCount() {
@@ -375,5 +385,106 @@ func TestUserPromptsSkipsAnchorCopy(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("UserPrompts lists the original ask %d times, want 1", count)
+	}
+}
+
+// TestTranscriptChronologyOnDisk verifies the saved file reads
+// chronologically: every message that existed when CompactTo ran appears in
+// its original order, the summary lands after all of them (where it was
+// generated), and messages added later follow it. Runs for both the normal
+// session file and the isolated one.
+func TestTranscriptChronologyOnDisk(t *testing.T) {
+	for _, isolated := range []bool{false, true} {
+		name := "normal"
+		if isolated {
+			name = "isolated"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := archiveTestConfig(t, isolated)
+			s := New(cfg)
+			s.SetClient(sidecarClient{})
+
+			fillTranscript(s, "chronology goal", 40)
+			preCompact := s.Messages()
+			if err := s.CompactTo(context.Background(), 30); err != nil {
+				t.Fatalf("compact: %v", err)
+			}
+			s.AddUser("after compaction one")
+			s.AddAssistant("reply one")
+			s.AddUser("after compaction two")
+			if err := s.Save(); err != nil {
+				t.Fatalf("save: %v", err)
+			}
+
+			path := filepath.Join(cfg.SessionsDir, s.ID()+".jsonl")
+			if isolated {
+				path = filepath.Join(cfg.Cwd, IsolatedSessionFileName)
+			}
+			diskMsgs := decodeMessageLines(t, readSessionLines(t, path))
+
+			// Every pre-compaction message appears on disk in its original
+			// relative order (archived and tail interleaved by time).
+			pos := 0
+			for _, want := range preCompact {
+				found := -1
+				for i := pos; i < len(diskMsgs); i++ {
+					if diskMsgs[i].Content == want.Content && diskMsgs[i].Role == want.Role {
+						found = i
+						break
+					}
+				}
+				if found < 0 {
+					t.Fatalf("pre-compaction message %q missing or out of order on disk", want.Content)
+				}
+				pos = found + 1
+			}
+
+			// The working-view summary sits after every pre-compaction
+			// message and before anything added afterwards.
+			summaryIdx, afterIdx := -1, -1
+			for i, m := range diskMsgs {
+				if summaryIdx < 0 && !m.Archived && strings.HasPrefix(m.Content, "[Earlier conversation summary]") {
+					summaryIdx = i
+				}
+				if afterIdx < 0 && m.Content == "after compaction one" {
+					afterIdx = i
+				}
+			}
+			if summaryIdx < 0 || afterIdx < 0 {
+				t.Fatalf("summary or post-compaction message missing on disk (summary=%d after=%d)", summaryIdx, afterIdx)
+			}
+			if summaryIdx <= pos-1 {
+				t.Fatalf("summary at disk position %d precedes pre-compaction messages ending at %d", summaryIdx, pos-1)
+			}
+			if summaryIdx >= afterIdx {
+				t.Fatalf("summary at disk position %d does not precede post-compaction message at %d", summaryIdx, afterIdx)
+			}
+
+			// The anchor copy is identifiable and keeps the original ask.
+			anchorSeen := false
+			for _, m := range diskMsgs {
+				if m.Anchor && m.Content == "chronology goal" {
+					anchorSeen = true
+				}
+				if m.Archived && m.Anchor {
+					t.Fatal("anchor copy must never be archived")
+				}
+			}
+			if !anchorSeen {
+				t.Fatal("anchor copy of the first user prompt missing on disk")
+			}
+
+			// Reload restores the identical working view.
+			s2 := New(cfg)
+			if isolated {
+				ok, err := s2.LoadIsolated()
+				if err != nil || !ok {
+					t.Fatalf("LoadIsolated = (%v, %v)", ok, err)
+				}
+			} else if err := s2.Load(s.ID()); err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			assertArchiveRoundTrip(t, s, s2, readSessionLines(t, path))
+		})
 	}
 }

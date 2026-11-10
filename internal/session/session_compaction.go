@@ -256,10 +256,27 @@ func clipRunes(s string, n int) string {
 	return string(runes[:n]) + "…[clipped]"
 }
 
+// clipBytes truncates s to at most maxBytes bytes on a rune boundary,
+// marking the cut with a clipped suffix. Unlike clipRunes the budget is in
+// bytes, so multi-byte text cannot overflow it.
+func clipBytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	end := 0
+	for i := range s {
+		if i > maxBytes {
+			break
+		}
+		end = i
+	}
+	return s[:end] + "…[clipped]"
+}
+
 // renderMessagesForSummary renders the discarded transcript for the summary
-// call. maxChars budgets the rendered body (the prior-summary prefix is
-// carried on top of it); callers size it to the context window so the
-// request's num_ctx can hold the whole prompt, and maxChars <= 0 falls back
+// call. maxChars bounds the ENTIRE returned text — prior-summary prefix,
+// omission marker and body together — so the caller's num_ctx sizing stays
+// honest; callers size it to the context window and maxChars <= 0 falls back
 // to the default 48 KB budget.
 func renderMessagesForSummary(messages []Message, maxChars int) string {
 	// Bound the sidecar input: at the compaction threshold the old
@@ -267,24 +284,36 @@ func renderMessagesForSummary(messages []Message, maxChars int) string {
 	// stall the small sidecar model past its timeout and degrade to the
 	// static truncation note. Keep the most recent content so the summary
 	// stays continuous with the messages kept verbatim. Each message is
-	// clipped to a fixed rune budget so one giant tool output cannot crowd
+	// clipped to a fixed byte budget so one giant tool output cannot crowd
 	// out everything else.
 	if maxChars <= 0 {
 		maxChars = defaultMaxSummaryChars
 	}
 	const (
-		maxPerMessageRunes   = 2000
-		maxPriorSummaryRunes = 8000
+		maxPerMessageBytes   = 2000
+		maxPriorSummaryBytes = 8000
 		priorSummaryPrefix   = "[Earlier conversation summary]"
+		omittedMarker        = "[earliest history omitted for size; summarizing the most recent part]\n"
 	)
 	prefix := ""
 	start := 0
 	// A prior compaction summary is the only memory of everything already
-	// summarized; always carry it into the next summary verbatim (clipped),
-	// outside the newest-first budget.
+	// summarized; always carry it into the next summary (clipped), outside
+	// the newest-first budget but inside maxChars. It gets at most half the
+	// budget so the recent transcript always keeps room.
 	if len(messages) > 0 && strings.HasPrefix(messages[0].Content, priorSummaryPrefix) {
-		prefix = "user: " + clipRunes(messages[0].Content, maxPriorSummaryRunes) + "\n"
+		priorBudget := maxChars / 2
+		if priorBudget > maxPriorSummaryBytes {
+			priorBudget = maxPriorSummaryBytes
+		}
+		prefix = "user: " + clipBytes(messages[0].Content, priorBudget) + "\n"
 		start = 1
+	}
+	// Reserve the marker up front so prefix + marker + body can never exceed
+	// maxChars, whether or not the body ends up clipped.
+	bodyBudget := maxChars - len(prefix) - len(omittedMarker)
+	if bodyBudget < 0 {
+		bodyBudget = 0
 	}
 	// Collect each rendered entry (role header plus its multi-line content)
 	// as one element, newest-first under the size budget, then reverse the
@@ -302,14 +331,14 @@ func renderMessagesForSummary(messages []Message, maxChars int) string {
 		if m.ToolName != "" {
 			entry += "(" + m.ToolName + ")"
 		}
-		entry += ": " + clipRunes(m.Content, maxPerMessageRunes)
+		entry += ": " + clipBytes(m.Content, maxPerMessageBytes)
 		if len(m.ToolCalls) > 0 {
 			if raw, err := json.Marshal(m.ToolCalls); err == nil {
 				entry += " [tool_calls: " + string(raw) + "]"
 			}
 		}
 		entry += "\n"
-		if size+len(entry) > maxChars {
+		if size+len(entry) > bodyBudget {
 			clipped = true
 			break
 		}
@@ -323,7 +352,7 @@ func renderMessagesForSummary(messages []Message, maxChars int) string {
 	if !clipped {
 		return prefix + body
 	}
-	return prefix + "[earliest history omitted for size; summarizing the most recent part]\n" + body
+	return prefix + omittedMarker + body
 }
 
 // EstimateTokens exposes the session's heuristic token estimator so metrics

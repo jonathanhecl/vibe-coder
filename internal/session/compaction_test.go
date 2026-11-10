@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -557,5 +558,80 @@ func TestCompactRequestCarriesNumCtx(t *testing.T) {
 	// would truncate it even with num_ctx set.
 	if uncapped := ollama.NumCtxFor(totalChars, 1024, 0); uncapped > capTokens {
 		t.Fatalf("compaction input needs %d tokens but cap is %d", uncapped, capTokens)
+	}
+}
+
+// TestRenderMessagesForSummaryBoundsWholeOutput verifies maxChars bounds the
+// ENTIRE rendered text — prior-summary prefix, omission marker and body —
+// even with multi-byte content, so the caller's num_ctx sizing cannot be
+// exceeded by an unbudgeted prefix.
+func TestRenderMessagesForSummaryBoundsWholeOutput(t *testing.T) {
+	t.Parallel()
+	messages := []Message{{
+		Role:    "user",
+		Content: "[Earlier conversation summary]\n" + strings.Repeat("\u6458", 9000),
+	}}
+	for i := 0; i < 60; i++ {
+		messages = append(messages, Message{Role: "user", Content: strings.Repeat("\u754c", 400)})
+	}
+	const budget = 4096
+	out := renderMessagesForSummary(messages, budget)
+	if len(out) > budget {
+		t.Fatalf("rendered %d bytes exceeds budget %d", len(out), budget)
+	}
+	if !utf8.ValidString(out) {
+		t.Fatal("rendered output splits a multi-byte rune")
+	}
+	if !strings.Contains(out, "…[clipped]") {
+		t.Fatal("expected the oversized prior summary to be clipped")
+	}
+}
+
+// TestSecondCompactionRequestFitsContextCap verifies that when a second
+// compaction carries the first summary as prior context, the rendered input
+// still fits the configured context window: (system+user bytes)/3 + 1024 +
+// 256 stays under the cap, so Ollama does not silently truncate it.
+func TestSecondCompactionRequestFitsContextCap(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 4096,
+		SidecarModel:  "sidecar",
+	}
+	var captured ollama.ChatRequest
+	s := New(cfg)
+	s.SetClient(capturingSidecarClient{
+		// A multi-byte summary makes the next compaction's prior-context
+		// prefix the expensive case.
+		summary: strings.Repeat("\u6458", 4000),
+		onChat:  func(req ollama.ChatRequest) { captured = req },
+	})
+
+	for i := 0; i < 80; i++ {
+		s.AddUser(strings.Repeat("z", 200))
+	}
+	if err := s.CompactTo(context.Background(), 30); err != nil {
+		t.Fatalf("first compact: %v", err)
+	}
+	for i := 0; i < 80; i++ {
+		s.AddUser(strings.Repeat("y", 200))
+	}
+	if err := s.CompactTo(context.Background(), 30); err != nil {
+		t.Fatalf("second compact: %v", err)
+	}
+
+	if len(captured.Messages) != 2 {
+		t.Fatalf("expected a system+user request, got %d messages", len(captured.Messages))
+	}
+	sys, user := captured.Messages[0].Content, captured.Messages[1].Content
+	if !strings.Contains(user, "[Earlier conversation summary]") {
+		t.Fatal("second compaction did not carry the prior summary")
+	}
+	if got := (len(sys)+len(user))/3 + 1024 + 256; got > cfg.ContextWindow {
+		t.Fatalf("compaction input needs ~%d tokens, exceeds context window %d (user prompt %d bytes)", got, cfg.ContextWindow, len(user))
+	}
+	if uncapped := ollama.NumCtxFor(len(sys)+len(user), 1024, 0); uncapped > ollama.NumCtxCap(cfg.ContextWindow) {
+		t.Fatalf("NumCtxFor uncapped = %d exceeds cap %d", uncapped, ollama.NumCtxCap(cfg.ContextWindow))
 	}
 }

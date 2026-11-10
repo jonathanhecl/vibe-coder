@@ -189,6 +189,10 @@ Release archives and generated notes are available on the
 - Applied `gofmt` to files that had drifted from the canonical format.
 - Removed superfluous blank lines and orphan prefix bars in thinking blocks and assistant turn completion footers (`thought for Xs` and `responded in Xs`).
 
+- Fixed compaction permanently deleting history from the session file. `Session.CompactTo` used to replace the transcript with `summary + anchor + tail` and the next `Save` rewrote the whole JSONL from that reduced view, so everything compacted away was gone for good. The session now keeps an ordered archive beside the working view: compacted messages are appended to it marked `"archived": true`, each condensation summary is archived at the point it was produced, and the file is written in timestamp order with `context_order` stamps restoring the exact working-view order on load — the model still sees only `latest summary + recent tail` while the file on disk holds the full conversation for review and debugging. `/resume` reports the archived count, `/sessions` counts only the live view, sessions written before this change load exactly as before (history already lost by older versions cannot be recovered), and the maximum session file size grew from 50 MB to 256 MB to fit the archive.
+
+- Isolated sessions no longer write `.vibe-isolated-history.txt`. Up/Down prompt recall is now seeded from the session transcript itself (`Session.UserPrompts`), so the folder keeps one less artifact; a history file left by an older run is preserved untouched — it may hold the only surviving prompts of already-compacted sessions — and can be deleted manually.
+
 ## [1.0.4] - 2026-09-14
 
 See the [release notes](https://github.com/jonathanhecl/vibe-coder/releases/tag/v1.0.4).

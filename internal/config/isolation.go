@@ -20,7 +20,9 @@ const (
 	IsolatedSessionFileName = ".vibe-isolated.jsonl"
 	// legacyIsolatedHistoryFileName is the retired prompt-history file.
 	// Isolated runs no longer write it — Up/Down recall is seeded from the
-	// session transcript — but a stale copy is removed on entry.
+	// session transcript — but an existing file is left untouched: it may
+	// hold the only surviving prompts of already-compacted sessions and can
+	// be removed manually.
 	legacyIsolatedHistoryFileName = ".vibe-isolated-history.txt"
 )
 
@@ -94,10 +96,11 @@ func (c *Config) EnterIsolatedLayout() error {
 		return errors.New("isolated session requires a working directory")
 	}
 	// No history file: prompt recall is seeded from the session transcript,
-	// so the input history stays in memory for the run.
+	// so the input history stays in memory for the run. A legacy
+	// .vibe-isolated-history.txt from older runs is left in place — it may
+	// be the only record of prompts already compacted away — and can be
+	// deleted manually.
 	c.HistoryFile = ""
-	// Drop the retired history file if an older run left one behind.
-	_ = os.Remove(filepath.Join(cwd, legacyIsolatedHistoryFileName))
 	return nil
 }
 

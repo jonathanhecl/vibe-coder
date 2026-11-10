@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,17 +29,21 @@ type Message struct {
 	// working view after compaction. It duplicates an already-archived
 	// message, so compaction must not archive it a second time.
 	Anchor bool `json:"anchor,omitempty"`
+	// ContextOrder is persistence-only metadata: Save stamps each working
+	// message with its position so a timestamp-sorted file can restore the
+	// exact working-view order on load. It is cleared after loading and
+	// never reaches the model wire.
+	ContextOrder *int `json:"context_order,omitempty"`
 }
 
 type Session struct {
-	mu            sync.RWMutex
-	cfg           *config.Config
-	id            string
-	messages      []Message
-	// archive holds the messages compaction moved out of the working view,
-	// in chronological order. It is persisted ahead of messages so the
-	// session file keeps the full transcript for review and debugging,
-	// while the model keeps seeing only the compacted working view.
+	mu       sync.RWMutex
+	cfg      *config.Config
+	id       string
+	messages []Message
+	// archive holds messages compaction moved out of the working view.
+	// Persistence merges them with working messages by timestamp, preserving
+	// the full transcript without expanding the model's context.
 	archive       []Message
 	client        ollama.Client
 	sideClient    ollama.Client
@@ -138,16 +143,21 @@ func (s *Session) ArchivedCount() int {
 	return len(s.archive)
 }
 
-// FullTranscript returns the complete conversation — archived messages first,
-// then the working view — as an independent copy. It is meant for user-facing
-// exports and debugging; the model wire, token budgets and compaction checks
-// keep using Messages()/MessagesReadOnly().
+// FullTranscript returns the complete conversation in chronological order —
+// archived and working messages merged by timestamp — as an independent
+// copy. Anchor copies keep their original (old) timestamp and stay
+// identifiable via Anchor. It is meant for user-facing exports and
+// debugging; the model wire, token budgets and compaction checks keep using
+// Messages()/MessagesReadOnly().
 func (s *Session) FullTranscript() []Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]Message, 0, len(s.archive)+len(s.messages))
 	out = append(out, cloneMessages(s.archive)...)
 	out = append(out, cloneMessages(s.messages)...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Timestamp.Before(out[j].Timestamp)
+	})
 	return out
 }
 
