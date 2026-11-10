@@ -49,8 +49,8 @@
 ### Core agent
 
 - **One-shot prompts** (`-p`) and **interactive REPL** with streaming output.
-- **Multi-turn agent loop** (up to 50 iterations, 2 retries) with tool observation feedback.
-- **Native tool calling** — registry schemas are sent as Ollama `tools`; capability is detected from `/api/tags`, with a `/api/show` probe when tag metadata is missing (`Tools: native|xml|auto` in `/status`), plus per-session 400 fallback and caching. Streamed calls are accumulated across chunks, and native turns replay structured history (`assistant.tool_calls` + role `tool` results) instead of text envelopes.
+- **Multi-turn agent loop** (up to 50 iterations, 2 retries on transient failures) with tool observation feedback.
+- **Native tool calling** — registry schemas are sent as Ollama `tools`; capability is detected from `/api/tags`, with a `/api/show` probe when tag metadata is missing (`Tools: native|xml|auto` in `/status`), plus per-session 400 fallback and caching. Streamed calls are accumulated across chunks, and native turns replay structured history (`assistant.tool_calls` + role `tool` results) instead of text envelopes. Mis-cased or namespaced call names (`read`, `todo_write`, `functions.Read`) resolve to the canonical tool; a name that still does not exist gets an error result listing the available tools while the rest of the batch runs, and a model that only invents names is stopped after a few rounds instead of churning to the step cap.
 - **Batched tool calls** — up to 5 sequential calls per turn (native or `<invoke>` XML fallback) for independent calls.
 - **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
@@ -88,8 +88,9 @@ agent gets a denial and can adapt or call `MissionBlocked`. Empty responses are
 retried automatically and, if they persist, or if several turns run no tools at
 all, the mission is paused instead of spinning. A turn whose visible answer
 repeats while the checklist does not move is stopped after the second repeat,
-with the pending item named, instead of asking the model the same thing up to
-the 50-step cap. The mission, checklist, and tasks
+with the pending item named, and a model whose reasoning keeps looping without
+an answer is stopped after two loop detections, instead of asking the model
+the same thing up to the 50-step cap. The mission, checklist, and tasks
 are written to disk after every turn, so `--resume` continues an interrupted
 mission exactly where it stopped and tells you a mission is waiting. `/status`
 shows the current mission, and every turn is appended to the redacted run log at
@@ -116,7 +117,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **Project-aware indexing & auto-resume** — sessions are keyed by `sha256(cwd)[:16]` so running `vibe` automatically resumes where you left off in that directory (tagged as `(resumed)` in the banner). Use `/new` or `-n`/`--new` to start fresh.
 - **Temporal (ephemeral) sessions** — run with `-t`, `--temporal`, or `--temp`. Nothing is written anywhere: the chat transcript, the metrics, the log, the mission run log, and the user-level directories are all skipped, so the run leaves no trace (tagged as `(temporal)` in red in the banner). Files and code modifications made by the agent remain intact, settings still go to the shared config file, and the RAG index is kept in memory. Running `/promote` within a temporal session keeps it by promoting it to permanent.
 - **Isolated sessions** — run with `--isolated` or `--isolate` (or configured via `VIBE_CODER_ISOLATED=true` or `ISOLATED=true`). The run keeps the records it saves inside the current folder: `.vibe-isolated.jsonl` (transcript), `.vibe-isolated-history.txt` (prompt history), `.vibe-isolated-media/`, and `.vibe-isolated-rag.db`. It records no metrics and no log, creates no user-level state directory, and other directories cannot access it; the settings (models, providers, `SIDECAR_DISABLED`) still go to the shared config file, so they apply to every mode. The answers you give a permission prompt — `Allow this session`, `Block this session`, `Always allow`, `Always deny` — are kept inside the session file instead (a `permissions` entry beside the work state), so they survive a resume and never leak into the global store. Running `vibe` in a directory containing an isolated session automatically detects and loads it (tagged as `(isolated)` in yellow in the banner). Running `/new` resets the isolated session — the file keeps only its marker line, so the folder keeps detecting the mode — and `/sessions delete` only reaches the folder-local session. `/save` writes the transcript into the folder and reports that the session stays isolated there.
-- **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model (falling back to the primary model when unconfigured) summarizes the oldest messages while keeping the last 30 verbatim.
+- **Compaction** — triggered at 300 messages or 70 % of context window; a sidecar model (falling back to the primary model when unconfigured) summarizes the oldest messages while keeping the last 30 verbatim. Summary and sidecar requests carry a `num_ctx` sized to their prompt (capped at the configured context window) so Ollama does not silently truncate them, and a request that still overflows the window compacts once and retries before stopping with advice.
 - **Token estimate** — maintained incrementally so compaction checks are O(1).
 
 ### Safety and permissions

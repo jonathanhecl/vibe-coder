@@ -536,9 +536,9 @@ func TestCompactRequestCarriesNumCtx(t *testing.T) {
 	})
 
 	for i := 0; i < 80; i++ {
-		s.AddUser(strings.Repeat("z", 40))
+		s.AddUser(strings.Repeat("z", 200))
 	}
-	if err := s.Compact(context.Background(), false); err != nil {
+	if err := s.Compact(context.Background(), true); err != nil {
 		t.Fatalf("compact failed: %v", err)
 	}
 	if captured.Options.NumCtx <= 0 {

@@ -293,3 +293,58 @@ func TestClipToolOutputForSidecarTruncatesGlobLines(t *testing.T) {
 		t.Fatalf("expected roughly %d lines, got %d", maxListToolLines, strings.Count(out, "\n"))
 	}
 }
+
+// TestSummariseRequestCarriesNumCtx verifies the summary request sizes num_ctx
+// from its prompt so Ollama does not truncate it with its own default
+// context window.
+func TestSummariseRequestCarriesNumCtx(t *testing.T) {
+	t.Parallel()
+	fc := &fakeClient{reply: "- bullet"}
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b", ContextWindow: 8192}, fc, WithSummariseThreshold(10))
+
+	long := strings.Repeat("payload line\n", 4000)
+	if _, used, err := p.SummariseToolOutput(context.Background(), "Bash", long); err != nil || !used {
+		t.Fatalf("expected summary, got used=%v err=%v", used, err)
+	}
+	if len(fc.lastReqs) == 0 {
+		t.Fatal("expected a ChatSync request")
+	}
+	req := fc.lastReqs[0]
+	capTokens := ollama.NumCtxCap(8192)
+	totalChars := len(req.Messages[0].Content) + len(req.Messages[1].Content)
+	want := ollama.NumCtxFor(totalChars, summaryNumPredict, capTokens)
+	if req.Options.NumCtx != want {
+		t.Fatalf("NumCtx = %d, want %d (chars=%d cap=%d)", req.Options.NumCtx, want, totalChars, capTokens)
+	}
+	if req.Options.NumCtx > capTokens {
+		t.Fatalf("NumCtx %d exceeds cap %d", req.Options.NumCtx, capTokens)
+	}
+}
+
+// TestSummariseClipsExcerptToContextCap verifies a small configured context
+// window shrinks the excerpt enough that the request's num_ctx need stays
+// under the cap instead of being silently truncated by Ollama.
+func TestSummariseClipsExcerptToContextCap(t *testing.T) {
+	t.Parallel()
+	fc := &fakeClient{reply: "- bullet"}
+	p := New(&config.Config{SidecarModel: "qwen3.5:4b", ContextWindow: 4096}, fc, WithSummariseThreshold(10))
+
+	long := strings.Repeat("payload line with enough bytes to overflow\n", 4000)
+	if _, used, err := p.SummariseToolOutput(context.Background(), "Bash", long); err != nil || !used {
+		t.Fatalf("expected summary, got used=%v err=%v", used, err)
+	}
+	if len(fc.lastReqs) == 0 {
+		t.Fatal("expected a ChatSync request")
+	}
+	req := fc.lastReqs[0]
+	capTokens := ollama.NumCtxCap(4096)
+	totalChars := len(req.Messages[0].Content) + len(req.Messages[1].Content)
+	// Uncapped, the prompt must still fit under the configured window;
+	// otherwise the excerpt clip did not do its job.
+	if need := ollama.NumCtxFor(totalChars, summaryNumPredict, 0); need > capTokens {
+		t.Fatalf("summary input needs %d tokens but cap is %d (user prompt %d chars)", need, capTokens, len(req.Messages[1].Content))
+	}
+	if req.Options.NumCtx <= 0 || req.Options.NumCtx > capTokens {
+		t.Fatalf("NumCtx = %d, want within (0, %d]", req.Options.NumCtx, capTokens)
+	}
+}
