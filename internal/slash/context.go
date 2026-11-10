@@ -75,13 +75,12 @@ func restoreWorkState(c *Ctx) {
 		return
 	}
 	raw := c.Session.WorkState()
-	if len(raw) == 0 {
-		return
-	}
 	wsa, ok := c.Agent.(workStateAgent)
 	if !ok {
 		return
 	}
+	// Always restore, even with empty state: a session without persisted work
+	// state must still clear notes/checklist left over from a previous one.
 	wsa.RestoreWorkState(raw)
 	if pending := wsa.PendingTodoCount(); pending > 0 {
 		fmt.Fprintf(c.Out, "Restored checklist with %d pending step(s).\n", pending)

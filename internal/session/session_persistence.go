@@ -54,6 +54,7 @@ func (s *Session) Clear() {
 	s.id = newSessionID()
 	s.messages = s.messages[:0]
 	s.archive = s.archive[:0]
+	s.workState = nil
 	s.tokenEstimate = 0
 	s.mem = newSessionMemory(s.cfg, s.client)
 	s.permState = nil
@@ -114,6 +115,20 @@ func (s *Session) Save() error {
 	if err := writeAtomicFile(cfg.SessionsDir, "*.jsonl.tmp", target, 0o600, func(w io.Writer) error {
 		writer := bufio.NewWriter(w)
 		enc := json.NewEncoder(writer)
+		// The durable work state (TODOs, tasks, session notes) lives inside the
+		// session file itself so it shares the transcript's atomic rewrite.
+		// The legacy .work.json sidecar is still written for compatibility.
+		if len(workState) > 0 {
+			meta := map[string]any{
+				"_meta": map[string]any{
+					"session_id": id,
+					"work_state": json.RawMessage(workState),
+				},
+			}
+			if err := enc.Encode(meta); err != nil {
+				return fmt.Errorf("encode session metadata: %w", err)
+			}
+		}
 		for _, msg := range serialized {
 			if err := enc.Encode(msg); err != nil {
 				return fmt.Errorf("encode message: %w", err)
@@ -178,6 +193,7 @@ func (s *Session) Load(id string) error {
 
 	loaded := make([]Message, 0, 64)
 	archived := make([]Message, 0, 64)
+	var embeddedWorkState []byte
 	scanner := bufio.NewScanner(file)
 	// A single message (e.g. a verbatim tool observation) is stored as one
 	// JSON line and can exceed the 64KB default token size. Match the
@@ -186,6 +202,17 @@ func (s *Session) Load(id string) error {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, `{"_meta":`) {
+			var wrapper struct {
+				Meta struct {
+					WorkState json.RawMessage `json:"work_state"`
+				} `json:"_meta"`
+			}
+			if err := json.Unmarshal([]byte(line), &wrapper); err == nil && len(wrapper.Meta.WorkState) > 0 {
+				embeddedWorkState = append([]byte(nil), wrapper.Meta.WorkState...)
+			}
 			continue
 		}
 		var msg Message
@@ -210,7 +237,12 @@ func (s *Session) Load(id string) error {
 	}
 	s.mu.RUnlock()
 	pinned := loadPinnedContextsFor(sessionsDir, sanitized)
-	workState := loadWorkStateFor(sessionsDir, sanitized)
+	// Work state embedded in the session file wins over the legacy sidecar;
+	// files written before embedding only have the sidecar.
+	workState := embeddedWorkState
+	if len(workState) == 0 {
+		workState = loadWorkStateFor(sessionsDir, sanitized)
+	}
 	loadedMemory := loadMemoryFor(sessionsDir, sanitized)
 	loadedProject := loadProjectPathFor(sessionsDir, sanitized)
 

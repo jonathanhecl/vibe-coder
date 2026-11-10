@@ -351,3 +351,19 @@ func TestTerminateSessionIsSafeTierAndSendInputIsAskTier(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionNotesIsSafeTier(t *testing.T) {
+	t.Parallel()
+
+	if toolTier("sessionnotes") != TierSafe {
+		t.Fatalf("expected SessionNotes to be TierSafe, got %v", toolTier("sessionnotes"))
+	}
+	ws := t.TempDir()
+	m := NewManager(&config.Config{Cwd: ws, YesMode: false})
+	// Safe tools are allowed without any permission UI.
+	if !m.Check("SessionNotes", map[string]any{
+		"action": "upsert", "id": "n", "kind": "decision", "content": "x",
+	}, nil) {
+		t.Fatalf("SessionNotes should be auto-allowed as a safe tool")
+	}
+}

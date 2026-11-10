@@ -182,6 +182,13 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if !mode.skipSessionRecord {
 		a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
 	}
+	// A successful SessionNotes upsert changes durable state: persist it right
+	// away so notes survive even outside a mission. Sub-agents never see this
+	// tool (it is not in their allow-list), so this is parent-only.
+	if !mode.skipSessionRecord && !result.IsError && toolName == "SessionNotes" &&
+		strings.EqualFold(strings.TrimSpace(asString(toolParams["action"])), "upsert") {
+		a.persistSessionNotes(toolParams)
+	}
 
 	queueOrRun := func(fn func()) {
 		if mode.auxiliaryNotes != nil {

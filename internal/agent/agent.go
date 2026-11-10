@@ -63,6 +63,11 @@ type Agent struct {
 	// mission is the agent-declared long-running goal. While active, the
 	// runtime keeps starting turns until the agent completes or blocks it.
 	mission *tools.MissionStore
+	// notes is the per-session working-notes store behind the SessionNotes
+	// tool. notesSessionID records which session owns the current notes so a
+	// session switch (/new, resume, Clear) cannot leak them into the new one.
+	notes          *tools.NoteStore
+	notesSessionID string
 	// turnToolCalls counts tool executions in the current Run so the mission
 	// loop can detect a turn that did no work at all (a stall) without imposing
 	// an arbitrary turn limit.
@@ -156,6 +161,10 @@ func New(
 		paths:    newPathMemory(cfg.Cwd),
 		side:     sidecar.New(cfg, client),
 		mission:  tools.NewMissionStore(),
+		notes:    tools.NewNoteStore(),
+	}
+	if sess != nil {
+		a.notesSessionID = sess.ID()
 	}
 	// Lazily resolved on each record: the session id can change (resume,
 	// /new) and temporal/isolated state lives on cfg.
@@ -167,6 +176,7 @@ func New(
 		reg.Register(tools.NewMissionStartTool(a.mission))
 		reg.Register(tools.NewMissionCompleteTool(a.mission))
 		reg.Register(tools.NewMissionBlockedTool(a.mission))
+		reg.Register(tools.NewSessionNotesTool(a.notes))
 		if a.decider != nil {
 			reg.Register(tools.NewDecideTool(a.decider))
 		}

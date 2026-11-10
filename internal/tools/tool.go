@@ -26,7 +26,7 @@ func EffectOf(tool Tool) Effect {
 		*DiagnosticsTool, *BackgroundStatusTool, *BackgroundListTool:
 		return EffectRead
 	case *TodoWriteTool, *TaskCreateTool, *TaskListTool, *TaskGetTool, *TaskUpdateTool, *AskUserQuestionTool,
-		*MissionStartTool, *MissionCompleteTool, *MissionBlockedTool:
+		*MissionStartTool, *MissionCompleteTool, *MissionBlockedTool, *SessionNotesTool:
 		return EffectState
 	case *WriteTool, *EditTool, *NotebookEditTool, *GitUndoTool:
 		return EffectWrite

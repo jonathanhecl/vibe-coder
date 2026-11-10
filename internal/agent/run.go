@@ -54,6 +54,9 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	// Persist the checklist/task state at the end of every turn so a crash or
 	// restart never loses what is done and what remains.
 	defer a.PersistWorkState()
+	// Notes belong to one session id: drop them when the session changed
+	// since they were captured or restored.
+	a.ensureNotesSession()
 
 	a.resetTurnToolCalls()
 	// The repeated-call budget is per turn: a streak left by an earlier request

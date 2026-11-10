@@ -344,6 +344,11 @@ func scanSessionMeta(path string) (int, string) {
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
 		}
+		// Metadata lines ("_meta") and any other role-less records are not
+		// messages; skip them so listings do not inflate the count.
+		if msg.Role == "" {
+			continue
+		}
 		// Archived lines are the compaction archive ahead of the working
 		// view; the listing counts what a resumed session actually holds.
 		if msg.Archived {

@@ -106,6 +106,12 @@ func (a *Agent) runtimeStateNote() string {
 	if block := a.progressPromptBlock(); block != "" {
 		b.WriteString(block)
 	}
+	if block := a.sessionNotesPromptBlock(); block != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(block)
+	}
 	if m := a.MissionSnapshot(); m.Status == tools.MissionStatusActive && m.Turns > 0 {
 		if b.Len() > 0 {
 			b.WriteString("\n")

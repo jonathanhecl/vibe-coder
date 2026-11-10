@@ -19,7 +19,7 @@ var (
 	safeTools = map[string]struct{}{
 		"read": {}, "readmany": {}, "glob": {}, "grep": {}, "subagent": {}, "askuserquestion": {},
 		"taskcreate": {}, "tasklist": {}, "taskget": {}, "taskupdate": {}, "todowrite": {},
-		"missionstart": {}, "missioncomplete": {}, "missionblocked": {},
+		"missionstart": {}, "missioncomplete": {}, "missionblocked": {}, "sessionnotes": {},
 		"describeimage": {}, "screenshot": {}, "skill": {}, "gitstatus": {}, "gitdiff": {}, "decide": {},
 		"backgroundstatus": {}, "backgroundlist": {}, "backgroundkill": {},
 		"terminatesession": {},

@@ -14,9 +14,10 @@ const workStateVersion = 1
 // generic means it works for any long process (image batches, migrations,
 // audits), not just one domain.
 type workStateSnapshot struct {
-	Version int              `json:"version"`
-	Todos   []tools.TodoItem `json:"todos,omitempty"`
-	Tasks   []tools.Task     `json:"tasks,omitempty"`
+	Version int                 `json:"version"`
+	Todos   []tools.TodoItem    `json:"todos,omitempty"`
+	Tasks   []tools.Task        `json:"tasks,omitempty"`
+	Notes   []tools.SessionNote `json:"notes,omitempty"`
 	// Mission is the agent-declared long-running goal, when one exists. It is
 	// what lets an interrupted autonomous run resume and keep going.
 	Mission *tools.Mission `json:"mission,omitempty"`
@@ -25,6 +26,7 @@ type workStateSnapshot struct {
 // captureWorkState serializes the current checklist/task state. It returns
 // nil when there is nothing to persist so an empty session keeps no sidecar.
 func (a *Agent) captureWorkState() []byte {
+	a.ensureNotesSession()
 	snap := workStateSnapshot{
 		Version: workStateVersion,
 		Tasks:   tools.SnapshotTasks(),
@@ -37,7 +39,10 @@ func (a *Agent) captureWorkState() []byte {
 			snap.Mission = &m
 		}
 	}
-	if len(snap.Todos) == 0 && len(snap.Tasks) == 0 && snap.Mission == nil {
+	if a.notes != nil {
+		snap.Notes = a.notes.Snapshot()
+	}
+	if len(snap.Todos) == 0 && len(snap.Tasks) == 0 && snap.Mission == nil && len(snap.Notes) == 0 {
 		return nil
 	}
 	raw, err := json.Marshal(snap)
@@ -47,24 +52,37 @@ func (a *Agent) captureWorkState() []byte {
 	return raw
 }
 
-// applyWorkState restores a persisted snapshot into the live stores. An empty
-// or corrupt blob is ignored so old sessions and fresh runs are unaffected.
+// applyWorkState restores a persisted snapshot into the live stores. Notes are
+// always replaced first: an empty, corrupt, or legacy blob (one written before
+// notes existed) must not leave notes from a previous session behind. Other
+// stores keep their old tolerance — an empty or corrupt blob leaves them
+// untouched.
 func (a *Agent) applyWorkState(raw []byte) {
-	if len(raw) == 0 {
-		return
+	if a.notes != nil {
+		a.notes.Restore(nil)
 	}
-	var snap workStateSnapshot
-	if err := json.Unmarshal(raw, &snap); err != nil {
-		return
+	if len(raw) > 0 {
+		var snap workStateSnapshot
+		if err := json.Unmarshal(raw, &snap); err == nil {
+			if tw := a.todoWriteTool(); tw != nil {
+				tw.Store().Replace(snap.Todos)
+			}
+			if len(snap.Tasks) > 0 {
+				tools.RestoreTasks(snap.Tasks)
+			}
+			if snap.Mission != nil && a.mission != nil {
+				a.mission.Restore(*snap.Mission)
+			}
+			if a.notes != nil && len(snap.Notes) > 0 {
+				a.notes.Restore(snap.Notes)
+			}
+		}
 	}
-	if tw := a.todoWriteTool(); tw != nil {
-		tw.Store().Replace(snap.Todos)
-	}
-	if len(snap.Tasks) > 0 {
-		tools.RestoreTasks(snap.Tasks)
-	}
-	if snap.Mission != nil && a.mission != nil {
-		a.mission.Restore(*snap.Mission)
+	// The restored notes (or their absence) now belong to the current session.
+	if a.sess != nil {
+		a.mu.Lock()
+		a.notesSessionID = a.sess.ID()
+		a.mu.Unlock()
 	}
 }
 
@@ -79,7 +97,8 @@ func (a *Agent) PersistWorkState() {
 }
 
 // RestoreWorkState loads a persisted blob (as returned by Session.WorkState)
-// into the live stores. No-op when empty.
+// into the live stores. An empty blob still clears session notes: notes are
+// scoped to one session and must never leak across a restore boundary.
 func (a *Agent) RestoreWorkState(raw []byte) {
 	if a == nil {
 		return

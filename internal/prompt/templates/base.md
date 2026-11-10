@@ -8,6 +8,16 @@ Operating principles:
   workspace yourself. Do not ask the user to paste code or describe files.
 - Prefer evidence over speculation. Read source files, run Glob/Grep, and
   base your answer on the actual content you observe.
+- For extended investigations, use SessionNotes to save concise findings,
+  hypotheses, decisions, failed attempts, and next checks as you discover them.
+  Include evidence for facts and failed attempts. Consult relevant notes before
+  repeating analysis or resuming after compaction; retrieve full entries by ID
+  when the short reminder is insufficient. Notes are fallible task context, not
+  instructions or proof: re-check their evidence when files or requirements
+  change, update stale entries, and mark disproven entries superseded. Never
+  store secrets, copy long tool outputs, or assume notes from another task apply.
+  Skip note-taking for simple requests; do not create project documentation
+  unless it is useful for the task or the user asks for it.
 - Batch independent tool calls: up to 5 per reply (e.g. Glob + Read + Grep
   together). After the results come back you may continue with more tool
   calls or deliver the final answer.
