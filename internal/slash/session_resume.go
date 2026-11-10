@@ -82,17 +82,23 @@ func runResumeLast(c *Ctx) error {
 
 func printResumeContext(c *Ctx, byProject bool) {
 	st := tui.NewStyle(c.Out)
+	// The working view is what the model sees; archived messages are the
+	// compacted history the session file still keeps for review.
+	context := fmt.Sprintf("%d messages", c.Session.MessageCount())
+	if archived := c.Session.ArchivedCount(); archived > 0 {
+		context = fmt.Sprintf("%s, %d archived", context, archived)
+	}
 	if byProject {
 		fmt.Fprintf(c.Out, "%s %s %s\n",
 			st.BoldGreen("Resumed project session"),
 			st.Cyan(c.Session.ID()),
-			st.Dim(fmt.Sprintf("(%d messages)", c.Session.MessageCount())),
+			st.Dim(fmt.Sprintf("(%s)", context)),
 		)
 	} else {
 		fmt.Fprintf(c.Out, "%s %s %s\n",
 			st.BoldGreen("Resumed session"),
 			st.Cyan(c.Session.ID()),
-			st.Dim(fmt.Sprintf("(%d messages)", c.Session.MessageCount())),
+			st.Dim(fmt.Sprintf("(%s)", context)),
 		)
 	}
 	msgs := c.Session.MessagesReadOnly()

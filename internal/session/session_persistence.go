@@ -16,7 +16,10 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
-const maxSessionFileBytes = 50 * 1024 * 1024
+// maxSessionFileBytes caps the session JSONL on load. The file keeps the
+// full transcript (working view plus the compaction archive), so the limit
+// is generous enough for long autonomous runs.
+const maxSessionFileBytes = 256 * 1024 * 1024
 
 // maxSessionLineBytes caps a single JSONL message line on load. One message
 // (e.g. a verbatim tool observation) can be far larger than the 64KB default
@@ -49,6 +52,7 @@ func (s *Session) Clear() {
 	defer s.mu.Unlock()
 	s.id = newSessionID()
 	s.messages = s.messages[:0]
+	s.archive = s.archive[:0]
 	s.tokenEstimate = 0
 	s.mem = newSessionMemory(s.cfg, s.client)
 	s.permState = nil
@@ -63,6 +67,7 @@ func (s *Session) Save() error {
 	s.mu.RLock()
 	cfg := s.cfg
 	id := s.id
+	archived := cloneMessages(s.archive)
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
 	workState := append([]byte(nil), s.workState...)
@@ -107,6 +112,13 @@ func (s *Session) Save() error {
 	if err := writeAtomicFile(cfg.SessionsDir, "*.jsonl.tmp", target, 0o600, func(w io.Writer) error {
 		writer := bufio.NewWriter(w)
 		enc := json.NewEncoder(writer)
+		// Archived messages come first so the file reads chronologically:
+		// everything compaction moved aside, then the live working view.
+		for _, msg := range archived {
+			if err := enc.Encode(msg); err != nil {
+				return fmt.Errorf("encode archived message: %w", err)
+			}
+		}
 		for _, msg := range messages {
 			if err := enc.Encode(msg); err != nil {
 				return fmt.Errorf("encode message: %w", err)
@@ -170,6 +182,7 @@ func (s *Session) Load(id string) error {
 	defer file.Close()
 
 	loaded := make([]Message, 0, 64)
+	archived := make([]Message, 0, 64)
 	scanner := bufio.NewScanner(file)
 	// A single message (e.g. a verbatim tool observation) is stored as one
 	// JSON line and can exceed the 64KB default token size. Match the
@@ -182,6 +195,10 @@ func (s *Session) Load(id string) error {
 		}
 		var msg Message
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+		if msg.Archived {
+			archived = append(archived, msg)
 			continue
 		}
 		loaded = append(loaded, msg)
@@ -203,6 +220,7 @@ func (s *Session) Load(id string) error {
 
 	s.mu.Lock()
 	s.id = sanitized
+	s.archive = archived
 	s.messages = loaded
 	s.pinnedContexts = pinned
 	s.workState = workState
@@ -292,6 +310,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	defer file.Close()
 
 	loaded := make([]Message, 0, 64)
+	archived := make([]Message, 0, 64)
 	var loadedID string
 	var pinned []string
 	var loadedWorkState []byte
@@ -333,6 +352,10 @@ func (s *Session) LoadIsolated() (bool, error) {
 		if err := json.Unmarshal([]byte(line), &msg); err != nil || msg.Role == "" {
 			continue
 		}
+		if msg.Archived {
+			archived = append(archived, msg)
+			continue
+		}
 		loaded = append(loaded, msg)
 	}
 	if err := scanner.Err(); err != nil {
@@ -346,6 +369,7 @@ func (s *Session) LoadIsolated() (bool, error) {
 	if loadedID != "" {
 		s.id = loadedID
 	}
+	s.archive = archived
 	s.messages = loaded
 	s.pinnedContexts = pinned
 	s.workState = loadedWorkState
@@ -382,6 +406,7 @@ func (s *Session) ClearIsolated() error {
 			return err
 		}
 		_ = os.Remove(filepath.Join(cwd, ".vibe-isolated-runs.jsonl"))
+		_ = os.Remove(filepath.Join(cwd, ".vibe-isolated-history.txt"))
 		_ = os.RemoveAll(filepath.Join(cwd, ".vibe-isolated-media"))
 	}
 	s.mu.Lock()
@@ -415,6 +440,7 @@ func (s *Session) saveIsolated() error {
 	s.mu.RLock()
 	cfg := s.cfg
 	id := s.id
+	archived := cloneMessages(s.archive)
 	messages := cloneMessages(s.messages)
 	pinned := append([]string(nil), s.pinnedContexts...)
 	workState := append([]byte(nil), s.workState...)
@@ -458,6 +484,13 @@ func (s *Session) saveIsolated() error {
 		}
 		if err := enc.Encode(meta); err != nil {
 			return fmt.Errorf("encode isolated metadata: %w", err)
+		}
+		// Archived messages precede the working view so the file stays
+		// chronological, matching the normal session layout.
+		for _, msg := range archived {
+			if err := enc.Encode(msg); err != nil {
+				return fmt.Errorf("encode archived message: %w", err)
+			}
 		}
 		for _, msg := range messages {
 			if err := enc.Encode(msg); err != nil {

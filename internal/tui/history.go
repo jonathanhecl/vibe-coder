@@ -65,6 +65,30 @@ func (h *inputHistory) add(line string) {
 	h.appendLocked(line)
 }
 
+// seed loads entries into memory without writing them to the history file.
+// It is used to pre-populate recall from a resumed session transcript (e.g.
+// an isolated session, which keeps no history file). Like add, only
+// consecutive duplicates are dropped.
+func (h *inputHistory) seed(entries []string) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, entry := range entries {
+		if strings.TrimSpace(entry) == "" {
+			continue
+		}
+		if len(h.entries) > 0 && h.entries[len(h.entries)-1] == entry {
+			continue
+		}
+		h.entries = append(h.entries, entry)
+	}
+	if len(h.entries) > maxHistoryEntries {
+		h.entries = h.entries[len(h.entries)-maxHistoryEntries:]
+	}
+}
+
 // appendLocked writes line as a new line in the history file. Errors are
 // ignored: history is a convenience feature and must never break input.
 func (h *inputHistory) appendLocked(line string) {

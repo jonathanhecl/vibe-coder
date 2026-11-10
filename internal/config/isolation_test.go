@@ -9,8 +9,8 @@ import (
 )
 
 // TestEnterIsolatedLayoutKeepsRecordsInFolder asserts an isolated run keeps
-// the records it still writes inside its working directory: the prompt history
-// moves into the folder, while the settings stay in the shared config file and
+// the records it still writes inside its working directory while prompt
+// recall stays in memory (seeded from the transcript, no history file), and
 // no log is written at all.
 func TestEnterIsolatedLayoutKeepsRecordsInFolder(t *testing.T) {
 	dir := t.TempDir()
@@ -31,16 +31,20 @@ func TestEnterIsolatedLayoutKeepsRecordsInFolder(t *testing.T) {
 		PermFile:    sharedConfig,
 		HistoryFile: filepath.Join(stateDir, "history.txt"),
 	}
+	// A stale history file from an older isolated run must be removed.
+	legacyHistory := filepath.Join(cwd, ".vibe-isolated-history.txt")
+	if err := os.WriteFile(legacyHistory, []byte("old prompt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := cfg.EnterIsolatedLayout(); err != nil {
 		t.Fatalf("EnterIsolatedLayout: %v", err)
 	}
 
-	wantHistory := filepath.Join(cwd, IsolatedHistoryFileName)
-	if cfg.HistoryFile != wantHistory {
-		t.Errorf("HistoryFile = %q, want %q", cfg.HistoryFile, wantHistory)
+	if cfg.HistoryFile != "" {
+		t.Errorf("HistoryFile = %q, want empty (in-memory recall only)", cfg.HistoryFile)
 	}
-	if !strings.HasPrefix(cfg.HistoryFile, cwd) {
-		t.Errorf("history %q escapes the isolated folder %q", cfg.HistoryFile, cwd)
+	if _, err := os.Stat(legacyHistory); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("legacy isolated history file must be removed, stat err = %v", err)
 	}
 	if cfg.ConfigFile != sharedConfig || cfg.PermFile != sharedConfig {
 		t.Errorf("isolated settings must stay in the shared config, got %q and %q", cfg.ConfigFile, cfg.PermFile)
@@ -130,8 +134,8 @@ func TestLoadDetectsFolderIsolatedSession(t *testing.T) {
 	if cfg.LogPath() != "" {
 		t.Errorf("LogPath = %q, want no log for an isolated run", cfg.LogPath())
 	}
-	if cfg.HistoryFile != filepath.Join(dir, IsolatedHistoryFileName) {
-		t.Errorf("HistoryFile = %q, want the folder history", cfg.HistoryFile)
+	if cfg.HistoryFile != "" {
+		t.Errorf("HistoryFile = %q, want empty for an isolated run", cfg.HistoryFile)
 	}
 	for _, name := range []string{".config", ".local"} {
 		if _, err := os.Stat(filepath.Join(home, name)); !errors.Is(err, os.ErrNotExist) {

@@ -186,6 +186,17 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 	return u
 }
 
+// SeedHistory preloads input-history entries (for example the user prompts of
+// a resumed isolated session) into memory without touching the history file.
+// It is not part of the UI interface: callers reach it through a type
+// assertion so alternate UIs and test fakes stay untouched.
+func (u *PlainUI) SeedHistory(entries []string) {
+	if u == nil {
+		return
+	}
+	u.history.seed(entries)
+}
+
 // StartTurn marks the beginning of a user-initiated turn so the "responded in"
 // footer measures that turn instead of the whole session. The runtime calls it
 // once per turn, before the agent starts working.

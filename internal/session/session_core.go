@@ -21,6 +21,13 @@ type Message struct {
 	// text content so the wire history matches /api/chat's native schema.
 	ToolCalls []ollama.MessageToolCall `json:"tool_calls,omitempty"`
 	ToolName  string                   `json:"tool_name,omitempty"`
+	// Archived marks a message that compaction moved out of the working
+	// view into the on-disk archive. It never reaches the model wire.
+	Archived bool `json:"archived,omitempty"`
+	// Anchor marks the preserved copy of the first user message inside the
+	// working view after compaction. It duplicates an already-archived
+	// message, so compaction must not archive it a second time.
+	Anchor bool `json:"anchor,omitempty"`
 }
 
 type Session struct {
@@ -28,6 +35,11 @@ type Session struct {
 	cfg           *config.Config
 	id            string
 	messages      []Message
+	// archive holds the messages compaction moved out of the working view,
+	// in chronological order. It is persisted ahead of messages so the
+	// session file keeps the full transcript for review and debugging,
+	// while the model keeps seeing only the compacted working view.
+	archive       []Message
 	client        ollama.Client
 	sideClient    ollama.Client
 	tokenEstimate int
@@ -116,6 +128,52 @@ func (s *Session) MessageCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.messages)
+}
+
+// ArchivedCount reports how many messages compaction moved into the archive.
+// The working view the model sees is unaffected.
+func (s *Session) ArchivedCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.archive)
+}
+
+// FullTranscript returns the complete conversation — archived messages first,
+// then the working view — as an independent copy. It is meant for user-facing
+// exports and debugging; the model wire, token budgets and compaction checks
+// keep using Messages()/MessagesReadOnly().
+func (s *Session) FullTranscript() []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Message, 0, len(s.archive)+len(s.messages))
+	out = append(out, cloneMessages(s.archive)...)
+	out = append(out, cloneMessages(s.messages)...)
+	return out
+}
+
+// UserPrompts returns the prompts the user actually typed, in order, across
+// the full transcript (archive included). Synthetic envelopes, tool
+// observations, mission notes, anchor copies and retry scaffolding are
+// skipped so the result matches what a human asked — e.g. to seed input
+// recall for an isolated session that keeps no history file.
+func (s *Session) UserPrompts() []string {
+	var out []string
+	for _, m := range s.FullTranscript() {
+		if m.Role != "user" || m.Anchor {
+			continue
+		}
+		content := strings.TrimSpace(m.Content)
+		if idx := strings.Index(content, "\n\n[retry_context]"); idx >= 0 {
+			content = strings.TrimSpace(content[:idx])
+		}
+		if content == "" || isSyntheticContextEnvelope(content) ||
+			strings.HasPrefix(content, "[tool_result") ||
+			strings.HasPrefix(content, "[mission]") {
+			continue
+		}
+		out = append(out, content)
+	}
+	return out
 }
 
 func (s *Session) SetClient(client ollama.Client) {

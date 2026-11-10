@@ -9,17 +9,19 @@ import (
 
 // An isolated run keeps what it records inside the working directory it was
 // started in. The session transcript, the pasted media, and the RAG index
-// already live there, and the prompt history joins them; the measured metrics
-// and the logs are not recorded at all, and the settings keep going to the
-// shared config file because they describe the user's models and providers
-// rather than the run.
+// already live there; prompt recall comes from the transcript itself, so no
+// history file is written. The measured metrics and the logs are not recorded
+// at all, and the settings keep going to the shared config file because they
+// describe the user's models and providers rather than the run.
 const (
 	// IsolatedSessionFileName is the folder-local session that makes a
 	// directory isolated: a run started in a folder holding one continues in
 	// isolated mode. The session store uses the same name.
 	IsolatedSessionFileName = ".vibe-isolated.jsonl"
-	// IsolatedHistoryFileName stores submitted prompts for Up/Down recall.
-	IsolatedHistoryFileName = ".vibe-isolated-history.txt"
+	// legacyIsolatedHistoryFileName is the retired prompt-history file.
+	// Isolated runs no longer write it — Up/Down recall is seeded from the
+	// session transcript — but a stale copy is removed on entry.
+	legacyIsolatedHistoryFileName = ".vibe-isolated-history.txt"
 )
 
 // isolatedSessionPresent reports whether cwd holds an isolated session with
@@ -91,7 +93,11 @@ func (c *Config) EnterIsolatedLayout() error {
 	if cwd == "" {
 		return errors.New("isolated session requires a working directory")
 	}
-	c.HistoryFile = filepath.Join(cwd, IsolatedHistoryFileName)
+	// No history file: prompt recall is seeded from the session transcript,
+	// so the input history stays in memory for the run.
+	c.HistoryFile = ""
+	// Drop the retired history file if an older run left one behind.
+	_ = os.Remove(filepath.Join(cwd, legacyIsolatedHistoryFileName))
 	return nil
 }
 

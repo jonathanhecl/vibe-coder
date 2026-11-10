@@ -107,6 +107,10 @@ func (r *RichUI) StopESCMonitor()                        { r.plain.StopESCMonito
 
 func (r *RichUI) StartTurn() { r.plain.StartTurn() }
 
+// SeedHistory delegates to the wrapped plain UI so rich mode recalls the same
+// session-derived prompts as plain mode.
+func (r *RichUI) SeedHistory(entries []string) { r.plain.SeedHistory(entries) }
+
 func (r *RichUI) SetPlanMode(enabled bool) {
 	r.plain.SetPlanMode(enabled)
 	r.updateStatus(richPlanModeMsg{enabled: enabled})

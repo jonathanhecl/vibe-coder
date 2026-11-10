@@ -344,6 +344,11 @@ func scanSessionMeta(path string) (int, string) {
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			continue
 		}
+		// Archived lines are the compaction archive ahead of the working
+		// view; the listing counts what a resumed session actually holds.
+		if msg.Archived {
+			continue
+		}
 		count++
 		if preview == "" && msg.Role == "user" {
 			text := strings.TrimSpace(msg.Content)

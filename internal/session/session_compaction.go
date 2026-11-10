@@ -165,6 +165,17 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	if s.revision != revision {
 		return fmt.Errorf("session changed during compaction")
 	}
+	// Move the compacted region into the archive so the session file keeps
+	// the full transcript in chronological order. The anchor copy is skipped:
+	// it duplicates a message already archived. Archived copies stay marked
+	// so a reload routes them back to the archive, never to the wire view.
+	for _, m := range old {
+		if m.Anchor {
+			continue
+		}
+		m.Archived = true
+		s.archive = append(s.archive, m)
+	}
 	// Build the compacted transcript: summary, then the original first user
 	// message preserved verbatim (so the agent never loses the task), then the
 	// kept tail with orphaned native tool results converted to user-role
@@ -172,7 +183,8 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	// a preceding assistant tool_calls is rejected by Ollama and confuses the
 	// model). The first user message is only prepended when it actually fell
 	// inside the compacted region — if it already sits inside the kept tail,
-	// adding it again would duplicate the request.
+	// adding it again would duplicate the request. The working-view copy is
+	// flagged Anchor so later compactions do not archive it a second time.
 	newMsgs := make([]Message, 0, len(recent)+3)
 	newMsgs = append(newMsgs, Message{
 		Role:      "user",
@@ -180,7 +192,9 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 		Timestamp: time.Now().UTC(),
 	})
 	if firstUserIdx >= 0 && firstUserIdx < cut {
-		newMsgs = append(newMsgs, s.messages[firstUserIdx])
+		anchor := s.messages[firstUserIdx]
+		anchor.Anchor = true
+		newMsgs = append(newMsgs, anchor)
 	}
 	newMsgs = append(newMsgs, normalizeKeptMessages(recent)...)
 	s.messages = newMsgs

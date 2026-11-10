@@ -306,6 +306,11 @@ func main() {
 			}
 			fmt.Fprintf(os.Stdout, "Active mission restored (%s). Send any message (e.g. \"continue\") to keep working autonomously.\n", resumeGoal)
 		}
+		// An isolated session keeps no history file: Up/Down recall is
+		// seeded from the prompts stored in the transcript itself.
+		if cfg.Isolated {
+			seedIsolatedPromptHistory(ui, sess)
+		}
 	}
 	sess.SetPinnedContexts(ctxStore.Paths())
 
@@ -331,6 +336,19 @@ func main() {
 	logger.Infof("Entering interactive REPL loop.")
 	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore, mcpMgr, lspMgr)
 	logger.Infof("Exiting interactive REPL loop, finishing execution.")
+}
+
+// seedIsolatedPromptHistory loads the transcript's user prompts into the
+// terminal's input history so Up/Down recall keeps working in isolated mode,
+// which deliberately keeps no history file. UIs without SeedHistory (and
+// test fakes) are skipped through the type assertion.
+func seedIsolatedPromptHistory(ui tui.UI, sess *session.Session) {
+	if sess == nil {
+		return
+	}
+	if seeder, ok := ui.(interface{ SeedHistory([]string) }); ok {
+		seeder.SeedHistory(sess.UserPrompts())
+	}
 }
 
 func exitWithError(err error) {
