@@ -1,6 +1,12 @@
 package tui
 
-import "github.com/clipperhouse/displaywidth"
+import (
+	"io"
+	"os"
+
+	"github.com/clipperhouse/displaywidth"
+	"golang.org/x/term"
+)
 
 // ansiWidthOptions measures display width while treating ANSI escape sequences
 // as zero-width, so only the printable cells count.
@@ -25,4 +31,20 @@ func runeCellWidth(r rune) int {
 		return 1
 	}
 	return w
+}
+
+// terminalColumns returns the column count of the terminal behind w, or 0 when
+// w is not a terminal. The line editor needs it to model soft wrapping: without
+// the width, the screen position of the cursor drifts as soon as a line is
+// longer than the screen.
+func terminalColumns(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok {
+		return 0
+	}
+	columns, _, err := term.GetSize(int(f.Fd()))
+	if err != nil || columns <= 0 {
+		return 0
+	}
+	return columns
 }

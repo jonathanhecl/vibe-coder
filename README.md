@@ -142,7 +142,7 @@ shows the current mission, and every turn is appended to the redacted run log at
 - **To-do panel** — `TodoWrite` renders a live Cursor-style task list with status glyphs.
 - **Inline diff renderer** — `Edit` tool shows colored unified-diff (red/green/cyan) with 50-line truncation.
 - **Type-ahead** — keystrokes pressed mid-generation are captured and prefilled into the next prompt.
-- **Multiline input** — dedicated keybinding starts multi-line mode; plain Enter submits.
+- **Multiline input** — `Alt+Enter` inserts a newline; plain Enter submits. Backspace, arrows and Home/End follow the visual rows the terminal wraps, so editing keeps working past the edge of the screen.
 - **Terminal restoration** — signal handler ensures raw mode is never left behind on Ctrl+C, ESC, or panic.
 
 ### Integrations

@@ -65,6 +65,12 @@ type lineEditor struct {
 	histEntries []string
 	histIdx     int
 	draft       string
+
+	// termWidth is the number of terminal columns (0 when unknown). It is what
+	// puts soft wrapping inside the cursor model: without it a line longer than
+	// the screen wraps on the terminal but not in screenRow, and every redraw
+	// after that paints in the wrong place.
+	termWidth int
 }
 
 func newLineEditor(out io.Writer, style Style, history *inputHistory, prompt string) *lineEditor {
@@ -242,8 +248,16 @@ func readInteractiveInputStreamWithStyle(reader io.Reader, out io.Writer, style 
 // repaint by returning errAskTick; the loop repaints the prompt and the buffer
 // behind it and keeps reading, so a countdown never fights the cursor.
 func readInteractiveInputStreamWithPromptFn(reader io.Reader, out io.Writer, style Style, history *inputHistory, prompt string, promptFn func() string) (string, error) {
+	return readInteractiveInputSized(reader, out, style, history, prompt, promptFn, terminalColumns(out))
+}
+
+// readInteractiveInputSized is the input loop with an explicit terminal width.
+// A width of 0 means unknown: the editor then treats the line as never wrapping
+// (the behavior tests and non-TTY writers rely on).
+func readInteractiveInputSized(reader io.Reader, out io.Writer, style Style, history *inputHistory, prompt string, promptFn func() string, width int) (string, error) {
 	e := newLineEditor(out, style, history, prompt)
 	e.promptFn = promptFn
+	e.termWidth = width
 	for {
 		b, err := readByte(reader)
 		switch {
@@ -329,56 +343,107 @@ func readInteractiveInputStreamWithPromptFn(reader io.Reader, out io.Writer, sty
 }
 
 // computeRowCol returns the (row, col) screen position for a given buffer
-// index. Row 0 starts after the prompt; subsequent rows start at column 0.
-// Block regions contribute their preview width instead of their rune count.
-// idx must not fall strictly inside a block (the cursor never does).
+// index, with soft wrapping at termWidth taken into account. Row 0 starts after
+// the prompt; subsequent rows start at column 0. Block regions contribute their
+// preview width instead of their rune count. idx must not fall strictly inside
+// a block (the cursor never does).
 func (e *lineEditor) computeRowCol(idx int) (row, col int) {
-	row = 0
-	col = 0
-	pos := 0 // last position consumed in buf
-	for _, b := range e.blocks {
-		if b.end <= idx {
-			e.advanceRowCol(&row, &col, e.buf[pos:b.start])
-			col += displayWidth(b.display)
-			pos = b.end
-		} else if b.start < idx {
-			e.advanceRowCol(&row, &col, e.buf[pos:b.start])
-			pos = b.start
-			break
-		} else {
-			break
-		}
+	if idx < 0 {
+		idx = 0
 	}
-	e.advanceRowCol(&row, &col, e.buf[pos:idx])
+	if idx > len(e.buf) {
+		idx = len(e.buf)
+	}
+	bi := 0
+	for i := 0; i < idx; {
+		if bi < len(e.blocks) && e.blocks[bi].start == i {
+			b := e.blocks[bi]
+			if b.end > idx {
+				return row, col
+			}
+			e.advanceCells(&row, &col, displayWidth(b.display))
+			i = b.end
+			bi++
+			continue
+		}
+		if e.buf[i] == '\n' {
+			row++
+			col = 0
+		} else {
+			e.advanceCells(&row, &col, runeCellWidth(e.buf[i]))
+		}
+		i++
+	}
 	return row, col
 }
 
-// advanceRowCol updates row/col for the runes in segment, handling '\n' by
-// incrementing row and resetting col to 0. Non-newline runes advance by their
-// terminal cell width so wide runes stay aligned with the real cursor.
-func (e *lineEditor) advanceRowCol(row, col *int, segment []rune) {
-	for _, r := range segment {
-		if r == '\n' {
-			*row++
-			*col = 0
-		} else {
-			*col += runeCellWidth(r)
-		}
+// rowCapacity is how many cells the edit region has on a screen row. Row 0 is
+// narrowed by the prompt; later rows use the full terminal width. 0 means the
+// width is unknown and nothing wraps.
+func (e *lineEditor) rowCapacity(row int) int {
+	if e.termWidth <= 0 {
+		return 0
 	}
+	if row == 0 {
+		capacity := e.termWidth - e.promptWidth
+		if capacity < 1 {
+			capacity = 1
+		}
+		return capacity
+	}
+	return e.termWidth
+}
+
+// advanceCells moves row/col forward by w terminal cells, wrapping to the next
+// row when the rune would cross the row's capacity.
+func (e *lineEditor) advanceCells(row, col *int, w int) {
+	if w <= 0 {
+		return
+	}
+	if capacity := e.rowCapacity(*row); capacity > 0 && *col+w > capacity {
+		*row++
+		*col = 0
+	}
+	*col += w
+}
+
+// displayCol is the column the terminal actually shows the caret on. It differs
+// from col only in the wrap-pending state: after a rune fills the last cell of a
+// row, the caret waits on that last cell until the next printable rune wraps.
+func (e *lineEditor) displayCol(row, col int) int {
+	if col < 0 {
+		return 0
+	}
+	if capacity := e.rowCapacity(row); capacity > 0 && col > capacity-1 {
+		return capacity - 1
+	}
+	return col
+}
+
+// writeRendered writes input text to the terminal, turning buffer newlines into
+// CRLF. Raw mode clears OPOST, so a bare LF moves down without returning to
+// column 0 and would leave the next line indented.
+func (e *lineEditor) writeRendered(s string) {
+	if strings.Contains(s, "\n") {
+		s = strings.ReplaceAll(s, "\n", "\r\n")
+	}
+	_, _ = io.WriteString(e.out, s)
 }
 
 // moveToCursor emits the relative cursor motion needed to move the screen
 // cursor from its current (screenRow, screenCol) to the position for newCursor.
 func (e *lineEditor) moveToCursor(newCursor int) {
 	targetRow, targetCol := e.computeRowCol(newCursor)
-	// Convert to terminal columns: row 0 is offset by the prompt width.
-	targetTermCol := targetCol
-	if targetRow == 0 {
-		targetTermCol += e.promptWidth
-	}
-	currentTermCol := e.screenCol
+	// Convert to terminal columns: row 0 is offset by the prompt width. The
+	// movement is measured in displayed cells so a wrap-pending position (whose
+	// caret sits on the last cell) is handled like the terminal handles it.
+	currentTermCol := e.displayCol(e.screenRow, e.screenCol)
 	if e.screenRow == 0 {
 		currentTermCol += e.promptWidth
+	}
+	targetTermCol := e.displayCol(targetRow, targetCol)
+	if targetRow == 0 {
+		targetTermCol += e.promptWidth
 	}
 	// Vertical movement.
 	switch {
@@ -409,7 +474,7 @@ func (e *lineEditor) redraw() {
 	if e.screenRow > 0 {
 		fmt.Fprintf(e.out, "\x1b[%dA", e.screenRow)
 	}
-	currentTermCol := e.screenCol
+	currentTermCol := e.displayCol(e.screenRow, e.screenCol)
 	if e.screenRow == 0 {
 		currentTermCol += e.promptWidth
 	}
@@ -424,13 +489,13 @@ func (e *lineEditor) redraw() {
 	pos := 0
 	for _, b := range e.blocks {
 		if b.start > pos {
-			_, _ = io.WriteString(e.out, string(e.buf[pos:b.start]))
+			e.writeRendered(string(e.buf[pos:b.start]))
 		}
 		_, _ = io.WriteString(e.out, e.style.DimBlue(b.display))
 		pos = b.end
 	}
 	if pos < len(e.buf) {
-		_, _ = io.WriteString(e.out, string(e.buf[pos:]))
+		e.writeRendered(string(e.buf[pos:]))
 	}
 	// Reposition cursor: compute end position, then move back to cursor.
 	endRow, _ := e.computeRowCol(len(e.buf))
@@ -444,7 +509,7 @@ func (e *lineEditor) redraw() {
 	// Horizontal: go to column 0, then move right to the target column.
 	// For row 0, the target terminal column includes the prompt width.
 	_, _ = io.WriteString(e.out, "\r")
-	targetTermCol := cursorCol
+	targetTermCol := e.displayCol(cursorRow, cursorCol)
 	if cursorRow == 0 {
 		targetTermCol += e.promptWidth
 	}
@@ -494,14 +559,32 @@ func (e *lineEditor) insertRune(r rune) {
 	at := e.cursor
 	if at == len(e.buf) {
 		e.buf = append(e.buf, r)
-		_, _ = io.WriteString(e.out, string(r))
 		e.cursor++
 		if r == '\n' {
+			// CRLF, not a bare LF: raw mode has no ONLCR translation.
+			_, _ = io.WriteString(e.out, "\r\n")
 			e.screenRow++
 			e.screenCol = 0
-		} else {
-			e.screenCol += runeCellWidth(r)
+			return
 		}
+		w := runeCellWidth(r)
+		capacity := e.rowCapacity(e.screenRow)
+		if capacity > 0 && e.screenCol >= capacity {
+			// The caret is parked on the last cell (wrap pending). The next
+			// printable rune belongs on the next row; move there explicitly
+			// because the terminal's pending state only wraps on its own.
+			_, _ = io.WriteString(e.out, "\r\n")
+			e.screenRow++
+			e.screenCol = 0
+			capacity = e.rowCapacity(e.screenRow)
+		}
+		if capacity > 0 && e.screenCol+w > capacity {
+			// The terminal wraps this rune by itself.
+			e.screenRow++
+			e.screenCol = 0
+		}
+		_, _ = io.WriteString(e.out, string(r))
+		e.screenCol += w
 		return
 	}
 	e.buf = spliceRunes(e.buf, at, []rune{r})
@@ -574,14 +657,18 @@ func (e *lineEditor) backspace() {
 	}
 	for i, b := range e.blocks {
 		if b.end == e.cursor {
-			_, _ = io.WriteString(e.out, eraseVisibleText(b.display))
+			startRow, _ := e.computeRowCol(b.start)
+			endRow, _ := e.computeRowCol(b.end)
+			sameRow := startRow == endRow && endRow == e.screenRow && e.screenCol < e.capacityOrMax(e.screenRow)
 			e.buf = append(e.buf[:b.start], e.buf[b.end:]...)
 			e.blocks = append(e.blocks[:i], e.blocks[i+1:]...)
 			e.cursor = b.start
-			e.screenRow, e.screenCol = e.computeRowCol(e.cursor)
-			if len(e.buf) > 0 {
-				e.redraw()
+			if sameRow {
+				_, _ = io.WriteString(e.out, eraseVisibleText(b.display))
+				e.screenRow, e.screenCol = e.computeRowCol(e.cursor)
+				return
 			}
+			e.redraw()
 			return
 		}
 	}
@@ -592,15 +679,27 @@ func (e *lineEditor) backspace() {
 	e.cursor = at
 	// Optimized path: deleting a non-newline rune at the end of the buffer.
 	// Erase as many cells as the rune occupied so wide runes (emoji, CJK) do
-	// not leave a phantom cell behind or overwrite the prompt on row 0.
+	// not leave a phantom cell behind or overwrite the prompt on row 0. The
+	// fast erase only works inside one screen row: at the start of a wrapped
+	// row, or in the wrap-pending state, the caret has to be recomputed.
 	if e.cursor == len(e.buf) && deleted != '\n' {
-		if w := runeCellWidth(deleted); w > 0 && e.screenCol >= w {
+		w := runeCellWidth(deleted)
+		if w > 0 && e.screenCol >= w && e.screenCol < e.capacityOrMax(e.screenRow) {
 			_, _ = io.WriteString(e.out, strings.Repeat("\b \b", w))
 			e.screenCol -= w
 			return
 		}
 	}
 	e.redraw()
+}
+
+// capacityOrMax returns the row capacity, or a value larger than any column when
+// the width is unknown, so "col < capacity" reads as "not wrap-pending".
+func (e *lineEditor) capacityOrMax(row int) int {
+	if capacity := e.rowCapacity(row); capacity > 0 {
+		return capacity
+	}
+	return int(^uint(0) >> 1)
 }
 
 // deleteForward removes the rune at the cursor.
@@ -682,46 +781,75 @@ func (e *lineEditor) moveRight() {
 	e.moveToCursor(next)
 }
 
-// moveUp moves the cursor to the previous line if the buffer contains newlines.
-// Returns true if it handled the movement (i.e., the buffer was multi-line).
+// moveUp moves the cursor to the previous screen row. Returns true if it
+// handled the movement (i.e., the cursor was not already on the first row).
 func (e *lineEditor) moveUp() bool {
-	if e.screenRow == 0 {
+	return e.moveVertical(-1)
+}
+
+// moveDown moves the cursor to the next screen row. Returns true if it handled
+// the movement.
+func (e *lineEditor) moveDown() bool {
+	return e.moveVertical(1)
+}
+
+// moveVertical moves the cursor one visual row up (-1) or down (+1), keeping the
+// column when the target row is long enough. Visual rows include soft wrapping
+// at the terminal width, so navigation matches what the user sees.
+func (e *lineEditor) moveVertical(delta int) bool {
+	currentRow, currentCol := e.computeRowCol(e.cursor)
+	targetRow := currentRow + delta
+	if targetRow < 0 {
 		return false
 	}
-	// Find the start of the current line.
-	lineStart := e.lineStartIndex(e.cursor)
-	// Find the start of the previous line.
-	prevLineStart := e.lineStartIndex(lineStart - 1)
-	col := e.cursor - lineStart
-	target := prevLineStart + col
-	if target >= lineStart-1 {
-		target = lineStart - 1 // clamp to end of previous line (before the \n)
+	bestIdx, bestDist := -1, 0
+	row, col, bi := 0, 0, 0
+	consider := func(idx int) {
+		if row != targetRow {
+			return
+		}
+		dist := col - currentCol
+		if dist < 0 {
+			dist = -dist
+		}
+		if bestIdx < 0 || dist < bestDist {
+			bestIdx, bestDist = idx, dist
+		}
 	}
-	// Don't go past the end of the previous line.
-	prevLineEnd := lineStart - 1
-	if target > prevLineEnd {
-		target = prevLineEnd
+	for i := 0; i <= len(e.buf); {
+		if bi < len(e.blocks) && e.blocks[bi].start == i {
+			b := e.blocks[bi]
+			consider(i)
+			e.advanceCells(&row, &col, displayWidth(b.display))
+			i = b.end
+			bi++
+			continue
+		}
+		consider(i)
+		if i == len(e.buf) {
+			break
+		}
+		if e.buf[i] == '\n' {
+			row++
+			col = 0
+		} else {
+			e.advanceCells(&row, &col, runeCellWidth(e.buf[i]))
+		}
+		i++
 	}
-	e.moveToCursor(target)
+	if bestIdx < 0 {
+		return false
+	}
+	e.moveToCursor(bestIdx)
 	return true
 }
 
-// moveDown moves the cursor to the next line if the buffer contains newlines.
-// Returns true if it handled the movement.
-func (e *lineEditor) moveDown() bool {
-	if e.screenRow >= e.lineCount()-1 {
-		return false
-	}
-	lineStart := e.lineStartIndex(e.cursor)
-	col := e.cursor - lineStart
-	nextLineStart := e.lineEndIndex(e.cursor) + 1
-	nextLineEnd := e.lineEndIndex(nextLineStart)
-	target := nextLineStart + col
-	if target > nextLineEnd {
-		target = nextLineEnd
-	}
-	e.moveToCursor(target)
-	return true
+// visualLines is the number of screen rows the buffer occupies, including soft
+// wrapping. It gates history recall: Up/Down only browse history when the draft
+// fits on one row.
+func (e *lineEditor) visualLines() int {
+	row, _ := e.computeRowCol(len(e.buf))
+	return row + 1
 }
 
 // lineStartIndex returns the buffer index of the first rune on the line
@@ -746,27 +874,6 @@ func (e *lineEditor) lineEndIndex(idx int) int {
 	return len(e.buf)
 }
 
-// lineCount returns the number of lines in the buffer (1 + number of newlines).
-func (e *lineEditor) lineCount() int {
-	count := 1
-	for _, r := range e.buf {
-		if r == '\n' {
-			count++
-		}
-	}
-	return count
-}
-
-// isMultiLine returns true if the buffer contains any newlines.
-func (e *lineEditor) isMultiLine() bool {
-	for _, r := range e.buf {
-		if r == '\n' {
-			return true
-		}
-	}
-	return false
-}
-
 // insertNewline inserts a '\n' at the cursor position for multi-line input.
 func (e *lineEditor) insertNewline() {
 	e.insertRune('\n')
@@ -784,10 +891,11 @@ func (e *lineEditor) moveEnd() {
 	e.moveToCursor(end)
 }
 
-// historyUp recalls the previous history entry. Only active when the buffer is
-// single-line; in multi-line mode, Up navigates between lines instead.
+// historyUp recalls the previous history entry. Only active when the buffer fits
+// on one screen row; a multi-line or soft-wrapped draft navigates between rows
+// instead, so Up never replaces what the user is writing.
 func (e *lineEditor) historyUp() {
-	if e.isMultiLine() {
+	if e.visualLines() > 1 {
 		e.moveUp()
 		return
 	}
@@ -803,10 +911,11 @@ func (e *lineEditor) historyUp() {
 	}
 }
 
-// historyDown recalls the next history entry. Only active when the buffer is
-// single-line; in multi-line mode, Down navigates between lines instead.
+// historyDown recalls the next history entry. Only active when the buffer fits
+// on one screen row; a multi-line or soft-wrapped draft navigates between rows
+// instead.
 func (e *lineEditor) historyDown() {
-	if e.isMultiLine() {
+	if e.visualLines() > 1 {
 		e.moveDown()
 		return
 	}
