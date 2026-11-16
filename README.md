@@ -261,11 +261,13 @@ Helper scripts:
 
 ```bash
 ./run.sh          # build + run with forwarded flags
-./release.sh      # cross-compile archives, create a Git tag, and publish a GitHub Release
+./build-all.sh    # cross-compile archives + checksums into dist/ (no publishing)
+./release.sh      # build, validate, tag, and publish a GitHub Release
 ```
 
 ```powershell
 .\run.ps1
+.\build-all.ps1
 .\release.ps1
 ```
 
@@ -275,14 +277,21 @@ On Linux/macOS, publish a release with:
 GITHUB_TOKEN=<token> ./release.sh v1.0.5
 ```
 
-`release.sh` verifies that the binary compiles cleanly (or runs the test suite if `--run-tests` is provided), builds all platform
-archives into `dist/`, writes `dist/checksums.txt`, then creates the Git tag and
-the GitHub Release and uploads the assets. `--yes` skips the confirmation prompt
-for non-interactive use. It needs a token with `repo` scope in `GITHUB_TOKEN`
-(or `GH_TOKEN`, or an authenticated `gh` CLI); a zip tool (`zip`, 7z, bsdtar, or
-python3) is used for packaging.
+`release.sh` builds every platform archive into `dist/`, writes and re-verifies
+`dist/checksums.txt`, and only then pushes the branch, creates the Git tag, and
+publishes the GitHub Release with all assets. If the version is already tagged
+or released, the existing tag and release are deleted only after the new build
+passes validation, so a failed build never leaves a broken release behind. When
+it finishes, it re-reads the published release and confirms every expected asset
+is attached.
 
-The release workflow produces platform archives in `dist/`, then uploads them as assets to the GitHub Release for the requested tag.
+`--run-tests` runs `go test ./...` before building; `--yes` skips the
+confirmation prompt for non-interactive use. It needs a token with `repo` scope
+in `GITHUB_TOKEN` (or `GH_TOKEN`, or an authenticated `gh` CLI) plus `git`,
+`curl`, `jq`, `unzip`, `zip`, and Go in `PATH`.
+
+Use `build-all.sh` / `build-all.ps1` to produce the same archives locally without
+tagging or publishing anything.
 
 ## Quick Start
 
@@ -1077,7 +1086,8 @@ covers and how to run it.
 |--------|---------|
 | `install-dev.ps1` / `install-dev.sh` | Dev build + install with timestamp + short Git hash |
 | `run.ps1` / `run.sh` | Build + run with forwarded CLI flags |
-| `release.ps1` / `release.sh` | Cross-compile for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64; produces archives + `checksums.txt` |
+| `release.ps1` / `release.sh` | Build + validate linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 archives and `checksums.txt`, then tag and publish the GitHub Release (replacing an existing one only after validation) |
+| `build-all.ps1` / `build-all.sh` | Build-only: cross-compile the same archives + `checksums.txt` into `dist/` |
 
 ### Project layout
 
