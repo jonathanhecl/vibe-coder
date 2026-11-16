@@ -90,6 +90,12 @@ type Manager struct {
 	ruleSink func([]byte)
 	// isolated keeps the rules out of the user's global permission store.
 	isolated bool
+	// sandboxed forbids global temp paths outright instead of prompting: an
+	// isolated or temporal run keeps its scratch files in the working directory.
+	sandboxed bool
+	// mode names the sandboxed run ("isolated", "temporal") for the denial
+	// text, and is "" for a normal run.
+	mode string
 
 	workspaceDir     string
 	allowedOutDomain map[string]struct{}
@@ -122,6 +128,8 @@ type Manager struct {
 func NewManager(cfg *config.Config) *Manager {
 	var yesMode, assistedMode, offlineMode bool
 	var permFile, workspaceDir string
+	var sandboxed bool
+	var mode string
 	if cfg != nil {
 		yesMode = cfg.YesMode
 		offlineMode = cfg.Offline
@@ -130,6 +138,8 @@ func NewManager(cfg *config.Config) *Manager {
 		}
 		permFile = cfg.PermFile
 		workspaceDir = cfg.Cwd
+		sandboxed = cfg.Sandboxed()
+		mode = cfg.Mode()
 	}
 	if workspaceDir == "" {
 		if cwd, err := os.Getwd(); err == nil {
@@ -143,6 +153,8 @@ func NewManager(cfg *config.Config) *Manager {
 		yesMode:          yesMode,
 		assistedMode:     assistedMode,
 		offlineMode:      offlineMode,
+		sandboxed:        sandboxed,
+		mode:             mode,
 		workspaceDir:     workspaceDir,
 		allow:            map[string]struct{}{},
 		deny:             map[string]struct{}{},
@@ -388,6 +400,17 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 	m.mu.Unlock()
 
 	if pRule == "deny" {
+		return false
+	}
+
+	// An isolated or temporal run may not touch a global temp root outside its
+	// working directory, whatever the user already approved: scratch files
+	// belong to the folder, so this is a hard stop, never a prompt that yes
+	// mode, a session rule or an unattended mission could wave through.
+	if escapes := m.TempEscapePaths(toolName, params); len(escapes) > 0 {
+		m.mu.Lock()
+		m.lastDenialReason = m.tempEscapeReason(escapes)
+		m.mu.Unlock()
 		return false
 	}
 

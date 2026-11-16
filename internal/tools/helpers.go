@@ -107,7 +107,9 @@ func TruncateRawArgs(raw string) string {
 
 func isIgnoredSearchDir(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build", "target", ".vibe-coder":
+	case ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build", "target", ".vibe-coder",
+		// Folder-local scratch and pasted media of isolated/temporal runs.
+		".vibe-tmp", ".vibe-isolated-media":
 		return true
 	default:
 		return false

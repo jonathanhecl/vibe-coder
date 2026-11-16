@@ -40,6 +40,9 @@ type Watcher struct {
 
 var ignoredDirs = map[string]struct{}{
 	".git": {}, "node_modules": {}, "dist": {}, "target": {}, "vendor": {}, "build": {}, ".vibe-coder": {},
+	// Folder-local scratch and pasted media of isolated/temporal runs: they
+	// change constantly and are not project edits.
+	".vibe-tmp": {}, ".vibe-isolated-media": {},
 }
 
 func New(cwd string) *Watcher {

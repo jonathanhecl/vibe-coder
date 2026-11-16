@@ -1,6 +1,8 @@
 package screenshot
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -185,4 +187,28 @@ func TestParseXdotoolMouseLocation(t *testing.T) {
 	if _, _, err := parseXdotoolMouseLocation([]byte("garbage")); err == nil {
 		t.Fatal("expected parse error")
 	}
+}
+
+// A sandboxed run (isolated or temporal) overrides the tmpfs preference: its
+// scratch files must stay inside the working directory, so the folder-local
+// temp dir wins over $XDG_RUNTIME_DIR and the OS temp dir.
+func TestTempImageDirHonorsSandboxOverride(t *testing.T) {
+	local := t.TempDir()
+	t.Setenv("VIBE_SANDBOX_TMPDIR", local)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(local, "runtime"))
+
+	dir, err := tempImageDir()
+	if err != nil {
+		t.Fatalf("tempImageDir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+	if !safetyIsUnder(local, dir) {
+		t.Fatalf("expected the capture dir under %s, got %s", local, dir)
+	}
+}
+
+// safetyIsUnder reports whether target is inside parent.
+func safetyIsUnder(parent, target string) bool {
+	rel, err := filepath.Rel(parent, target)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

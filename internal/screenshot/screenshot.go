@@ -6,7 +6,8 @@
 // ImageMagick import) are preferred. Backends that only write files
 // (spectacle, gnome-screenshot, screencapture) write to a 0600 file inside a
 // fresh 0700 directory from os.MkdirTemp under $XDG_RUNTIME_DIR (tmpfs, so
-// it stays in RAM) falling back to os.TempDir(); the directory is removed
+// it stays in RAM) falling back to os.TempDir(); a sandboxed run (isolated or
+// temporal) uses its folder-local temp dir instead. The directory is removed
 // right after the bytes are read.
 package screenshot
 
@@ -21,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 
 	_ "image/png" // register the PNG decoder for capture backends
 )
@@ -126,9 +129,14 @@ func decodePNG(data []byte) (image.Image, error) {
 }
 
 // tempImageDir returns a fresh 0700 directory for file-only backends,
-// preferably on tmpfs ($XDG_RUNTIME_DIR) so pixels never reach disk.
+// preferably on tmpfs ($XDG_RUNTIME_DIR) so pixels never reach disk. A
+// sandboxed run (isolated or temporal) overrides both: its scratch files must
+// stay inside the working directory, so the folder-local temp dir wins.
 func tempImageDir() (string, error) {
-	base := os.Getenv("XDG_RUNTIME_DIR")
+	base := config.SandboxTempDir()
+	if base == "" {
+		base = os.Getenv("XDG_RUNTIME_DIR")
+	}
 	if base == "" {
 		base = os.TempDir()
 	}

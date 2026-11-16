@@ -42,6 +42,14 @@ func Build(cfg *config.Config) string {
 		parts = append(parts, projectInstr...)
 	}
 
+	// An isolated or temporal run must not leave temporary files on the
+	// machine. The permission layer enforces it, and saying so up front keeps
+	// the agent from planning work that will be refused.
+	if cfg.Sandboxed() {
+		parts = append(parts, "", "# Sandbox",
+			fmt.Sprintf("- Temporary files: this %s run may not write outside %s. Create scratch files, build output, caches and any other temporary data under %s (TMPDIR already points there, so mktemp and most tools land in it). Global temp paths such as /tmp and /var/tmp are blocked by the permission layer.", cfg.Mode(), cfg.Cwd, cfg.LocalTempDir()))
+	}
+
 	if visionLine := visionPromptLine(cfg); visionLine != "" {
 		parts = append(parts, "", "# Vision", visionLine)
 	}

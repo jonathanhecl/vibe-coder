@@ -266,7 +266,7 @@ func readerGravity(words []string, ws string) Gravity {
 // readerPathsReachable reports whether every path a reader names is inside the
 // workspace or in system temp.
 func readerPathsReachable(words []string, ws string) bool {
-	for _, candidate := range extractCandidatePathsFromSubcommand(words) {
+	for _, candidate := range extractCandidatePathsFromSubcommand(words, false) {
 		clean := cleanCandidatePath(candidate, ws)
 		if clean == "" {
 			continue

@@ -1,10 +1,13 @@
 package permissions
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 )
 
 // ToolTargetPath extracts the primary file or directory target path from tool parameters.
@@ -124,27 +127,61 @@ func ToolTargetPaths(toolName string, params map[string]any, ws string) []string
 // ExtractCommandTargetPaths scans a shell command line for arguments, targets, or redirections
 // that point to filesystem paths outside ws (if ws is non-empty) or candidate paths in general.
 func ExtractCommandTargetPaths(command string, ws string) []string {
+	return extractCommandTargetPaths(command, ws, false)
+}
+
+// extractCommandTargetPaths is ExtractCommandTargetPaths with the extra rules a
+// sandboxed run needs: keepInside keeps the paths that land inside the workspace
+// or in system temp (that check only wants the ones that escape), and sandbox
+// also reads `VAR=/path` assignments, which a temp root is reached through
+// (TMPDIR=/tmp/...) but which an ordinary out-of-domain prompt ignores.
+func extractCommandTargetPaths(command string, ws string, sandbox bool) []string {
 	subcmds := tokenizeCommandSubcommands(command)
 	var out []string
 	seen := map[string]struct{}{}
 	for _, words := range subcmds {
-		candidates := extractCandidatePathsFromSubcommand(words)
+		candidates := candidatePathsDeep(words, 0, sandbox)
 		for _, c := range candidates {
 			clean := cleanCandidatePath(c, ws)
 			if clean == "" {
 				continue
 			}
-			if ws != "" && IsPathInsideDomain(ws, clean) {
-				continue
-			}
-			if isAllowedSystemPath(clean, ws) {
-				continue
+			if !sandbox {
+				if ws != "" && IsPathInsideDomain(ws, clean) {
+					continue
+				}
+				if isAllowedSystemPath(clean, ws) {
+					continue
+				}
 			}
 			if _, ok := seen[clean]; !ok {
 				seen[clean] = struct{}{}
 				out = append(out, clean)
 			}
 		}
+	}
+	return out
+}
+
+// candidatePathsDeep extracts the path candidates of one subcommand and then of
+// any shell-runner payload it carries, so `sh -c 'mktemp -d /tmp/x'` is read
+// like the top-level command it really is. Only known runners are unwrapped, so
+// prose passed to another program (a commit message mentioning /tmp) is not
+// mistaken for a command.
+func candidatePathsDeep(words []string, depth int, sandbox bool) []string {
+	out := extractCandidatePathsFromSubcommand(words, sandbox)
+	if depth >= 3 || len(words) == 0 {
+		return out
+	}
+	if _, ok := shellRunners[binName(words[0])]; !ok {
+		return out
+	}
+	payload, err := runnerPayload(binName(words[0]), words[1:])
+	if err != nil || !strings.Contains(payload, " ") {
+		return out
+	}
+	for _, inner := range tokenizeCommandSubcommands(payload) {
+		out = append(out, candidatePathsDeep(inner, depth+1, sandbox)...)
 	}
 	return out
 }
@@ -237,7 +274,7 @@ func tokenizeCommandSubcommands(command string) [][]string {
 	return subcmds
 }
 
-func extractCandidatePathsFromSubcommand(words []string) []string {
+func extractCandidatePathsFromSubcommand(words []string, sandbox bool) []string {
 	if len(words) == 0 {
 		return nil
 	}
@@ -261,6 +298,19 @@ func extractCandidatePathsFromSubcommand(words []string) []string {
 		w = strings.Trim(w, `"'`)
 		if w == "" {
 			continue
+		}
+
+		// VAR=/path assignments (TMPDIR=/tmp, GOCACHE=/var/tmp/x) point a
+		// spawned process at a location just as a redirection does, and they
+		// carry no leading slash to be spotted by hasPathIndicators. Only the
+		// sandbox check reads them: an ordinary out-of-domain prompt on every
+		// GOCACHE or PKG_CONFIG_PATH would be noise.
+		if sandbox {
+			if eq := strings.Index(w, "="); eq > 0 && !strings.HasPrefix(w, "-") && isEnvAssignmentName(w[:eq]) {
+				if val := strings.Trim(w[eq+1:], `"'`); hasPathIndicators(val) {
+					candidates = append(candidates, val)
+				}
+			}
 		}
 
 		if isCD && i > 0 && !strings.HasPrefix(w, "-") {
@@ -338,6 +388,23 @@ func isVirtualDevice(p string) bool {
 		return true
 	}
 	return false
+}
+
+// isEnvAssignmentName reports whether s is shaped like a shell variable name
+// (TMPDIR, GOCACHE, ...), which is what makes `NAME=/path` an assignment rather
+// than a path argument.
+func isEnvAssignmentName(s string) bool {
+	if s == "" || (s[0] >= '0' && s[0] <= '9') {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func hasPathIndicators(p string) bool {
@@ -625,6 +692,55 @@ func (m *Manager) UnapprovedOutDomainPaths(toolName string, params map[string]an
 	return deduplicatePaths(unapproved)
 }
 
+// TempEscapePaths returns the global temp paths a tool targets: paths under a
+// system temp root that live outside the workspace domain. It is a no-op outside
+// a sandboxed run. An isolated or temporal run forbids them outright — its
+// scratch files belong to the working directory (<cwd>/.vibe-tmp) — so Check
+// never prompts for them, not even in yes mode.
+func (m *Manager) TempEscapePaths(toolName string, params map[string]any) []string {
+	if !m.sandboxed || params == nil {
+		return nil
+	}
+	ws := m.WorkspaceDir()
+	var candidates []string
+	if isShellTool(normalizeTool(toolName)) {
+		for _, key := range []string{"workdir", "cwd", "dir"} {
+			if p, ok := params[key].(string); ok && strings.TrimSpace(p) != "" {
+				candidates = append(candidates, strings.TrimSpace(p))
+			}
+		}
+		command := extractCommandParam(toolName, params)
+		candidates = append(candidates, extractCommandTargetPaths(command, ws, true)...)
+	} else {
+		candidates = ToolTargetPaths(toolName, params, ws)
+	}
+	var escapes []string
+	for _, c := range candidates {
+		if m.IsUserProvidedPath(c) {
+			continue
+		}
+		clean := m.canonicalAbsPath(c)
+		if clean == "" || m.IsInsideDomain(clean) {
+			continue
+		}
+		if !isSystemTempDir(filepath.ToSlash(filepath.Clean(clean))) {
+			continue
+		}
+		escapes = append(escapes, clean)
+	}
+	return deduplicatePaths(escapes)
+}
+
+// tempEscapeReason is the denial the model reads when it reaches for a global
+// temp path inside a sandboxed run. The caller holds the manager lock, so it
+// reads workspaceDir directly instead of calling WorkspaceDir.
+func (m *Manager) tempEscapeReason(paths []string) string {
+	dir := filepath.Join(m.workspaceDir, config.LocalTempDirName)
+	return fmt.Sprintf("Blocked: this %s run keeps every temporary file inside its working directory (%s), so global temp paths are forbidden. "+
+		"Do not use %s. Create scratch files under %s instead (for example `mktemp -p %s`) and rerun. %s",
+		m.mode, m.workspaceDir, strings.Join(paths, ", "), dir, dir, DenialGuidance)
+}
+
 func isAllowedSystemPath(p, ws string) bool {
 	cleanP := filepath.ToSlash(filepath.Clean(p))
 	// If ws is itself in a temporary directory (e.g. during unit tests),
@@ -640,13 +756,16 @@ func isAllowedSystemPath(p, ws string) bool {
 
 func isSystemTempDir(cleanSlash string) bool {
 	tempRoots := []string{"/tmp", "/var/tmp"}
+	// The OS temp dir itself counts, whichever way TMPDIR points: a run that
+	// redirected it (an isolated or temporal run, a test harness) still has its
+	// own temp root, and a machine can be configured away from /tmp.
+	if t := os.TempDir(); t != "" {
+		tempRoots = append(tempRoots, filepath.ToSlash(filepath.Clean(t)))
+	}
 	if runtime.GOOS == "darwin" {
 		tempRoots = append(tempRoots, "/private/tmp", "/private/var/tmp")
 	}
 	if runtime.GOOS == "windows" {
-		if t := os.TempDir(); t != "" {
-			tempRoots = append(tempRoots, filepath.ToSlash(filepath.Clean(t)))
-		}
 		if t := os.Getenv("TEMP"); t != "" {
 			tempRoots = append(tempRoots, filepath.ToSlash(filepath.Clean(t)))
 		}
@@ -655,7 +774,10 @@ func isSystemTempDir(cleanSlash string) bool {
 		}
 	}
 	for _, root := range tempRoots {
-		if cleanSlash == root || strings.HasPrefix(cleanSlash, root+"/") {
+		if root == "" || root == "/" {
+			continue
+		}
+		if cleanSlash == root || strings.HasPrefix(cleanSlash, strings.TrimSuffix(root, "/")+"/") {
 			return true
 		}
 	}

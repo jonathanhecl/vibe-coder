@@ -67,6 +67,21 @@ func main() {
 	} else if closer != nil {
 		defer closer.Close()
 	}
+	// A sandboxed run keeps every temporary file inside its working directory:
+	// the folder-local scratch dir becomes TMPDIR for this process and for every
+	// command it spawns, so no global temp root (/tmp, /var/tmp) is written by
+	// accident. It is removed again when the run ends.
+	if localTemp, err := cfg.EnterLocalTemp(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		logger.Infof("local temp dir unavailable: %v", err)
+	} else if localTemp != "" {
+		logger.Infof("local temp dir: %s (TMPDIR redirected)", localTemp)
+		defer func() {
+			if err := cfg.CleanupLocalTemp(); err != nil {
+				logger.Infof("local temp dir cleanup: %v", err)
+			}
+		}()
+	}
 	defer background.DefaultManager().KillAll()
 
 	logger.Infof("vibe %s starting", version.Value)

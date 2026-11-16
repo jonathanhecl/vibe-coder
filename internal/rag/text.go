@@ -10,7 +10,9 @@ import (
 
 func isIgnoredDir(name string) bool {
 	switch name {
-	case ".git", "node_modules", "target", "dist", "vendor", "build", ".vibe-coder":
+	case ".git", "node_modules", "target", "dist", "vendor", "build", ".vibe-coder",
+		// Folder-local scratch and pasted media of isolated/temporal runs.
+		".vibe-tmp", ".vibe-isolated-media":
 		return true
 	default:
 		return false

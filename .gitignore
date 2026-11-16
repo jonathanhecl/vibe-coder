@@ -49,6 +49,7 @@ doc/
 
 # Isolated sessions
 .vibe-isolated*
+.vibe-tmp/
 *.isolated.tmp
 .engram/
 .atl/

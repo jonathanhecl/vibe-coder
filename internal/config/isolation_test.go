@@ -104,6 +104,109 @@ func TestLogPathNilConfig(t *testing.T) {
 	}
 }
 
+// TestLocalTempDirOnlyForSandboxed runs asserts only isolated and temporal runs
+// get a folder-local scratch directory, and a normal run keeps the OS temp dir.
+func TestLocalTempDirOnlyForSandboxedRuns(t *testing.T) {
+	cwd := t.TempDir()
+	want := filepath.Join(cwd, LocalTempDirName)
+	cases := []struct {
+		name      string
+		cfg       *Config
+		want      string
+		sandboxed bool
+	}{
+		{"shared", &Config{Cwd: cwd}, "", false},
+		{"isolated", &Config{Cwd: cwd, Isolated: true}, want, true},
+		{"temporal", &Config{Cwd: cwd, Temporal: true}, want, true},
+		{"no cwd", &Config{Isolated: true}, "", true},
+	}
+	for _, c := range cases {
+		if got := c.cfg.LocalTempDir(); got != c.want {
+			t.Errorf("%s: LocalTempDir() = %q, want %q", c.name, got, c.want)
+		}
+		if got := c.cfg.Sandboxed(); got != c.sandboxed {
+			t.Errorf("%s: Sandboxed() = %t, want %t", c.name, got, c.sandboxed)
+		}
+	}
+	var nilCfg *Config
+	if nilCfg.Sandboxed() || nilCfg.LocalTempDir() != "" || nilCfg.Mode() != "" {
+		t.Error("a nil config must not be sandboxed")
+	}
+	if got := (&Config{Isolated: true}).Mode(); got != "isolated" {
+		t.Errorf("Mode() = %q, want isolated", got)
+	}
+	if got := (&Config{Temporal: true}).Mode(); got != "temporal" {
+		t.Errorf("Mode() = %q, want temporal", got)
+	}
+}
+
+// TestEnterLocalTempRedirectsTempEnv asserts a sandboxed run points TMPDIR, TMP
+// and TEMP at a folder-local directory, so this process and every command it
+// spawns write temporary files inside the working directory instead of /tmp,
+// and that the directory is removed when the run ends.
+func TestEnterLocalTempRedirectsTempEnv(t *testing.T) {
+	cwd := t.TempDir()
+	cfg := &Config{Cwd: cwd, Isolated: true}
+	want := filepath.Join(cwd, LocalTempDirName)
+
+	// Register restoration of the process env this test changes.
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP", sandboxTempEnv} {
+		t.Setenv(key, os.Getenv(key))
+	}
+
+	dir, err := cfg.EnterLocalTemp()
+	if err != nil {
+		t.Fatalf("EnterLocalTemp: %v", err)
+	}
+	if dir != want {
+		t.Fatalf("EnterLocalTemp() = %q, want %q", dir, want)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("local temp dir missing: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("local temp dir mode = %o, want 700", perm)
+	}
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if got := os.Getenv(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if got := os.TempDir(); got != want {
+		t.Errorf("os.TempDir() = %q, want %q", got, want)
+	}
+	if got := SandboxTempDir(); got != want {
+		t.Errorf("SandboxTempDir() = %q, want %q", got, want)
+	}
+
+	if err := cfg.CleanupLocalTemp(); err != nil {
+		t.Fatalf("CleanupLocalTemp: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("local temp dir must be removed on exit, stat err = %v", err)
+	}
+}
+
+// TestEnterLocalTempNoopWhenShared asserts a normal run leaves the user's temp
+// env alone.
+func TestEnterLocalTempNoopWhenShared(t *testing.T) {
+	cwd := t.TempDir()
+	before := os.Getenv("TMPDIR")
+	t.Setenv("TMPDIR", before)
+	cfg := &Config{Cwd: cwd}
+	dir, err := cfg.EnterLocalTemp()
+	if err != nil || dir != "" {
+		t.Fatalf("EnterLocalTemp() = %q, %v; want no-op", dir, err)
+	}
+	if got := os.Getenv("TMPDIR"); got != before {
+		t.Errorf("TMPDIR = %q, want the shared value %q untouched", got, before)
+	}
+	if got := SandboxTempDir(); got != "" {
+		t.Errorf("SandboxTempDir() = %q, want empty outside a sandboxed run", got)
+	}
+}
+
 // TestLoadDetectsFolderIsolatedSession asserts a folder holding an isolated
 // session turns the run isolated and that no user-level directory is created
 // for it, which is what keeps an isolated run fully inside its folder.
