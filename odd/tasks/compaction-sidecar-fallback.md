@@ -15,7 +15,7 @@ Test runner: `go test ./...`
 
 ## Tasks
 
-- [x] T1 session: extract `compactionTargets` and `requestCompactionSummary`, replace the single sidecar attempt with the retry chain — S1–S3
+- [x] T1 `34d2a61` session: extract `compactionTargets` and `requestCompactionSummary`, replace the single sidecar attempt with the retry chain — S1–S3
 - [x] T2 tests: fallback on error, fallback on a blank reply, static note when every model fails, plus a table test for the chain order and dedup — S2–S3
 - [x] T3 docs: README compaction bullet and sidecar section (which also corrects the stale claim that an unset sidecar leaves the static note), CHANGELOG, this record — S4
 
