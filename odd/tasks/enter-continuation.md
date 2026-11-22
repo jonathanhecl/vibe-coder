@@ -41,3 +41,5 @@ L4: Implemented. `go test ./cmd/vibe ./internal/agent ./internal/tools` passes; 
 L5: Review note: continuation is explicit (Enter), not automatic after a hard failure. Pending TODO/mission work flushes after each successful tool; a completed run clears the cursor.
 
 L6: Work unit committed as `5b87426` on `feat/enter-continuation`.
+
+L7: Follow-up guard committed as `5808463`. Native assessment over `261edae..HEAD` returned `medium` risk and `under_budget` (no review due). `go build ./...` passes.
