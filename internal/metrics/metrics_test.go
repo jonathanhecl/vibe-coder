@@ -28,6 +28,27 @@ func TestSummaryAdd(t *testing.T) {
 	}
 }
 
+// TestSummaryMaxMessagesDroppedTracksDeepestCut: the summary reports how many
+// leading messages a request had to drop, so a run where the window cut before
+// compaction is visible in /stats and in vibe-metrics instead of only inside
+// per-request JSONL lines.
+func TestSummaryMaxMessagesDroppedTracksDeepestCut(t *testing.T) {
+	t.Parallel()
+
+	var s Summary
+	s.Add(Entry{MessagesDropped: 0})
+	s.Add(Entry{MessagesDropped: 7})
+	s.Add(Entry{MessagesDropped: 3})
+	if s.MaxMessagesDropped != 7 {
+		t.Fatalf("MaxMessagesDropped=%d, want the deepest cut 7", s.MaxMessagesDropped)
+	}
+
+	got := Summarize([]Entry{{MessagesDropped: 2}, {MessagesDropped: 11}})
+	if got.MaxMessagesDropped != 11 {
+		t.Fatalf("Summarize MaxMessagesDropped=%d, want 11", got.MaxMessagesDropped)
+	}
+}
+
 func TestRecorderWritesJSONLAndSummarizes(t *testing.T) {
 	t.Parallel()
 

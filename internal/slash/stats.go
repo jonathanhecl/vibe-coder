@@ -14,6 +14,13 @@ type statsReporter interface {
 	MetricsPath() string
 }
 
+// contextReporter is the optional slice of the agent runtime that reports live
+// context pressure. It is kept separate from statsReporter so fakes that only
+// expose metrics keep compiling.
+type contextReporter interface {
+	ContextPressure() (used, limit int)
+}
+
 // printStats shows the session's harness metrics summary plus the JSONL file
 // the entries are appended to (or that recording is disabled).
 func printStats(c *Ctx) {
@@ -27,16 +34,16 @@ func writeStats(c *Ctx, st tui.Style) {
 		fmt.Fprintln(c.Out, "No metrics recorded this session.")
 		return
 	}
-	tui.WriteBlock(c.Out, st, "stats", statsRows(reporter))
+	tui.WriteBlock(c.Out, st, "stats", statsRows(c, reporter))
 }
 
 // statsRows renders the metrics summary through the shared row layout, so
 // /stats matches the rest of the command output. Counts drop the unit while
 // timings keep their "ms" suffix, and the optional notes (errors, averages)
 // are the only parts that change color.
-func statsRows(reporter statsReporter) []tui.Row {
+func statsRows(c *Ctx, reporter statsReporter) []tui.Row {
 	summary := reporter.MetricsSummary()
-	rows := make([]tui.Row, 0, 9)
+	rows := make([]tui.Row, 0, 12)
 
 	requests := fmt.Sprintf("%d", summary.Requests)
 	rows = append(rows, tui.Row{
@@ -69,6 +76,32 @@ func statsRows(reporter statsReporter) []tui.Row {
 		rows = append(rows, tui.Row{
 			Label: "Tool results masked",
 			Plain: fmt.Sprintf("%d", summary.ToolResultsMasked),
+		})
+	}
+	// Context pressure is shown live from the agent, not from the metrics
+	// totals: it answers "how full is the window right now" while the turn is
+	// running, which is what decides whether the next request drops history.
+	if pressure, ok := c.Agent.(contextReporter); ok {
+		if used, limit := pressure.ContextPressure(); limit > 0 {
+			fill := fmt.Sprintf("%d%%", used*100/limit)
+			detail := fmt.Sprintf("(%s of %s tokens)", formatTokenCount(used), formatTokenCount(limit))
+			rows = append(rows, tui.Row{
+				Label: "Context fill",
+				Plain: fill + " " + detail,
+				Render: func(st tui.Style) string {
+					return st.BrightWhite(fill) + st.Dim(" "+detail)
+				},
+			})
+		}
+	}
+	if summary.MaxMessagesDropped > 0 {
+		dropped := fmt.Sprintf("%d", summary.MaxMessagesDropped)
+		rows = append(rows, tui.Row{
+			Label: "Messages dropped",
+			Plain: dropped + " (window cut before compaction)",
+			Render: func(st tui.Style) string {
+				return st.BrightWhite(dropped) + st.Red(" (window cut before compaction)")
+			},
 		})
 	}
 	if summary.Compactions > 0 {
@@ -115,6 +148,15 @@ func durationRow(label string, ms int64) tui.Row {
 			return st.BrightWhite(value) + " " + st.Gray("ms")
 		},
 	}
+}
+
+// formatTokenCount renders a token count compactly so the context row fits on
+// one line: plain digits below a thousand, one decimal of thousands above it.
+func formatTokenCount(n int) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
 
 // perRequestNote returns the per-request average of total, or an empty string

@@ -198,21 +198,11 @@ func (a *Agent) compactBestEffort(ctx context.Context) {
 	gen := a.sess.Generation()
 	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, gen))
 	budget := a.computeBudget(a.buildSystemPrompt())
-	pct := a.cfg.Harness.CompactAtPercent
-	if pct <= 0 {
-		pct = 85
-	}
-	// Experimental RAG-for-session-history mode compacts sooner: the raw
-	// older turns are demoted into the in-memory store and recalled on demand,
-	// while only a recent verbatim tail plus a summary stay on the wire.
-	if a.cfg != nil && a.cfg.SessionHistoryRAGEnabled() && pct > 50 {
-		pct = 50
-	}
 	histLimit := 300
-	if a.cfg != nil && a.cfg.SessionHistoryRAGEnabled() {
+	if a.cfg.SessionHistoryRAGEnabled() {
 		histLimit = 120
 	}
-	if a.calibratedTranscriptCost(masked) <= budget.Transcript*pct/100 && len(hist) <= histLimit {
+	if a.calibratedTranscriptCost(masked) <= a.transcriptFullAt(budget.Transcript) && len(hist) <= histLimit {
 		return
 	}
 	keepTailTokens := budget.Transcript * 40 / 100

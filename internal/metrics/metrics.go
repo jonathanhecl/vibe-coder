@@ -50,12 +50,17 @@ type Summary struct {
 	CompletionTokens    int
 	SystemTokensEst     int
 	TranscriptTokensEst int
-	ToolResultsMasked   int
-	Compactions         int
-	Errors              int
-	PromptEvalMS        int64
-	EvalMS              int64
-	WallMS              int64
+	// MaxMessagesDropped is the deepest window cut in the run: how many
+	// leading messages a request had to drop to fit the transcript budget.
+	// Anything above zero means history left the wire without a summary, so
+	// it is the signal that compaction did not fire before the window did.
+	MaxMessagesDropped int
+	ToolResultsMasked  int
+	Compactions        int
+	Errors             int
+	PromptEvalMS       int64
+	EvalMS             int64
+	WallMS             int64
 	// WallP50MS/WallP95MS are wall-time percentiles; they are only computed
 	// by Summarize (Add keeps a running total, so a Recorder summary leaves
 	// them at 0).
@@ -70,6 +75,9 @@ func (s *Summary) Add(e Entry) {
 	s.CompletionTokens += e.CompletionTokens
 	s.SystemTokensEst += e.SystemTokensEst
 	s.TranscriptTokensEst += e.TranscriptTokensEst
+	if e.MessagesDropped > s.MaxMessagesDropped {
+		s.MaxMessagesDropped = e.MessagesDropped
+	}
 	s.ToolResultsMasked += e.ToolResultsMasked
 	s.PromptEvalMS += e.PromptEvalMS
 	s.EvalMS += e.EvalMS

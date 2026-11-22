@@ -261,22 +261,51 @@ func TestStickyWindowStableAcrossAppends(t *testing.T) {
 	}
 }
 
-func TestWindowRecomputeStaysUnderBudget(t *testing.T) {
+// TestMaskedToolTurnsStayUnderWindowLimit pins the post-masking invariant: a
+// long tool-heavy session whose raw outputs are huge still reaches the model
+// whole, because masking brings it under the limit the window shares with
+// compaction. Nothing is dropped, so nothing is forgotten without a summary.
+func TestMaskedToolTurnsStayUnderWindowLimit(t *testing.T) {
 	t.Parallel()
 	ag, sess := newWireTestAgent(t, 16384, 6)
 	sess.AddUser("fill")
 	for i := 0; i < 60; i++ {
 		addNativeToolTurn(sess, strings.Repeat("z", 4000))
 	}
-	msgs, stats := ag.buildOllamaMessages(context.Background(), "SYS")
+	_, stats := ag.buildOllamaMessages(context.Background(), "SYS")
 	budget := ag.computeBudget("SYS")
-	wireTokens := stats.TranscriptTokensEst
-	limit := budget.Transcript * 60 / 100
-	if wireTokens > limit {
-		t.Fatalf("wire transcript %d tokens exceeds 60%% of budget %d (limit %d)", wireTokens, budget.Transcript, limit)
+	// The window is cut at the compaction threshold, never sooner: a smaller
+	// cutoff would drop history that compaction would still have kept, and it
+	// would do so without a summary.
+	limit := ag.transcriptFullAt(budget.Transcript)
+	if stats.TranscriptTokensEst > limit {
+		t.Fatalf("wire transcript %d tokens exceeds the compaction threshold %d (budget %d)", stats.TranscriptTokensEst, limit, budget.Transcript)
 	}
-	if stats.WindowStart <= 0 {
-		t.Fatal("window should have been trimmed")
+	if stats.WindowStart != 0 || stats.MessagesDropped != 0 {
+		t.Fatalf("masked transcript should fit whole: start=%d dropped=%d", stats.WindowStart, stats.MessagesDropped)
+	}
+	if stats.ToolResultsMasked == 0 {
+		t.Fatal("expected old tool results to be masked in this scenario")
+	}
+}
+
+// TestWindowDropsOnlyAboveTheCompactionThreshold covers the safety valve: when
+// prose the masker cannot shrink exceeds the limit, the window still trims and
+// reports how much it dropped.
+func TestWindowDropsOnlyAboveTheCompactionThreshold(t *testing.T) {
+	t.Parallel()
+	ag, sess := newWireTestAgent(t, 16384, 6)
+	limit := ag.transcriptFullAt(ag.computeBudget("SYS").Transcript)
+	per := limit / 4
+	if per < 1 {
+		per = 1
+	}
+	for i := 0; i < 8; i++ {
+		sess.AddUser(strings.Repeat("p", per*4))
+	}
+	msgs, stats := ag.buildOllamaMessages(context.Background(), "SYS")
+	if stats.MessagesDropped == 0 || stats.WindowStart <= 0 {
+		t.Fatalf("expected a trimmed window, got start=%d dropped=%d", stats.WindowStart, stats.MessagesDropped)
 	}
 	if stats.MessagesDropped != stats.WindowStart {
 		t.Fatalf("MessagesDropped=%d want %d", stats.MessagesDropped, stats.WindowStart)

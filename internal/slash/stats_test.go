@@ -20,6 +20,63 @@ type fakeStatsAgent struct {
 func (f *fakeStatsAgent) MetricsSummary() metrics.Summary { return f.summary }
 func (f *fakeStatsAgent) MetricsPath() string             { return f.path }
 
+// fakePressureAgent adds the optional live context pressure /stats reads.
+type fakePressureAgent struct {
+	fakeStatsAgent
+	used  int
+	limit int
+}
+
+func (f *fakePressureAgent) ContextPressure() (int, int) { return f.used, f.limit }
+
+// TestStatsShowsContextPressureAndDroppedMessages pins the two rows that make
+// context pressure visible while it happens: the live fill against the
+// compaction threshold, and the deepest window cut the run took.
+func TestStatsShowsContextPressureAndDroppedMessages(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{Model: "m", ContextWindow: 32768, Cwd: tmp, SessionsDir: tmp}
+	s := session.New(cfg)
+
+	summary := metrics.Summary{Requests: 3, MaxMessagesDropped: 12}
+	out := &bytes.Buffer{}
+	ctx := &Ctx{
+		Cfg:     cfg,
+		Session: s,
+		Agent:   &fakePressureAgent{fakeStatsAgent: fakeStatsAgent{summary: summary}, used: 10_000, limit: 20_000},
+		Out:     out,
+	}
+	if _, _, err := Dispatch(ctx, "/stats"); err != nil {
+		t.Fatalf("/stats: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"Context fill: 50% (10.0k of 20.0k tokens)",
+		"Messages dropped: 12 (window cut before compaction)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("/stats missing %q:\n%s", want, text)
+		}
+	}
+}
+
+// TestStatsOmitsPressureWhenUnknown keeps the rows honest: no window
+// configured and no drops means no rows, not zeros.
+func TestStatsOmitsPressureWhenUnknown(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{Model: "m", ContextWindow: 32768, Cwd: tmp, SessionsDir: tmp}
+	s := session.New(cfg)
+
+	out := &bytes.Buffer{}
+	ctx := &Ctx{Cfg: cfg, Session: s, Agent: &fakePressureAgent{fakeStatsAgent: fakeStatsAgent{}}, Out: out}
+	if _, _, err := Dispatch(ctx, "/stats"); err != nil {
+		t.Fatalf("/stats: %v", err)
+	}
+	text := out.String()
+	if strings.Contains(text, "Context fill") || strings.Contains(text, "Messages dropped") {
+		t.Fatalf("unexpected pressure rows without data:\n%s", text)
+	}
+}
+
 func TestStatsCommandPrintsSummaryAndPath(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{Model: "m", ContextWindow: 32768, Cwd: tmp, SessionsDir: tmp}

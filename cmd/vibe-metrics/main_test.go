@@ -30,6 +30,28 @@ func writeMetrics(t *testing.T, dir, name string, entries ...metrics.Entry) stri
 	return path
 }
 
+// TestDiffReportsWindowDrops pins the row that answers "did the window cut
+// history before compaction could summarize it" in an A/B run.
+func TestDiffReportsWindowDrops(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	cand := t.TempDir()
+	writeMetrics(t, base, "a.jsonl", metrics.Entry{PromptTokens: 100, MessagesDropped: 14})
+	writeMetrics(t, cand, "a.jsonl", metrics.Entry{PromptTokens: 100, MessagesDropped: 0})
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--diff", base, cand}, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d, stderr:\n%s", code, errOut.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "max messages dropped") {
+		t.Fatalf("diff missing the drop row:\n%s", got)
+	}
+	if !strings.Contains(got, "-100.0%") {
+		t.Fatalf("diff should show the drop row going to zero:\n%s", got)
+	}
+}
+
 func TestDiffComparesPerRequestAverages(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()

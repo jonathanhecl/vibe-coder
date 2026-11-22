@@ -46,7 +46,7 @@ func run(args []string, out, errOut io.Writer) int {
 // summarize prints one row per metrics file plus the TOTAL row.
 func summarize(files []string, out, errOut io.Writer) int {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "FILE\tREQ\tERR\tPROMPT\tPROMPT/REQ\tCOMPL\tCOMPL/REQ\tSYS_AVG\tTRANSCRIPT_AVG\tMASKED\tCOMPACT\tWALL_P50\tWALL_P95")
+	fmt.Fprintln(w, "FILE\tREQ\tERR\tPROMPT\tPROMPT/REQ\tCOMPL\tCOMPL/REQ\tSYS_AVG\tTRANSCRIPT_AVG\tMASKED\tDROPPED\tCOMPACT\tWALL_P50\tWALL_P95")
 	all := make([]metrics.Entry, 0, 64)
 	for _, path := range files {
 		entries, err := metrics.ReadFile(path)
@@ -125,6 +125,7 @@ type derived struct {
 	systemAvg     int64
 	transcriptAvg int64
 	masked        int64
+	dropped       int64
 	compactions   int64
 	wallP50       int64
 	wallP95       int64
@@ -137,6 +138,7 @@ func derive(s metrics.Summary) derived {
 		promptTotal:   int64(s.PromptTokens),
 		completionTot: int64(s.CompletionTokens),
 		masked:        int64(s.ToolResultsMasked),
+		dropped:       int64(s.MaxMessagesDropped),
 		compactions:   int64(s.Compactions),
 		wallP50:       s.WallP50MS,
 		wallP95:       s.WallP95MS,
@@ -165,6 +167,7 @@ var diffRows = []struct {
 	{"system avg", func(d derived) int64 { return d.systemAvg }},
 	{"transcript avg", func(d derived) int64 { return d.transcriptAvg }},
 	{"tool results masked", func(d derived) int64 { return d.masked }},
+	{"max messages dropped", func(d derived) int64 { return d.dropped }},
 	{"compactions", func(d derived) int64 { return d.compactions }},
 	{"wall p50 ms", func(d derived) int64 { return d.wallP50 }},
 	{"wall p95 ms", func(d derived) int64 { return d.wallP95 }},
@@ -194,8 +197,8 @@ func percentChange(base, cand int64) string {
 }
 
 func printRow(w *tabwriter.Writer, name string, d derived) {
-	fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+	fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
 		name, d.requests, d.errors, d.promptTotal, d.promptAvg,
 		d.completionTot, d.completionAvg, d.systemAvg, d.transcriptAvg,
-		d.masked, d.compactions, d.wallP50, d.wallP95)
+		d.masked, d.dropped, d.compactions, d.wallP50, d.wallP95)
 }

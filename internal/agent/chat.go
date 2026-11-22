@@ -58,6 +58,10 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	// generation it only moves when the suffix outgrows the transcript
 	// budget, so earlier requests don't reshuffle the visible history.
 	budget := a.computeBudget(systemPrompt)
+	// The window is cut at the same fill point compaction triggers on, so it
+	// only ever trims what compaction already summarized. Cutting sooner
+	// discards history with no summary and no recall.
+	limit := a.transcriptFullAt(budget.Transcript)
 	gen := a.sess.Generation()
 	a.wireMu.Lock()
 	sameGen := a.wire.set && a.wire.gen == gen
@@ -66,10 +70,10 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	masked, _ := maskToolResults(hist, maskBefore)
 	start := -1
 	if sameGen && prevStart >= 0 && prevStart < len(masked) &&
-		a.calibratedTranscriptCost(masked[prevStart:]) <= budget.Transcript {
+		a.calibratedTranscriptCost(masked[prevStart:]) <= limit {
 		start = prevStart
 	} else {
-		start = a.windowStartForBudget(masked, budget.Transcript)
+		start = a.windowStartForBudget(masked, limit)
 	}
 	a.wire.start = start
 	a.wireMu.Unlock()
@@ -130,34 +134,21 @@ func (a *Agent) calibratedTranscriptCost(msgs []session.Message) int {
 	return a.calibrateTokens(transcriptCost(msgs))
 }
 
-func (a *Agent) windowStartForBudget(hist []session.Message, budget int) int {
-	limit := budget * 60 / 100
+// windowStartForBudget walks backward from the newest message accumulating
+// calibrated token cost while the total stays within limitTokens, always
+// including at least the last message. limitTokens is the compaction
+// threshold (transcriptFullAt), never a smaller number: the window is only a
+// safety valve for what compaction cannot fix, such as a single oversized
+// turn or a summary that failed.
+func (a *Agent) windowStartForBudget(hist []session.Message, limitTokens int) int {
+	if limitTokens <= 0 {
+		return 0
+	}
 	start := len(hist) - 1
 	sum := 0
 	for i := len(hist) - 1; i >= 0; i-- {
 		cost := a.calibrateTokens(session.MessageTokenCost(hist[i].Content))
-		if i < len(hist)-1 && sum+cost > limit {
-			break
-		}
-		sum += cost
-		start = i
-	}
-	if start < 0 {
-		start = 0
-	}
-	return start
-}
-
-// windowStartForBudget walks backward from the newest message accumulating
-// token cost while the total stays within 60% of budget, always including at
-// least the last message. It returns the first included index.
-func windowStartForBudget(hist []session.Message, budget int) int {
-	limit := budget * 60 / 100
-	start := len(hist) - 1
-	sum := 0
-	for i := len(hist) - 1; i >= 0; i-- {
-		cost := session.MessageTokenCost(hist[i].Content)
-		if i < len(hist)-1 && sum+cost > limit {
+		if i < len(hist)-1 && sum+cost > limitTokens {
 			break
 		}
 		sum += cost

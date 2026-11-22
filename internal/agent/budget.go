@@ -47,6 +47,53 @@ func (a *Agent) computeBudget(systemPrompt string) contextBudget {
 	return b
 }
 
+// defaultCompactAtPercent mirrors config's default: compact once the masked
+// transcript fills 85% of its budget.
+const defaultCompactAtPercent = 85
+
+// transcriptFullAt is the token count where the transcript counts as full: the
+// configured percentage of the transcript budget. Compaction triggers there
+// and the wire window is cut there, so the model never loses a message the
+// compactor would still have kept. Two different numbers let the cheaper one
+// win, and the cheaper one is always the lossy one: the window drops history
+// without summarizing, while compaction at least leaves a summary behind.
+func (a *Agent) transcriptFullAt(budget int) int {
+	if budget <= 0 {
+		return 0
+	}
+	pct := defaultCompactAtPercent
+	if a != nil && a.cfg != nil {
+		if a.cfg.Harness.CompactAtPercent > 0 {
+			pct = a.cfg.Harness.CompactAtPercent
+		}
+		// Experimental RAG-for-session-history mode compacts sooner: the raw
+		// older turns are demoted into the in-memory store and recalled on
+		// demand, while only a recent verbatim tail plus a summary stay on the
+		// wire.
+		if a.cfg.SessionHistoryRAGEnabled() && pct > 50 {
+			pct = 50
+		}
+	}
+	return budget * pct / 100
+}
+
+// ContextPressure reports the calibrated tokens the masked transcript occupies
+// right now and the point where compaction fires, so /stats can show how full
+// the context is while it happens instead of only in the JSONL afterwards. A
+// zero limit means the budget is unknown (no context window configured).
+func (a *Agent) ContextPressure() (used, limit int) {
+	if a == nil || a.sess == nil || a.cfg == nil {
+		return 0, 0
+	}
+	hist := a.sess.MessagesReadOnly()
+	if len(hist) == 0 {
+		return 0, 0
+	}
+	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, a.sess.Generation()))
+	budget := a.computeBudget(a.buildSystemPrompt())
+	return a.calibratedTranscriptCost(masked), a.transcriptFullAt(budget.Transcript)
+}
+
 func (a *Agent) calibrateTokens(raw int) int {
 	if a == nil || a.sess == nil {
 		return raw
