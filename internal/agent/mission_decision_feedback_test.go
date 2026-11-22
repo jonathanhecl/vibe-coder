@@ -100,6 +100,72 @@ func TestReviewMissionCompletionErrorDoesNotInject(t *testing.T) {
 	}
 }
 
+type recordingMissionDecider struct {
+	stubDecider
+	evidence []string
+}
+
+func (r *recordingMissionDecider) CheckGoalCompletion(ctx context.Context, goal, recentProgress string) (bool, error) {
+	r.evidence = append(r.evidence, recentProgress)
+	return r.stubDecider.CheckGoalCompletion(ctx, goal, recentProgress)
+}
+
+func TestMissionCompletionReviewerSkipsUnchangedEvidence(t *testing.T) {
+	ag, sess := newMissionFeedbackAgent(t, "decision-model")
+	ag.mission.Start("Build the authentication system")
+	rec := &recordingMissionDecider{stubDecider: stubDecider{enabled: true, model: "decision-model", goalDoneResult: false}}
+	ag.SetDecider(rec)
+
+	review := ag.NewMissionCompletionReviewer()
+	ctx := context.Background()
+
+	sess.AddToolObservation("Bash", "CHECK PASSED")
+	done, reviewed, err := review(ctx)
+	if err != nil || done || !reviewed {
+		t.Fatalf("expected done=false reviewed=true err=nil, got done=%t reviewed=%t err=%v", done, reviewed, err)
+	}
+	if len(rec.evidence) != 1 || !strings.Contains(rec.evidence[0], "CHECK PASSED") {
+		t.Fatalf("expected one consultation whose evidence contains the check output, got %v", rec.evidence)
+	}
+
+	// Repeating the same observation dedupes in the summary and a plain user
+	// message (including the injected incomplete reminder) is not evidence:
+	// the verdict must not be requested again while nothing changed.
+	sess.AddToolObservation("Bash", "CHECK PASSED")
+	sess.AddToolResult("Bash", "CHECK PASSED")
+	sess.AddUser("Plain follow-up is not completion evidence")
+	done, reviewed, err = review(ctx)
+	if err != nil || done || reviewed {
+		t.Fatalf("expected done=false reviewed=false err=nil on unchanged evidence, got done=%t reviewed=%t err=%v", done, reviewed, err)
+	}
+	if len(rec.evidence) != 1 {
+		t.Fatalf("expected still one consultation, got %d", len(rec.evidence))
+	}
+
+	sess.AddToolResult("Bash", "NEW CHECK PASSED")
+	done, reviewed, err = review(ctx)
+	if err != nil || done || !reviewed {
+		t.Fatalf("expected done=false reviewed=true err=nil on new evidence, got done=%t reviewed=%t err=%v", done, reviewed, err)
+	}
+	if len(rec.evidence) != 2 {
+		t.Fatalf("expected two consultations, got %d", len(rec.evidence))
+	}
+	if !strings.Contains(rec.evidence[1], "CHECK PASSED") || !strings.Contains(rec.evidence[1], "NEW CHECK PASSED") {
+		t.Fatalf("expected second evidence to include both observations, got %q", rec.evidence[1])
+	}
+
+	// A fresh reviewer (manual resume) consults again even though a previous
+	// reviewer already saw this evidence.
+	resumed := ag.NewMissionCompletionReviewer()
+	done, reviewed, err = resumed(ctx)
+	if err != nil || done || !reviewed {
+		t.Fatalf("expected a new reviewer to re-consult, got done=%t reviewed=%t err=%v", done, reviewed, err)
+	}
+	if len(rec.evidence) != 3 {
+		t.Fatalf("expected three consultations after resume, got %d", len(rec.evidence))
+	}
+}
+
 func TestCheckMissionCompletionDoesNotInjectFeedback(t *testing.T) {
 	ag, sess := newMissionFeedbackAgent(t, "decision-model")
 	ag.mission.Start("Build the authentication system")

@@ -237,8 +237,8 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 						}
 						return a.perm.Check("Bash", map[string]any{"command": strings.Join(quoted, " "), "workdir": a.cfg.Cwd}, a.ui)
 					}
-					if auto := a.autoTest.RunAfterEdit(ctx, edited, approve); strings.TrimSpace(auto) != "" {
-						a.ui.ShowToolResult("AUTO-TEST", auto, true, nil)
+					if auto, failed := a.autoTest.RunAfterEdit(ctx, edited, approve); strings.TrimSpace(auto) != "" {
+						a.ui.ShowToolResult("AUTO-TEST", auto, failed, nil)
 						if !mode.skipSessionRecord {
 							a.recordToolObservation(ctx, "AUTO-TEST", auto, "", false)
 						}

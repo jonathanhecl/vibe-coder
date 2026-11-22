@@ -129,7 +129,8 @@ func TestFormatGoalPrompt(t *testing.T) {
 		"As soon as the checklist is actionable",
 		"Planning is not the deliverable",
 		"ask once instead of continuing to inspect",
-		"do not re-verify unchanged state",
+		"reuse any passing automatic check that covers the required verification",
+		"Do not repeat a passing check unless its inputs changed",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing execution safeguard %q: %s", want, prompt)

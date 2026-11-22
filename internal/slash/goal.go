@@ -49,7 +49,7 @@ Phase 1: Planning, Verification Design & Clarification
 Phase 2: Autonomous Execution & Verification
 Once the plan is established:
 - Work through each step sequentially using tool calls.
-- After every edit or change, run the verification step you defined once. If it passes, move on; do not re-verify unchanged state.
+- After a change, reuse any passing automatic check that covers the required verification. Run only missing checks for the current state. Do not repeat a passing check unless its inputs changed.
 - Do not stop for routine user approvals; the runtime is in unattended mode and will keep driving the mission.
 - Continue until all checklist items are done and verified, then call MissionComplete with a concise summary.
 - If and only if you are completely blocked and cannot proceed without user intervention, call MissionBlocked with the reason.`, goal)

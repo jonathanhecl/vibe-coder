@@ -32,14 +32,18 @@ func (a *AutoTest) Enabled() bool {
 	return len(cmd) > 0
 }
 
-func (a *AutoTest) RunAfterEdit(ctx context.Context, filePath string, approve ...func([]string) bool) string {
+// RunAfterEdit runs the detected test command for an edited file. It returns
+// the report to surface to the model ("" when there is nothing to report) and
+// whether the check failed, so callers can render a passing check differently
+// from an error.
+func (a *AutoTest) RunAfterEdit(ctx context.Context, filePath string, approve ...func([]string) bool) (report string, failed bool) {
 	name, _ := a.detectCached()
 	cmdArgs := a.buildAutoTestCommand(name, filePath)
 	if len(cmdArgs) == 0 {
-		return ""
+		return "", false
 	}
 	if len(approve) > 0 && !approve[0](append([]string(nil), cmdArgs...)) {
-		return "[AUTO-TEST] skipped: command execution was not approved."
+		return "[AUTO-TEST] skipped: command execution was not approved.", false
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -49,13 +53,13 @@ func (a *AutoTest) RunAfterEdit(ctx context.Context, filePath string, approve ..
 	cmd.Env = safety.CleanEnv()
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		return ""
+		return fmt.Sprintf("[AUTO-TEST] passed: %q", cmdArgs), false
 	}
 	output := string(out)
 	if len(output) > 2048 {
 		output = output[len(output)-2048:]
 	}
-	return fmt.Sprintf("[AUTO-TEST] %s failed\n%s", name, strings.TrimSpace(output))
+	return fmt.Sprintf("[AUTO-TEST] %s failed\n%s", name, strings.TrimSpace(output)), true
 }
 
 // detectCached remembers the first positive detection. Runner markers

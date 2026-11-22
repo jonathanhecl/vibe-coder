@@ -18,12 +18,34 @@ func TestAutoTestDetectGo(t *testing.T) {
 	if !a.Enabled() {
 		t.Fatalf("expected autotest enabled for go.mod")
 	}
-	out := a.RunAfterEdit(context.Background(), "x.go")
-	if out != "" {
-		// may fail if no package; just ensure format when failing
-		if !strings.Contains(out, "[AUTO-TEST]") {
-			t.Fatalf("unexpected autotest output: %q", out)
-		}
+	out, failed := a.RunAfterEdit(context.Background(), "x.go")
+	if out != "" || failed {
+		// x.go has no test target, so the check is skipped silently.
+		t.Fatalf("expected blank report for untargeted file, got out=%q failed=%t", out, failed)
+	}
+}
+
+func TestAutoTestRunAfterEditReportsPassed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real subprocess in short mode")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain unavailable")
+	}
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module x\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "x_test.go"), []byte("package x\nimport \"testing\"\nfunc TestX(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatalf("write x_test.go: %v", err)
+	}
+	a := NewAutoTest(tmp)
+	out, failed := a.RunAfterEdit(context.Background(), "x_test.go")
+	if failed {
+		t.Fatalf("expected passing autotest, got failed report: %q", out)
+	}
+	if !strings.Contains(out, "passed:") || !strings.Contains(out, `"go" "test"`) {
+		t.Fatalf("expected passed report quoting the actual argv, got %q", out)
 	}
 }
 

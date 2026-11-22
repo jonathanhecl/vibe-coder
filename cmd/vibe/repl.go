@@ -207,6 +207,9 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 	// A pause already told the user why the mission stopped; reporting the same
 	// error again adds noise, not information.
 	pauseReported := false
+	// The reviewer skips re-consulting the decision model while the evidence of
+	// an incomplete verdict is unchanged; a manual resume builds a fresh one.
+	reviewMissionCompletion := ag.NewMissionCompletionReviewer()
 	for ag.MissionActive() {
 		if ctxErr := rootCtx.Err(); ctxErr != nil {
 			return ctxErr
@@ -275,7 +278,7 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 			idleStreak = 0
 		}
 		if ag.PendingTodoCount() == 0 || idleStreak > 0 {
-			completed, reviewed, checkErr := ag.ReviewMissionCompletion(rootCtx)
+			completed, reviewed, checkErr := reviewMissionCompletion(rootCtx)
 			if checkErr == nil && completed {
 				ag.CompleteMission("Completed (verified by the decision model)")
 				fmt.Fprintln(os.Stdout, "[mission] The decision model verified the goal is accomplished; mission completed.")
