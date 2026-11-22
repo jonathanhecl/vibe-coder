@@ -678,6 +678,14 @@ vibe-metrics ~/.local/state/vibe-coder/metrics/   # whole directory
 
 Each row reports requests, errors, total/average prompt and completion tokens, average system and transcript estimates, masked results, compactions, and wall-time p50/p95, plus a `TOTAL` row.
 
+Comparing two runs takes two files or two directories — the first is the baseline, the second the candidate:
+
+```bash
+vibe-metrics --diff ~/ab/baseline/ ~/ab/candidate/
+```
+
+Every metric gets a row with both values, the absolute delta and the percentage change, followed by each side's file and request counts (per-request averages rather than totals are what make two runs of different length comparable). A zero baseline prints `n/a` instead of an invented percentage, and a group that cannot be read fails the command rather than reporting a delta over fewer files than were named.
+
 ## MCP & Skills Management CLI
 
 `vibe` provides dedicated CLI subcommands to list, add, and remove MCP servers and custom skills.
