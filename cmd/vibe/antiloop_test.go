@@ -72,9 +72,16 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 			// that can stop this turn.
 			content = fakeNoopCall
 		case f.mode == "busy":
-			// A different call every time: real work, so only the per-turn step
-			// budget can end this turn.
-			content = fmt.Sprintf(`<invoke name="Bash">{"command":"echo step-%d"}</invoke>`, n)
+			// A different state-changing call every time: real work, so only the
+			// per-turn step budget can end this turn.
+			content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf x > .busy-%d"}</invoke>`, n)
+		case f.mode == "loop-inspect":
+			if n == 1 {
+				content = fakeMissionStart
+			} else {
+				// Different commands and outputs still perform no concrete work.
+				content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'check %d'"}</invoke>`, n)
+			}
 		default: // loop-tool
 			if n == 1 {
 				content = fakeMissionStart
@@ -105,6 +112,9 @@ func newHTTPTestAgent(t *testing.T, host string) (*agent.Agent, tui.UI) {
 func newHTTPTestAgentWithSession(t *testing.T, host string) (*agent.Agent, tui.UI, *session.Session) {
 	t.Helper()
 	tmp := t.TempDir()
+	// Bash inherits the process working directory, so keep every fixture and
+	// state-changing fake command inside the test's temporary workspace.
+	t.Chdir(tmp)
 	cfg := &config.Config{
 		Model:         "fake:latest",
 		ContextWindow: 4096,
@@ -150,6 +160,30 @@ func TestRunPromptPausesRepeatedToolLoop(t *testing.T) {
 	}
 	if calls := fake.calls.Load(); calls > 12 {
 		t.Fatalf("no-progress guard fired too late: %d chat calls", calls)
+	}
+}
+
+// Different read-only commands evade the identical-call guard, but they still
+// cannot keep an autonomous mission busy for an hour without doing real work.
+func TestRunPromptPausesInspectionOnlyLoop(t *testing.T) {
+	srv, fake := newFakeOllama(t, "loop-inspect")
+	ag, ui := newHTTPTestAgent(t, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := runPrompt(ctx, ag, ui, "continue"); err != nil {
+		t.Fatalf("runPrompt returned an error instead of pausing: %v", err)
+	}
+
+	snap := ag.MissionSnapshot()
+	if snap.Status != tools.MissionStatusBlocked {
+		t.Fatalf("expected mission status %q, got %q", tools.MissionStatusBlocked, snap.Status)
+	}
+	if !strings.Contains(strings.ToLower(snap.Summary), "inspection") {
+		t.Fatalf("pause reason should identify the inspection-only loop, got %q", snap.Summary)
+	}
+	if calls := fake.calls.Load(); calls > 16 {
+		t.Fatalf("inspection guard fired too late: %d chat calls", calls)
 	}
 }
 

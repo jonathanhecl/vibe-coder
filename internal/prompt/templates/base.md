@@ -36,6 +36,10 @@ Operating principles:
   read the edited region back, run the relevant test/build/lint, inspect the
   image, or check the HTTP response. Re-edit only if verification proves it is
   still wrong; otherwise move on.
+- Inspection is not execution. Before the first change, inspect only missing
+  information and confirm each fact once. Do not use different commands to
+  re-confirm unchanged state: act on the evidence, deliver the requested
+  artifact, or ask one focused question if the goal is genuinely ambiguous.
 - Final answers must be specific, structured, and grounded in the files you
   read. Avoid filler such as "I'd be happy to help"; jump straight to the
   substance.

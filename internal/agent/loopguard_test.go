@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -77,12 +78,16 @@ func TestRunResetsTheNoProgressStreakEachTurn(t *testing.T) {
 	ag.noProgress.call = "call from the previous turn"
 	ag.noProgress.output = "output from the previous turn"
 	ag.noProgress.streak = noProgressLimit
+	ag.inspection.streak = inspectionLimit
 
 	if err := ag.Run(context.Background(), "hi"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if ag.noProgress.streak != 0 {
 		t.Fatalf("the new turn inherited a streak of %d", ag.noProgress.streak)
+	}
+	if ag.inspection.streak != 0 {
+		t.Fatalf("the new turn inherited an inspection streak of %d", ag.inspection.streak)
 	}
 }
 
@@ -96,5 +101,89 @@ func TestNoProgressGuardResetsOnChangedOutput(t *testing.T) {
 	}
 	if _, loop := g.observe(call, "changed"); loop {
 		t.Fatal("a changed output must reset the streak")
+	}
+}
+
+// inspectionLoopClient varies both the command and its output. The original
+// identical-call guard cannot see this stall; only the inspection streak can.
+type inspectionLoopClient struct {
+	coverageClient
+}
+
+func (c *inspectionLoopClient) Chat(_ context.Context, req ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	call := c.chatCalls.Add(1)
+	content := fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'check %d'"}</invoke>`, call)
+	for _, m := range req.Messages {
+		if strings.Contains(m.Content, "Stop inspecting") {
+			content = "done: acted on the known evidence"
+			break
+		}
+	}
+	ch := make(chan ollama.Chunk, 1)
+	ch <- ollama.Chunk{Delta: content, Done: true}
+	close(ch)
+	return ch, nil
+}
+
+func TestRunRecoversFromDifferentReadOnlyInspections(t *testing.T) {
+	client := &inspectionLoopClient{}
+	ag := newCoverageAgent(t, client, tui.DecisionAllowOnce, true)
+
+	if err := ag.Run(context.Background(), "produce the artifact"); err != nil {
+		t.Fatalf("Run returned %v, want the turn to recover and finish", err)
+	}
+	if got, want := client.chatCalls.Load(), int32(inspectionLimit+1); got != want {
+		t.Fatalf("chat calls = %d, want %d (inspection limit plus recovery)", got, want)
+	}
+	if !diagnosticsTranscriptHas(ag, "Stop inspecting") {
+		t.Error("the model was not told to stop re-confirming known state")
+	}
+	if !diagnosticsTranscriptHas(ag, "Verify changes after making them") {
+		t.Error("the recovery did not place verification after the state change")
+	}
+	if !diagnosticsTranscriptHas(ag, "done: acted on the known evidence") {
+		t.Error("the recovered answer is missing from the transcript")
+	}
+}
+
+func TestInspectionGuardResetsOnlyOnSuccessfulConcreteAction(t *testing.T) {
+	g := new(inspectionGuard)
+	for i := 0; i < inspectionLimit-1; i++ {
+		if _, loop := g.observe(true, true); loop {
+			t.Fatalf("inspection guard tripped early at %d", i+1)
+		}
+	}
+	if streak, loop := g.observe(false, false); loop || streak != inspectionLimit-1 {
+		t.Fatalf("a failed action changed the streak to %d (loop=%t)", streak, loop)
+	}
+	if streak, loop := g.observe(false, true); loop || streak != 0 {
+		t.Fatalf("a successful concrete action left streak %d (loop=%t)", streak, loop)
+	}
+}
+
+func TestLocalInspectionClassification(t *testing.T) {
+	ag := newCoverageAgent(t, &coverageClient{}, tui.DecisionAllowOnce, true)
+	bash := ag.reg.Get("Bash")
+	for _, command := range []string{"cat captions.txt", "wc -l captions.txt", "printf 'check 1'"} {
+		if !ag.isLocalInspection(bash, map[string]any{"command": command}) {
+			t.Errorf("%q should count as local inspection", command)
+		}
+	}
+	for _, command := range []string{"go test ./...", "printf x > captions.txt"} {
+		if ag.isLocalInspection(bash, map[string]any{"command": command}) {
+			t.Errorf("%q should count as a concrete action, not inspection", command)
+		}
+	}
+	if !ag.isLocalInspection(ag.reg.Get("Read"), map[string]any{"file_path": "captions.txt"}) {
+		t.Fatal("Read should count as local inspection in execution mode")
+	}
+	ag.EnterPlanMode()
+	if ag.isLocalInspection(ag.reg.Get("Read"), map[string]any{"file_path": "captions.txt"}) {
+		t.Fatal("plan mode must not treat its intended reading as an execution stall")
+	}
+	ag.ExitPlanMode()
+	ag.EnterReviewMode()
+	if ag.isLocalInspection(ag.reg.Get("Read"), map[string]any{"file_path": "captions.txt"}) {
+		t.Fatal("review mode must not treat its intended reading as an execution stall")
 	}
 }

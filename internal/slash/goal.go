@@ -40,16 +40,16 @@ func FormatGoalPrompt(goal string) string {
 	return fmt.Sprintf(`[goal] Autonomous goal: %q
 
 Phase 1: Planning, Verification Design & Clarification
-1. Inspect the workspace and analyze what is needed.
+1. Inspect only the information needed to decide the next action. Confirm each fact once; do not re-run equivalent inspections of unchanged state.
 2. Break down the goal into clear, concrete steps using TodoWrite.
 3. For EVERY step, specify how you will corroborate and verify that it is correct (e.g. running tests, linters, verifying build, inspecting file content or command output). Verification is mandatory before considering any step complete.
-4. If you have critical ambiguities, questions, or need architectural decisions from the user, ask now using AskUserQuestion before proceeding.
-5. If requirements are clear, begin executing the first step immediately with tool calls.
+4. If you have critical ambiguities, questions, or need architectural decisions from the user, ask one focused question now using AskUserQuestion before proceeding.
+5. As soon as the checklist is actionable, begin executing the first step immediately with tool calls. Planning is not the deliverable unless the user explicitly requested only a plan; if plan-only versus execution is genuinely unclear, ask once instead of continuing to inspect.
 
 Phase 2: Autonomous Execution & Verification
 Once the plan is established:
 - Work through each step sequentially using tool calls.
-- After every edit or change, run the verification step you defined to confirm it works.
+- After every edit or change, run the verification step you defined once. If it passes, move on; do not re-verify unchanged state.
 - Do not stop for routine user approvals; the runtime is in unattended mode and will keep driving the mission.
 - Continue until all checklist items are done and verified, then call MissionComplete with a concise summary.
 - If and only if you are completely blocked and cannot proceed without user intervention, call MissionBlocked with the reason.`, goal)

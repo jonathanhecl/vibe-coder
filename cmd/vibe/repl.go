@@ -213,10 +213,16 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 		}
 		if err != nil && !agent.IsIterationCapErr(err) && !agent.IsEmptyAssistantResponseErr(err) {
 			if agent.IsNoProgressErr(err) {
-				// The model is repeating the same tool call with identical output.
-				// Pause instead of spinning forever (a mission has no turn limit).
-				ag.BlockActiveMission("The agent repeated the same tool call with identical output; mission paused to avoid an infinite loop.")
-				fmt.Fprintln(os.Stderr, "Mission paused: repeated tool call with no progress. The agent needs your input.")
+				// Pause instead of spinning forever (a mission has no turn limit),
+				// and preserve which kind of stall the user needs to correct.
+				reason := "The agent repeated the same tool call with identical output; mission paused to avoid an infinite loop."
+				message := "Mission paused: repeated tool call with no progress. The agent needs your input."
+				if agent.IsInspectionLoopErr(err) {
+					reason = "The agent kept inspecting unchanged state without taking a concrete action; mission paused to avoid an inspection-only loop."
+					message = "Mission paused: repeated inspection without concrete action. The agent needs your input."
+				}
+				ag.BlockActiveMission(reason)
+				fmt.Fprintln(os.Stderr, message)
 				saveMissionProgress(ag)
 				ag.LogMissionTurn(err)
 				pauseReported = true

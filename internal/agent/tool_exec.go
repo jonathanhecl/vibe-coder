@@ -251,8 +251,35 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if _, loop := a.noProgress.observe(toolCallSignature(toolName, toolParams), toolOutputSignature(result)); loop {
 		return result, toolRan, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
 	}
+	if streak, loop := a.inspection.observe(a.isLocalInspection(tool, toolParams), !result.IsError); loop {
+		return result, toolRan, fmt.Errorf("%w: %d consecutive read-only inspections completed without a state-changing action", ErrInspectionLoop, streak)
+	}
 	return result, toolRan, nil
 }
+
+// isLocalInspection identifies deterministic reads whose repeated use cannot
+// itself complete an execution task. External research, visual analysis and
+// background polling are excluded: their results can change independently of
+// the agent. Plan and review modes are excluded because inspection is their
+// intended work, not a prelude to edits they are not allowed to make.
+func (a *Agent) isLocalInspection(tool tools.Tool, params map[string]any) bool {
+	if a.InPlanMode() || a.InReviewMode() {
+		return false
+	}
+	if tool.Name() == "Bash" {
+		return permissions.IsSafeReadOnlyCommand(asString(params["command"]), a.cfg.Cwd)
+	}
+	if tools.EffectOf(tool) != tools.EffectRead {
+		return false
+	}
+	switch tool.Name() {
+	case "Read", "ReadMany", "Glob", "Grep", "Diagnostics", "GitStatus", "GitDiff":
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map[string]any) {
 	key := pathParamKeyForTool(toolName)
 	if key == "" {

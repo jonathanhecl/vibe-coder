@@ -77,6 +77,8 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 	// The repeated-call budget is per turn: a streak left by an earlier request
 	// must not abort this one on its first identical call.
 	a.noProgress.reset()
+	// The inspection-only budget is also scoped to this turn.
+	a.inspection.reset()
 	// The repeated-answer budget is per turn for the same reason.
 	a.replyRepeat.reset()
 	var resumed *resumeCheckpoint

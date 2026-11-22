@@ -13,14 +13,25 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
-// ErrNoProgress marks a run that kept calling the same tool with byte-for-byte
-// identical output. While a mission is active the runtime has no turn limit, so
-// without this an unproductive loop would spin forever (and burn tokens).
-var ErrNoProgress = errors.New("no progress: repeated identical tool call")
+// ErrNoProgress marks a run whose tool activity stopped producing concrete
+// progress. While a mission is active the runtime has no turn limit, so without
+// this an unproductive loop would spin forever (and burn tokens).
+var ErrNoProgress = errors.New("no progress")
 
-// IsNoProgressErr reports whether err is the repeated-tool-call stop signal.
+// ErrInspectionLoop marks the broader no-progress case where the model keeps
+// using different read-only calls instead of acting on the evidence it has.
+// It wraps ErrNoProgress so callers retain one stop/recovery path for both.
+var ErrInspectionLoop = fmt.Errorf("%w: inspection-only loop", ErrNoProgress)
+
+// IsNoProgressErr reports whether err is a repeated-work stop signal.
 func IsNoProgressErr(err error) bool {
 	return err != nil && errors.Is(err, ErrNoProgress)
+}
+
+// IsInspectionLoopErr reports whether err specifically stopped an
+// inspection-only run rather than an identical call/output repeat.
+func IsInspectionLoopErr(err error) bool {
+	return err != nil && errors.Is(err, ErrInspectionLoop)
 }
 
 // ErrTurnCancelled marks a turn the user interrupted with Ctrl+C. It is a
@@ -93,8 +104,42 @@ func (g *noProgressGuard) reset() {
 	g.call, g.output, g.streak = "", "", 0
 }
 
-// recoverNoProgress turns the repeated-call stop into one more attempt inside the
-// same turn: it clears the streak, tells the model exactly what it repeated and
+// inspectionLimit bounds consecutive successful local inspections without an
+// intervening state-changing action. It is deliberately higher than
+// noProgressLimit: different reads can be legitimate exploration, so only a
+// sustained inspection-only run is considered a stall.
+const inspectionLimit = 12
+
+type inspectionGuard struct {
+	mu     sync.Mutex
+	streak int
+}
+
+// observe records one completed tool call. Successful concrete actions reset
+// the streak; failed calls neither advance nor clear it because they provide
+// neither fresh evidence nor progress.
+func (g *inspectionGuard) observe(inspection, success bool) (int, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !success {
+		return g.streak, false
+	}
+	if !inspection {
+		g.streak = 0
+		return 0, false
+	}
+	g.streak++
+	return g.streak, g.streak >= inspectionLimit
+}
+
+func (g *inspectionGuard) reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.streak = 0
+}
+
+// recoverNoProgress turns a repeated-work stop into one more attempt inside the
+// same turn: it clears the streak, tells the model exactly what stalled and
 // lets the loop ask again, so the next reply is a different request instead of
 // the same dead end. A mission is left alone because the mission loop pauses it
 // with a printed reason; retrying there would only burn tokens.
@@ -105,13 +150,24 @@ func (a *Agent) recoverNoProgress(ctx context.Context, err error, retries *int) 
 	*retries = *retries + 1
 	detail := strings.TrimSpace(strings.TrimPrefix(err.Error(), ErrNoProgress.Error()+":"))
 	a.noProgress.reset()
-	a.ui.ShowToolResult("RECOVERY", "repeated tool call detected; asking the model to change its approach", false, nil)
-	message := "Stop repeating: "
-	if detail != "" {
-		message += strings.TrimSuffix(detail, ".") + ". "
+	a.inspection.reset()
+	if IsInspectionLoopErr(err) {
+		a.ui.ShowToolResult("RECOVERY", "inspection-only loop detected; asking the model to act on the evidence", false, nil)
+		message := "Stop inspecting: "
+		if detail != "" {
+			message += strings.TrimSuffix(detail, ".") + ". "
+		}
+		message += "Use the evidence already gathered and take the next concrete action now: change the artifact, produce the requested deliverable, or ask one focused question if the goal is genuinely ambiguous. Do not inspect again unless you can name a specific new fact that is missing. Verify changes after making them, not by re-confirming the same pre-change state."
+		a.sess.AddRuntimeReminder(message)
+	} else {
+		a.ui.ShowToolResult("RECOVERY", "repeated tool call detected; asking the model to change its approach", false, nil)
+		message := "Stop repeating: "
+		if detail != "" {
+			message += strings.TrimSuffix(detail, ".") + ". "
+		}
+		message += "The same call cannot produce a different result. Change your approach now: re-read the file or the command output, fix the concrete cause, or tell the user in plain text what blocks you."
+		a.sess.AddRuntimeReminder(message)
 	}
-	message += "The same call cannot produce a different result. Change your approach now: re-read the file or the command output, fix the concrete cause, or tell the user in plain text what blocks you."
-	a.sess.AddRuntimeReminder(message)
 	a.compactBestEffort(ctx)
 	return true
 }

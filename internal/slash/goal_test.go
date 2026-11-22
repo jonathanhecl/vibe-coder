@@ -125,6 +125,16 @@ func TestFormatGoalPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "MissionComplete") || !strings.Contains(prompt, "MissionBlocked") {
 		t.Fatalf("prompt missing completion tools: %s", prompt)
 	}
+	for _, want := range []string{
+		"As soon as the checklist is actionable",
+		"Planning is not the deliverable",
+		"ask once instead of continuing to inspect",
+		"do not re-verify unchanged state",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing execution safeguard %q: %s", want, prompt)
+		}
+	}
 }
 
 func TestGoalCommandWhenNoMissionController(t *testing.T) {

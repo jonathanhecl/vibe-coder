@@ -76,6 +76,9 @@ type Agent struct {
 	// noProgress stops a run that keeps repeating the same tool call with
 	// identical output, so an active mission cannot spin forever.
 	noProgress noProgressGuard
+	// inspection stops the broader stall where different read-only commands
+	// keep inspecting state without taking any concrete action.
+	inspection inspectionGuard
 	// replyRepeat stops a turn that keeps restating the same visible answer
 	// while the checklist does not move (the text-only version of the same
 	// stall: no tool call to compare, so noProgressGuard never sees it).
