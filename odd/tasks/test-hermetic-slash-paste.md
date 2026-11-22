@@ -14,7 +14,7 @@ Test runner: `go test ./...`
 
 ## Tasks
 
-- [x] T1 slash: pass an explicit `Cwd` to the manager in `TestNoteUserProvidedPaths_ReachesDecisionModel`, with a comment stating why — S1–S2
+- [x] T1 `fc10280` slash: pass an explicit `Cwd` to the manager in `TestNoteUserProvidedPaths_ReachesDecisionModel`, with a comment stating why — S1–S2
 - [x] T2 verification: run the package test and the compiled binary from two working directories — S3
 - [x] T3 docs: close the finding recorded in `odd/tasks/harness-cli-ab.md` (L2), this record — S3
 
