@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -253,6 +254,7 @@ func TestCompactFallsBackToMainModelWhenSidecarUnset(t *testing.T) {
 
 type capturingSidecarClient struct {
 	summary string
+	err     error
 	onChat  func(ollama.ChatRequest)
 }
 
@@ -270,6 +272,9 @@ func (c capturingSidecarClient) Chat(context.Context, ollama.ChatRequest) (<-cha
 func (c capturingSidecarClient) ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.ChatResponse, error) {
 	if c.onChat != nil {
 		c.onChat(req)
+	}
+	if c.err != nil {
+		return ollama.ChatResponse{}, c.err
 	}
 	return ollama.ChatResponse{Content: c.summary}, nil
 }
@@ -515,6 +520,149 @@ func TestCompactUsesDedicatedSidecarClientWhenSet(t *testing.T) {
 	}
 	if !sideCalled || mainCalled {
 		t.Fatalf("expected dedicated sidecar client to run compaction: sideCalled=%t mainCalled=%t", sideCalled, mainCalled)
+	}
+}
+
+// TestCompactFallsBackToMainWhenSidecarFails verifies a sidecar that cannot be
+// reached costs one failed request, not the summary: the main model retries the
+// same compaction.
+func TestCompactFallsBackToMainWhenSidecarFails(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 32,
+		Model:         "main-model",
+		SidecarModel:  "sidecar-model",
+	}
+	s := New(cfg)
+	mainCalled := false
+	var mainModel string
+	s.SetClient(capturingSidecarClient{
+		summary: "summary from main",
+		onChat: func(req ollama.ChatRequest) {
+			mainCalled = true
+			mainModel = req.Model
+		},
+	})
+	s.SetSidecarClient(capturingSidecarClient{err: errors.New("sidecar unavailable")})
+
+	for i := 0; i < 40; i++ {
+		s.AddUser(strings.Repeat("x", 40))
+	}
+	if err := s.Compact(context.Background(), true); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if !mainCalled {
+		t.Fatal("main model was never asked after the sidecar failed")
+	}
+	if mainModel != "main-model" {
+		t.Fatalf("fallback used model %q, want main-model", mainModel)
+	}
+	msgs := s.Messages()
+	if len(msgs) == 0 || !strings.Contains(msgs[0].Content, "summary from main") {
+		t.Fatalf("expected the main model summary in the transcript, got %#v", msgs)
+	}
+}
+
+// TestCompactFallsBackToMainWhenSidecarReplyIsBlank verifies an empty sidecar
+// reply is treated like a failure instead of becoming the summary.
+func TestCompactFallsBackToMainWhenSidecarReplyIsBlank(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 32,
+		Model:         "main-model",
+		SidecarModel:  "sidecar-model",
+	}
+	s := New(cfg)
+	mainCalled := false
+	s.SetClient(capturingSidecarClient{
+		summary: "summary from main",
+		onChat:  func(ollama.ChatRequest) { mainCalled = true },
+	})
+	s.SetSidecarClient(capturingSidecarClient{summary: "   "})
+
+	for i := 0; i < 40; i++ {
+		s.AddUser(strings.Repeat("x", 40))
+	}
+	if err := s.Compact(context.Background(), true); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if !mainCalled {
+		t.Fatal("blank sidecar reply should fall back to the main model")
+	}
+	msgs := s.Messages()
+	if len(msgs) == 0 || !strings.Contains(msgs[0].Content, "summary from main") {
+		t.Fatalf("expected the main model summary in the transcript, got %#v", msgs)
+	}
+}
+
+// TestCompactKeepsStaticNoteWhenEveryModelFails verifies the last-resort
+// behaviour is unchanged: compaction still finishes, with a note that says the
+// history was truncated.
+func TestCompactKeepsStaticNoteWhenEveryModelFails(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 32,
+		Model:         "main-model",
+		SidecarModel:  "sidecar-model",
+	}
+	s := New(cfg)
+	s.SetClient(capturingSidecarClient{err: errors.New("main down")})
+	s.SetSidecarClient(capturingSidecarClient{err: errors.New("sidecar down")})
+
+	for i := 0; i < 40; i++ {
+		s.AddUser(strings.Repeat("x", 40))
+	}
+	if err := s.Compact(context.Background(), true); err != nil {
+		t.Fatalf("Compact must not fail when every summarizer is down: %v", err)
+	}
+	msgs := s.Messages()
+	if len(msgs) == 0 || !strings.Contains(msgs[0].Content, "truncated to stay within context limits") {
+		t.Fatalf("expected the truncation note, got %#v", msgs)
+	}
+}
+
+// TestCompactionTargetsOrderAndDedup pins the fallback chain: sidecar first,
+// main model second, and no second attempt at the same model name.
+func TestCompactionTargetsOrderAndDedup(t *testing.T) {
+	t.Parallel()
+	mainClient := capturingSidecarClient{summary: "m"}
+	sideClient := capturingSidecarClient{summary: "s"}
+	cases := []struct {
+		name string
+		cfg  *config.Config
+		want []string
+	}{
+		{"main only without a sidecar", &config.Config{Model: "main"}, []string{"main"}},
+		{"sidecar then main", &config.Config{Model: "main", SidecarModel: "side"}, []string{"side", "main"}},
+		{"repeated model name is not retried", &config.Config{Model: "same", SidecarModel: "same"}, []string{"same"}},
+		{"blank main model is skipped", &config.Config{Model: " ", SidecarModel: "side"}, []string{"side"}},
+		{"sidecar disabled by config", &config.Config{Model: "main", SidecarModel: "side", SidecarDisabled: true}, []string{"main"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			targets := compactionTargets(tc.cfg, mainClient, sideClient)
+			got := make([]string, 0, len(targets))
+			for _, target := range targets {
+				got = append(got, target.model)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("targets = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("targets = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+	if got := compactionTargets(nil, mainClient, sideClient); got != nil {
+		t.Fatalf("nil config should yield no targets, got %v", got)
 	}
 }
 

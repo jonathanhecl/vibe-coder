@@ -101,59 +101,15 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	s.ensureMemory().demote(ctx, demoteTexts(old))
 
 	var summary string
-	compactClient := client
-	if cfg.SidecarInUse() && sideClient != nil {
-		compactClient = sideClient
-	}
-	if compactClient != nil {
-		model := ""
-		if cfg.SidecarInUse() {
-			model = cfg.SidecarModel
-		} else if strings.TrimSpace(cfg.Model) != "" {
-			model = cfg.Model
+	for _, target := range compactionTargets(cfg, client, sideClient) {
+		summary = requestCompactionSummary(ctx, old, cfg, target)
+		if strings.TrimSpace(summary) != "" {
+			break
 		}
-		if model != "" {
-			compactCtx, cancel := context.WithTimeout(ctx, compactionTimeout)
-			// Compaction runs on the sidecar when it is in use, otherwise on the
-			// main model; keep_alive follows whichever model actually runs it.
-			keepAlive := cfg.KeepAliveFor(config.RoleMain)
-			if cfg.SidecarInUse() {
-				keepAlive = cfg.KeepAliveFor(config.RoleSidecar)
-			}
-			systemPrompt := prompt.Render("compaction_summary", nil)
-			// Size num_ctx and the rendered input to the context window:
-			// without num_ctx Ollama applies its own default (often 4096)
-			// and silently truncates the transcript being summarized.
-			capTokens := ollama.NumCtxCap(cfg.ContextWindow)
-			maxChars := (capTokens - 1024 - 512 - len(systemPrompt)/3) * 3
-			if maxChars > compactionSummaryMaxChars {
-				maxChars = compactionSummaryMaxChars
-			}
-			if maxChars < compactionSummaryMinChars {
-				maxChars = compactionSummaryMinChars
-			}
-			userPrompt := renderMessagesForSummary(old, maxChars)
-			resp, err := compactClient.ChatSync(compactCtx, ollama.ChatRequest{
-				Model: model,
-				Messages: []ollama.Message{
-					// The compaction prompt is a compile-time template: it tells the
-					// sidecar to preserve the task, decisions, file paths, TODO state,
-					// and what remains to do.
-					{Role: "system", Content: systemPrompt},
-					{Role: "user", Content: userPrompt},
-				},
-				Stream:    false,
-				Think:     ollama.ResolveThinkSetting("", true, false, false),
-				KeepAlive: keepAlive,
-				Options: ollama.ChatOptions{
-					NumPredict: 1024,
-					NumCtx:     ollama.NumCtxFor(len(systemPrompt)+len(userPrompt), 1024, capTokens),
-				},
-			})
-			cancel()
-			if err == nil && strings.TrimSpace(resp.Content) != "" {
-				summary = resp.Content
-			}
+		// A cancelled or expired parent context means the run is winding down:
+		// the next model would only spend the same budget again.
+		if ctx.Err() != nil {
+			break
 		}
 	}
 	if summary == "" {
@@ -202,6 +158,95 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	s.revision++
 	s.generation++
 	return nil
+}
+
+// compactionTarget is one model that may summarize the region being cut.
+type compactionTarget struct {
+	client    ollama.Client
+	model     string
+	keepAlive int
+}
+
+// compactionTargets lists the models that may summarize, in the order they are
+// tried: the sidecar when it is in use, then the main model. The main model is
+// in the list so a sidecar that is unloaded, unreachable or misconfigured costs
+// one failed request instead of the summary itself. It is skipped when its
+// model name repeats the sidecar's (retrying the same model would ask the same
+// question twice) or when its client or model name is missing, so a setup
+// without a sidecar still makes exactly one attempt.
+func compactionTargets(cfg *config.Config, main, side ollama.Client) []compactionTarget {
+	if cfg == nil {
+		return nil
+	}
+	targets := make([]compactionTarget, 0, 2)
+	if cfg.SidecarInUse() && strings.TrimSpace(cfg.SidecarModel) != "" {
+		// Without a dedicated sidecar client the main one serves the sidecar
+		// model: the model name alone decides which endpoint answers.
+		sidecarClient := side
+		if sidecarClient == nil {
+			sidecarClient = main
+		}
+		if sidecarClient != nil {
+			targets = append(targets, compactionTarget{
+				client:    sidecarClient,
+				model:     cfg.SidecarModel,
+				keepAlive: cfg.KeepAliveFor(config.RoleSidecar),
+			})
+		}
+	}
+	if main != nil && strings.TrimSpace(cfg.Model) != "" {
+		if len(targets) == 0 || targets[0].model != cfg.Model {
+			targets = append(targets, compactionTarget{
+				client:    main,
+				model:     cfg.Model,
+				keepAlive: cfg.KeepAliveFor(config.RoleMain),
+			})
+		}
+	}
+	return targets
+}
+
+// requestCompactionSummary asks one target to summarize the compacted region.
+// It returns an empty string when the request fails or the reply is blank,
+// which is how the caller learns to try the next target. Keep_alive follows
+// whichever model actually runs the compaction.
+func requestCompactionSummary(ctx context.Context, old []Message, cfg *config.Config, target compactionTarget) string {
+	compactCtx, cancel := context.WithTimeout(ctx, compactionTimeout)
+	defer cancel()
+	systemPrompt := prompt.Render("compaction_summary", nil)
+	// Size num_ctx and the rendered input to the context window: without
+	// num_ctx Ollama applies its own default (often 4096) and silently
+	// truncates the transcript being summarized.
+	capTokens := ollama.NumCtxCap(cfg.ContextWindow)
+	maxChars := (capTokens - 1024 - 512 - len(systemPrompt)/3) * 3
+	if maxChars > compactionSummaryMaxChars {
+		maxChars = compactionSummaryMaxChars
+	}
+	if maxChars < compactionSummaryMinChars {
+		maxChars = compactionSummaryMinChars
+	}
+	userPrompt := renderMessagesForSummary(old, maxChars)
+	resp, err := target.client.ChatSync(compactCtx, ollama.ChatRequest{
+		Model: target.model,
+		Messages: []ollama.Message{
+			// The compaction prompt is a compile-time template: it tells the
+			// summarizer to preserve the task, decisions, file paths, TODO state,
+			// and what remains to do.
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Stream:    false,
+		Think:     ollama.ResolveThinkSetting("", true, false, false),
+		KeepAlive: target.keepAlive,
+		Options: ollama.ChatOptions{
+			NumPredict: 1024,
+			NumCtx:     ollama.NumCtxFor(len(systemPrompt)+len(userPrompt), 1024, capTokens),
+		},
+	})
+	if err != nil {
+		return ""
+	}
+	return resp.Content
 }
 
 // normalizeKeptMessages converts any role:"tool" message that lost its
