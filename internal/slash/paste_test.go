@@ -171,7 +171,16 @@ func (s *spyDecisionMaker) AskSafetyWithContext(_ context.Context, _, _, note st
 // mode forwards it as context when the agent inspects that file.
 func TestNoteUserProvidedPaths_ReachesDecisionModel(t *testing.T) {
 	spy := &spyDecisionMaker{}
-	perm := permissions.NewManager(&config.Config{YesMode: false, DecisionModel: "decision-model", AssistedYes: true})
+	// The workspace must be explicit: without Cwd the manager falls back to
+	// os.Getwd(), so whether a pasted temp path counts as outside the domain —
+	// and therefore reaches the safety decider instead of short-circuiting as a
+	// read — would depend on where the checkout lives.
+	perm := permissions.NewManager(&config.Config{
+		Cwd:           t.TempDir(),
+		YesMode:       false,
+		DecisionModel: "decision-model",
+		AssistedYes:   true,
+	})
 	perm.SetSafetyDecider(spy)
 
 	img := filepath.Join(t.TempDir(), "vibe_clipboard_555.png")
