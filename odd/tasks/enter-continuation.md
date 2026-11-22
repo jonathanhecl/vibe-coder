@@ -26,7 +26,7 @@ S8. Continuation is explicit: a cancelled, blocked-by-policy, or hard-failed tur
 
 - [x] T1: Add checkpoint capture/restore and `CanResume`/`RunContinuation` agent APIs. Specs: S1, S4, S5, S6, S8. Evidence: `internal/agent/resume.go`, `internal/agent/workstate.go`, `internal/tools/mission.go`; tests `TestWorkStatePersistsResumeCheckpoint`, `TestRunContinuationAddsNoUserMessageAndCarriesCheckpoint`, `TestRunContinuationReactivatesBlockedMission`, `TestRunContinuationWithoutTranscriptCarriesCheckpoint`, `TestIterationCapWithoutChecklistLeavesResumeCursor`.
 - [x] T2: Wire empty Enter in the REPL to the mission-aware continuation path. Specs: S1, S2, S3, S6. Evidence: `cmd/vibe/repl.go` (`runInteractiveREPL`, `runContinuationPrompt`, `runContinuationWithRetry`); test `TestContinuationPromptStoresNoEmptyUserMessage`.
-- [x] T3: Update stop messages, tests, README, and CHANGELOG. Specs: S7. Evidence: README durable-state and mission sections, CHANGELOG Unreleased Added, updated stop/pending text and assertions. Commit: pending.
+- [x] T3: Update stop messages, tests, README, and CHANGELOG. Specs: S7. Evidence: README durable-state and mission sections, CHANGELOG Unreleased Added, updated stop/pending text and assertions. Commit: `5b87426`.
 
 ## Log
 
@@ -39,3 +39,5 @@ L3: Implementation started on `feat/enter-continuation`. Test-first path chosen 
 L4: Implemented. `go test ./cmd/vibe ./internal/agent ./internal/tools` passes; `go test $(go list ./... | grep -v '/internal/slash$')` passes; `go vet ./...` passes; `go test -race ./internal/agent -run 'Continuation|Resume|WorkState'` passes. `go test ./...` still fails in pre-existing `internal/slash` `TestNoteUserProvidedPaths_ReachesDecisionModel` (the same test fails on a clean `HEAD` worktree), so it is recorded as an environmental baseline failure, not caused by this change.
 
 L5: Review note: continuation is explicit (Enter), not automatic after a hard failure. Pending TODO/mission work flushes after each successful tool; a completed run clears the cursor.
+
+L6: Work unit committed as `5b87426` on `feat/enter-continuation`.
