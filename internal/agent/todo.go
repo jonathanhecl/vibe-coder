@@ -93,6 +93,9 @@ func (a *Agent) nextPendingTodo() string {
 
 func (a *Agent) todoWriteTool() *tools.TodoWriteTool {
 	// Tests may use partial registries, so missing or replaced TodoWrite is valid.
+	if a == nil || a.reg == nil {
+		return nil
+	}
 	tw, _ := a.reg.Get("TodoWrite").(*tools.TodoWriteTool)
 	return tw
 }
