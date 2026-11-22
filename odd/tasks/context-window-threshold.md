@@ -15,9 +15,9 @@ Test runner: `go test ./...`
 
 ## Tasks
 
-- [x] T1 agent: add `transcriptFullAt`, use it in `compactBestEffort` and `buildOllamaMessages`, delete the duplicated package-level window helper, and expose `ContextPressure` — S1, S2
-- [x] T2 observability: `MaxMessagesDropped` in the summary, context/pressure rows in `/stats`, `DROPPED` column and diff row in `vibe-metrics` — S3, S4
-- [x] T3 docs and evidence: README sections that described the 60% window and the 70% trigger, CHANGELOG, this record — S1, S3
+- [x] T1 agent: add `transcriptFullAt`, use it in `compactBestEffort` and `buildOllamaMessages`, delete the duplicated package-level window helper, and expose `ContextPressure` — S1, S2 (`a23a47a`)
+- [x] T2 observability: `MaxMessagesDropped` in the summary, context/pressure rows in `/stats`, `DROPPED` column and diff row in `vibe-metrics` — S3, S4 (`a23a47a`)
+- [x] T3 docs and evidence: README sections that described the 60% window and the 70% trigger, CHANGELOG, this record — S1, S3 (`a23a47a`)
 
 ## Log
 
