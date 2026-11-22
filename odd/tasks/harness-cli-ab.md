@@ -16,8 +16,8 @@ Test runner: `go test ./...`
 ## Tasks
 
 - [x] T1 config: register the three harness flags, apply them in `applyCLI`, move `Harness.normalize()` after the CLI and cover precedence plus clamping with `Load`-level tests — S1, S2 — `095d701`
-- [x] T2 metrics CLI: add `--diff` with `run`/`derive`/`diffRows`, percent-change handling for a zero baseline, fail-closed group loading and tests for both modes — S3, S4 — `937debe`
-- [x] T3 docs: README flag list, harness-tunables precedence line, `--diff` section; CHANGELOG entry; this task record — S1, S3 — `095d701`, `937debe`
+- [x] T2 metrics CLI: add `--diff` with `run`/`derive`/`diffRows`, percent-change handling for a zero baseline, fail-closed group loading and tests for both modes — S3, S4 — `0f1d770`
+- [x] T3 docs: README flag list, harness-tunables precedence line, `--diff` section; CHANGELOG entry; this task record — S1, S3 — `095d701`, `0f1d770`
 
 ## Log
 
