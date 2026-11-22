@@ -619,6 +619,9 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 - `--max-tokens <n>` — max generated tokens
 - `--temperature <f>` — sampling temperature
 - `--context-window <n>` — model context window
+- `--keep-tool-results <n>` — recent tool results kept unmasked in the transcript window (default `6`)
+- `--tool-output-max-tokens <n>` — cap on a single tool result's token size (`0` = auto)
+- `--compact-at-percent <n>` — context-window fill percentage that triggers compaction (default `85`, clamped `50..95`)
 - `--no-think` — disable model thinking (faster replies)
 - `--think <level>` — thinking effort: `off|low|medium|high|max` (default: model default; persisted with `--save` as `THINK`). On an OpenAI-compatible provider `off` is sent as `chat_template_kwargs: {"enable_thinking": false}` and a level as `reasoning_effort` (`max` as `high`); a server that rejects those fields gets one retry without them, remembered per model.
 - `--hide-think` — hide Ollama thinking blocks in CLI output
@@ -631,12 +634,14 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 - `--rag-index <path>` — build/index RAG path and exit
 - `--save` — persist `ROLE_<ROLE>_PROVIDER`/`ROLE_<ROLE>_MODEL`, `PROVIDER_<NAME>_ENDPOINT`/`_KIND`/`_API_KEY`, `ASSISTED_YES`, `HIDE_THINK`, and `THINK` into `vibe-coder.env`
 
-Harness tunables (defaults < config file < env):
+Harness tunables (defaults < config file < env < CLI):
 
-- `KEEP_TOOL_RESULTS=<n>` / `VIBE_CODER_KEEP_TOOL_RESULTS` — how many recent tool results stay unmasked in the transcript window (default `6`; values below `1` fall back to the default)
-- `TOOL_OUTPUT_MAX_TOKENS=<n>` / `VIBE_CODER_TOOL_OUTPUT_MAX_TOKENS` — cap on a single tool result's token size (default `0` = auto; negative values normalize to `0`)
-- `COMPACT_AT_PERCENT=<n>` / `VIBE_CODER_COMPACT_AT_PERCENT` — context-window fill percentage that triggers compaction (default `85`, clamped to `50..95`)
+- `KEEP_TOOL_RESULTS=<n>` / `VIBE_CODER_KEEP_TOOL_RESULTS` / `--keep-tool-results` — how many recent tool results stay unmasked in the transcript window (default `6`; values below `1` fall back to the default)
+- `TOOL_OUTPUT_MAX_TOKENS=<n>` / `VIBE_CODER_TOOL_OUTPUT_MAX_TOKENS` / `--tool-output-max-tokens` — cap on a single tool result's token size (default `0` = auto; negative values normalize to `0`)
+- `COMPACT_AT_PERCENT=<n>` / `VIBE_CODER_COMPACT_AT_PERCENT` / `--compact-at-percent` — context-window fill percentage that triggers compaction (default `85`, clamped to `50..95`)
 - `METRICS_DISABLED=true|false` / `VIBE_CODER_METRICS_DISABLED` — turn off JSONL metrics recording (the in-memory `/stats` summary still updates)
+
+The three numeric tunables are also flags, so an A/B run differs by the command line instead of an exported variable: values are clamped once every source has had its say, exactly like `--lsp-timeout`.
 
 Interactive prompts share one budget. An `AskUserQuestion` card and a permission prompt both wait on the same human, so `VIBE_USER_TIMEOUT` (alias `VIBE_CODER_PERMISSION_TIMEOUT`), `PERMISSION_TIMEOUT` and `--permission-timeout` (default `3m`, `off` waits forever) bound both:
 

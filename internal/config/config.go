@@ -269,11 +269,12 @@ func Load(args []string) (*Config, error) {
 	}
 
 	applyEnv(cfg)
-	cfg.Harness.normalize()
 
 	applyCLI(cfg, cli)
-	// Unlike the harness tunables, these are settable from the CLI, so they are
-	// clamped once every source has had its say.
+	// Every setting is clamped once every source has had its say: the CLI
+	// reaches the harness tunables too, so nothing can bypass the documented
+	// ranges by being typed on the command line.
+	cfg.Harness.normalize()
 	cfg.LSP.normalize()
 	cfg.SkillsDirs = normalizeSkillsDirs(cfg.Cwd, cfg.SkillsDirs)
 
@@ -351,6 +352,9 @@ Flags:
   --context-window int      Model context window
   --keep-alive-main int     Ollama keep_alive (idle seconds) for the main model: -1 pins forever, 0 provider default, N unload after N seconds (default -1)
   --keep-alive-worker int   Ollama keep_alive (idle seconds) for worker roles (sidecar, decision, embedding, vision) (default 300)
+  --keep-tool-results int   Recent tool results kept unmasked in the transcript window (default 6)
+  --tool-output-max-tokens int  Cap on a single tool result's token size (0 = auto)
+  --compact-at-percent int  Context-window fill percentage that triggers compaction (default 85, clamped 50..95)
   --context string          Pin a .md/.txt guide file as persistent session instruction (repeatable)
   --skills-dirs string      Extra directories scanned for skills (path-list separated)
   --rag                     Enable RAG mode

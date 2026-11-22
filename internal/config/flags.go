@@ -40,6 +40,9 @@ type cliOptions struct {
 	contextWindow     optionalInt
 	keepAliveMain     optionalInt
 	keepAliveWorker   optionalInt
+	keepToolResults   optionalInt
+	toolOutputMax     optionalInt
+	compactAtPercent  optionalInt
 	rag               optionalBool
 	ragMode           optionalString
 	ragPath           optionalString
@@ -106,6 +109,9 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.contextWindow, "context-window", "context window")
 	fs.Var(&opts.keepAliveMain, "keep-alive-main", "seconds to keep the main model loaded (-1 pins forever, 0 uses the provider default)")
 	fs.Var(&opts.keepAliveWorker, "keep-alive-worker", "seconds to keep worker models loaded (-1 pins forever, 0 uses the provider default)")
+	fs.Var(&opts.keepToolResults, "keep-tool-results", "recent tool results kept unmasked in the transcript window (default 6)")
+	fs.Var(&opts.toolOutputMax, "tool-output-max-tokens", "cap on a single tool result's token size (0 = auto)")
+	fs.Var(&opts.compactAtPercent, "compact-at-percent", "context-window fill percentage that triggers compaction (default 85, clamped 50..95)")
 	fs.Var(&opts.rag, "rag", "rag mode")
 	fs.Var(&opts.ragMode, "rag-mode", "rag mode type")
 	fs.Var(&opts.ragPath, "rag-path", "rag path")
@@ -236,6 +242,15 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.keepAliveWorker.set {
 		cfg.KeepAliveWorker = cli.keepAliveWorker.value
+	}
+	if cli.keepToolResults.set {
+		cfg.Harness.KeepToolResults = cli.keepToolResults.value
+	}
+	if cli.toolOutputMax.set {
+		cfg.Harness.ToolOutputMaxTokens = cli.toolOutputMax.value
+	}
+	if cli.compactAtPercent.set {
+		cfg.Harness.CompactAtPercent = cli.compactAtPercent.value
 	}
 	if cli.rag.set {
 		cfg.RAG = cli.rag.value

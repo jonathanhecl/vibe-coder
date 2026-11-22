@@ -106,6 +106,65 @@ func TestHarnessClamping(t *testing.T) {
 	}
 }
 
+// TestHarnessCLIBeatsEnvAndFile pins the layer order end to end: the CLI is
+// applied after the file and the environment, and normalization runs after
+// all three, so a value typed on the command line is what the session gets.
+func TestHarnessCLIBeatsEnvAndFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, "vibe-coder.env")
+	content := "KEEP_TOOL_RESULTS=3\nTOOL_OUTPUT_MAX_TOKENS=512\nCOMPACT_AT_PERCENT=70\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VIBE_CODER_CONFIG", path)
+	t.Setenv("VIBE_CODER_KEEP_TOOL_RESULTS", "9")
+
+	cfg, err := Load([]string{
+		"--keep-tool-results", "2",
+		"--tool-output-max-tokens", "1024",
+		"--compact-at-percent", "60",
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Harness.KeepToolResults != 2 {
+		t.Fatalf("CLI should beat env: KeepToolResults = %d", cfg.Harness.KeepToolResults)
+	}
+	if cfg.Harness.ToolOutputMaxTokens != 1024 {
+		t.Fatalf("CLI should beat file: ToolOutputMaxTokens = %d", cfg.Harness.ToolOutputMaxTokens)
+	}
+	if cfg.Harness.CompactAtPercent != 60 {
+		t.Fatalf("CLI should beat file: CompactAtPercent = %d", cfg.Harness.CompactAtPercent)
+	}
+}
+
+// TestHarnessCLIValuesAreClamped checks that reaching the tunables from the
+// CLI did not create a path around the documented ranges.
+func TestHarnessCLIValuesAreClamped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("VIBE_CODER_CONFIG", filepath.Join(home, "vibe-coder.env"))
+
+	cfg, err := Load([]string{
+		"--keep-tool-results", "0",
+		"--tool-output-max-tokens", "-5",
+		"--compact-at-percent", "99",
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Harness.KeepToolResults != defaultKeepToolResults {
+		t.Fatalf("KeepToolResults below 1 should fall back to %d, got %d", defaultKeepToolResults, cfg.Harness.KeepToolResults)
+	}
+	if cfg.Harness.ToolOutputMaxTokens != 0 {
+		t.Fatalf("negative ToolOutputMaxTokens should clamp to 0, got %d", cfg.Harness.ToolOutputMaxTokens)
+	}
+	if cfg.Harness.CompactAtPercent != maxCompactAtPercent {
+		t.Fatalf("CompactAtPercent above range should clamp to %d, got %d", maxCompactAtPercent, cfg.Harness.CompactAtPercent)
+	}
+}
+
 func TestSkillsDirsFromFileEnvAndFlag(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vibe-coder.env")
