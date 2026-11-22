@@ -85,13 +85,47 @@ type ChatOptions struct {
 	Temperature float64 `json:"temperature"`
 }
 
+// ResponseFormat requests structured output (JSON mode or JSON Schema) from a
+// model backend. When Schema is non-empty, Ollama serializes it directly as the
+// JSON Schema object under "format", while OpenAI-compatible backends translate
+// it to response_format={"type":"json_schema",...}. When Schema is empty,
+// Ollama serializes "json" and OpenAI-compatible backends translate it to
+// response_format={"type":"json_object"}.
+type ResponseFormat struct {
+	Name   string
+	Schema map[string]any
+}
+
+func (f ResponseFormat) MarshalJSON() ([]byte, error) {
+	if len(f.Schema) > 0 {
+		return json.Marshal(f.Schema)
+	}
+	return json.Marshal("json")
+}
+
+func (f *ResponseFormat) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		f.Name = ""
+		f.Schema = nil
+		return nil
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return fmt.Errorf("format must be \"json\" or a JSON Schema object: %w", err)
+	}
+	f.Schema = schema
+	return nil
+}
+
 type ChatRequest struct {
-	Model    string        `json:"model"`
-	Messages []Message     `json:"messages"`
-	Stream   bool          `json:"stream"`
-	Think    *ThinkSetting `json:"think,omitempty"`
-	Tools    []ChatTool    `json:"tools,omitempty"`
-	Options  ChatOptions   `json:"options"`
+	Model    string          `json:"model"`
+	Messages []Message       `json:"messages"`
+	Stream   bool            `json:"stream"`
+	Think    *ThinkSetting   `json:"think,omitempty"`
+	Tools    []ChatTool      `json:"tools,omitempty"`
+	Format   *ResponseFormat `json:"format,omitempty"`
+	Options  ChatOptions     `json:"options"`
 	// KeepAlive is the idle window before the provider unloads the model.
 	// It is omitted when zero so the provider applies its own default
 	// (Ollama: 5 minutes); -1 pins the model forever and N > 0 unloads it
@@ -151,16 +185,24 @@ func (f *MessageToolCallFunction) UnmarshalJSON(data []byte) error {
 	}
 	var encoded string
 	if err := json.Unmarshal(raw.Arguments, &encoded); err != nil {
-		return fmt.Errorf("tool call arguments must be an object or JSON-encoded string: %s", string(raw.Arguments))
+		f.Arguments = map[string]any{
+			ParseErrorKey: fmt.Sprintf("tool call arguments must be an object or JSON-encoded string: %s", string(raw.Arguments)),
+			RawArgsKey:    string(raw.Arguments),
+		}
+		return nil
 	}
 	trimmed := strings.TrimSpace(encoded)
 	if trimmed == "" || trimmed == "null" {
 		f.Arguments = nil
 		return nil
 	}
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
-		return fmt.Errorf("tool call stringified arguments are not a JSON object: %q", encoded)
+	decoded, err := ParseToolArguments(trimmed)
+	if err != nil {
+		f.Arguments = map[string]any{
+			ParseErrorKey: err.Error(),
+			RawArgsKey:    encoded,
+		}
+		return nil
 	}
 	f.Arguments = decoded
 	return nil

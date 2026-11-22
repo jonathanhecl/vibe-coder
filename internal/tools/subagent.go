@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -413,8 +412,8 @@ func parseSubAgentInvokes(reply string, maxCalls int) []subAgentCall {
 		if !ok {
 			continue
 		}
-		params := map[string]any{}
-		if err := json.Unmarshal([]byte(body), &params); err != nil {
+		params, err := ollama.ParseToolArguments(body)
+		if err != nil {
 			continue
 		}
 		out = append(out, subAgentCall{name: name, params: params})

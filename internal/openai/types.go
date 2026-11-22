@@ -15,8 +15,22 @@ type chatCompletionRequest struct {
 	Temperature        *float64            `json:"temperature,omitempty"`
 	MaxTokens          *int                `json:"max_tokens,omitempty"`
 	Tools              []chatTool          `json:"tools,omitempty"`
+	ResponseFormat     *chatResponseFormat `json:"response_format,omitempty"`
 	ReasoningEffort    string              `json:"reasoning_effort,omitempty"`
 	ChatTemplateKwargs *chatTemplateKwargs `json:"chat_template_kwargs,omitempty"`
+}
+
+// chatResponseFormat requests constrained JSON or JSON Schema decoding on
+// OpenAI-compatible servers (vLLM, llama.cpp, omlx, LM Studio, etc.).
+type chatResponseFormat struct {
+	Type       string          `json:"type"`
+	JSONSchema *chatJSONSchema `json:"json_schema,omitempty"`
+}
+
+type chatJSONSchema struct {
+	Name   string         `json:"name"`
+	Strict bool           `json:"strict,omitempty"`
+	Schema map[string]any `json:"schema"`
 }
 
 // chatTemplateKwargs carries the switches a chat template exposes to an

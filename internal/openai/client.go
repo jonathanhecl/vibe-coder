@@ -59,6 +59,12 @@ type Client struct {
 	// fields (reasoning_effort, chat_template_kwargs), so later turns send
 	// neither instead of paying the 400 round trip again.
 	reasoningUnsupported map[string]bool
+	// jsonSchemaUnsupported remembers models/endpoints that rejected
+	// response_format.type="json_schema", downgrading them to "json_object".
+	jsonSchemaUnsupported map[string]bool
+	// responseFormatUnsupported remembers models/endpoints that rejected
+	// response_format altogether, omitting it on future calls.
+	responseFormatUnsupported map[string]bool
 }
 
 // New creates an OpenAI-compatible client.
@@ -74,10 +80,12 @@ func New(baseURL string, opts ...Option) *Client {
 		http: &http.Client{
 			Timeout: defaultHTTPTimeout,
 		},
-		toolsDisabledModels:      make(map[string]bool),
-		modelsCache:              make(map[string]modelData),
-		streamOptionsUnsupported: make(map[string]bool),
-		reasoningUnsupported:     make(map[string]bool),
+		toolsDisabledModels:       make(map[string]bool),
+		modelsCache:               make(map[string]modelData),
+		streamOptionsUnsupported:  make(map[string]bool),
+		reasoningUnsupported:      make(map[string]bool),
+		jsonSchemaUnsupported:     make(map[string]bool),
+		responseFormatUnsupported: make(map[string]bool),
 	}
 
 	for _, opt := range opts {
@@ -180,6 +188,79 @@ func dropThinking(wireReq *chatCompletionRequest) {
 	wireReq.ChatTemplateKwargs = nil
 }
 
+func (c *Client) markJSONSchemaUnsupported(model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.jsonSchemaUnsupported == nil {
+		c.jsonSchemaUnsupported = make(map[string]bool)
+	}
+	c.jsonSchemaUnsupported[model] = true
+}
+
+func (c *Client) isJSONSchemaUnsupported(model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.jsonSchemaUnsupported[strings.TrimSpace(model)]
+}
+
+func (c *Client) markResponseFormatUnsupported(model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.responseFormatUnsupported == nil {
+		c.responseFormatUnsupported = make(map[string]bool)
+	}
+	c.responseFormatUnsupported[model] = true
+}
+
+func (c *Client) isResponseFormatUnsupported(model string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.responseFormatUnsupported[strings.TrimSpace(model)]
+}
+
+func isResponseFormatError(body string) bool {
+	low := strings.ToLower(body)
+	return strings.Contains(low, "response_format") ||
+		strings.Contains(low, "json_schema") ||
+		strings.Contains(low, "json_object") ||
+		strings.Contains(low, "structured output")
+}
+
+func (c *Client) applyResponseFormatOverrides(model string, wireReq *chatCompletionRequest) {
+	if wireReq == nil || wireReq.ResponseFormat == nil {
+		return
+	}
+	if c.isResponseFormatUnsupported(model) {
+		wireReq.ResponseFormat = nil
+		return
+	}
+	if wireReq.ResponseFormat.Type == "json_schema" && c.isJSONSchemaUnsupported(model) {
+		wireReq.ResponseFormat = &chatResponseFormat{Type: "json_object"}
+	}
+}
+
+func (c *Client) handleResponseFormat400(model string, wireReq chatCompletionRequest, bodyStr string) bool {
+	if wireReq.ResponseFormat == nil || !isResponseFormatError(bodyStr) {
+		return false
+	}
+	if wireReq.ResponseFormat.Type == "json_schema" {
+		logger.Infof("OpenAI model %q rejected json_schema response_format; retrying with json_object", model)
+		c.markJSONSchemaUnsupported(model)
+	} else {
+		logger.Infof("OpenAI model %q rejected response_format; retrying without it", model)
+		c.markResponseFormatUnsupported(model)
+	}
+	return true
+}
+
 func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
 	url := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
@@ -226,6 +307,7 @@ func (c *Client) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollam
 		if c.isReasoningUnsupported(attempt.Model) {
 			dropThinking(&wireReq)
 		}
+		c.applyResponseFormatOverrides(attempt.Model, &wireReq)
 
 		payload, err := json.Marshal(wireReq)
 		if err != nil {
@@ -264,6 +346,9 @@ func (c *Client) Chat(ctx context.Context, req ollama.ChatRequest) (<-chan ollam
 			logger.Infof("OpenAI model %q does not support tools; retrying without tools", attempt.Model)
 			c.markToolsUnsupported(attempt.Model)
 			attempt.Tools = nil
+			continue
+		}
+		if resp.StatusCode == http.StatusBadRequest && c.handleResponseFormat400(attempt.Model, wireReq, bodyStr) {
 			continue
 		}
 
@@ -455,6 +540,7 @@ func (c *Client) ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.C
 		if c.isReasoningUnsupported(attempt.Model) {
 			dropThinking(&wireReq)
 		}
+		c.applyResponseFormatOverrides(attempt.Model, &wireReq)
 
 		payload, err := json.Marshal(wireReq)
 		if err != nil {
@@ -498,6 +584,9 @@ func (c *Client) ChatSync(ctx context.Context, req ollama.ChatRequest) (ollama.C
 			logger.Infof("OpenAI model %q does not support tools; retrying without tools", attempt.Model)
 			c.markToolsUnsupported(attempt.Model)
 			attempt.Tools = nil
+			continue
+		}
+		if resp.StatusCode == http.StatusBadRequest && c.handleResponseFormat400(attempt.Model, wireReq, bodyStr) {
 			continue
 		}
 

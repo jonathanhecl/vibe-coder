@@ -33,6 +33,21 @@ func isToolsUnsupportedBody(body string) bool {
 	return strings.Contains(b, "does not support") || strings.Contains(b, "not support")
 }
 
+// isFormatUnsupportedBody detects a 400 caused by the "format" structured-output
+// parameter (either a JSON Schema or "json" mode) so postChat can downgrade or
+// drop it cleanly across Ollama versions and models.
+func isFormatUnsupportedBody(body string) bool {
+	b := strings.ToLower(body)
+	if !strings.Contains(b, "format") && !strings.Contains(b, "schema") && !strings.Contains(b, "json") {
+		return false
+	}
+	return strings.Contains(b, "invalid") ||
+		strings.Contains(b, "not support") ||
+		strings.Contains(b, "does not support") ||
+		strings.Contains(b, "failed") ||
+		strings.Contains(b, "error")
+}
+
 // thinkForLog renders the think setting for diagnostics.
 func thinkForLog(t *ThinkSetting) string {
 	if t == nil {
@@ -88,6 +103,16 @@ func (c *HTTPClient) postChat(ctx context.Context, req ChatRequest) (*http.Respo
 			logger.Infof("Model doesn't support tools, retrying without tools")
 			c.markToolsUnsupported(attempt.Model)
 			attempt.Tools = nil
+			continue
+		}
+		if resp.StatusCode == http.StatusBadRequest && attempt.Format != nil && isFormatUnsupportedBody(bodyStr) {
+			if len(attempt.Format.Schema) > 0 {
+				logger.Infof("Model/server rejected JSON schema format, retrying with plain json format")
+				attempt.Format = &ResponseFormat{}
+			} else {
+				logger.Infof("Model/server rejected json format, retrying without format")
+				attempt.Format = nil
+			}
 			continue
 		}
 		return nil, mapChatError(resp.StatusCode, bodyStr)

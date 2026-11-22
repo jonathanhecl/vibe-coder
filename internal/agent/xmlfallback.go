@@ -1,9 +1,11 @@
 package agent
 
 import (
-	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
 var (
@@ -34,12 +36,17 @@ func parseXMLFallback(text string) (string, map[string]any, bool) {
 	if len(calls) == 0 {
 		return "", nil, false
 	}
+	if _, hasErr := calls[0].Params[tools.ParseErrorKey]; hasErr {
+		return "", nil, false
+	}
 	return calls[0].Name, calls[0].Params, true
 }
 
 // parseXMLFallbackAll recovers every tool call in reply order, capped by
-// maxXMLFallbackCalls. It accepts the same three envelopes as
-// parseXMLFallback and skips envelopes with invalid JSON.
+// maxXMLFallbackCalls. It accepts the same three envelopes as parseXMLFallback;
+// named <invoke> / <tool_call> blocks whose body fails JSON decoding are
+// surfaced with ParseErrorKey/RawArgsKey so the agent can repair or report
+// them instead of silently dropping the call.
 func parseXMLFallbackAll(text string, maxCalls int) []ToolCall {
 	if maxCalls <= 0 {
 		return nil
@@ -61,13 +68,33 @@ func parseXMLFallbackAll(text string, maxCalls int) []ToolCall {
 			name := strings.TrimSpace(clean[loc[2]:loc[3]])
 			body, end, ok := extractBalancedJSON(clean, loc[1])
 			if !ok {
+				if rawInner, foundClose := extractEnvelopeInnerBeforeClose(clean, loc[1], closeTag); foundClose {
+					if params, err := ollama.ParseToolArguments(rawInner); err == nil {
+						out = append(out, candidate{start: loc[0], call: ToolCall{Name: name, Params: params}})
+					} else {
+						out = append(out, candidate{start: loc[0], call: ToolCall{
+							Name: name,
+							Params: map[string]any{
+								tools.ParseErrorKey: err.Error(),
+								tools.RawArgsKey:    strings.TrimSpace(rawInner),
+							},
+						}})
+					}
+				}
 				continue
 			}
 			if !containsFold(clean[end:], closeTag) {
 				continue
 			}
-			params, ok := decodeToolJSON(body)
-			if !ok {
+			params, err := ollama.ParseToolArguments(body)
+			if err != nil {
+				out = append(out, candidate{start: loc[0], call: ToolCall{
+					Name: name,
+					Params: map[string]any{
+						tools.ParseErrorKey: err.Error(),
+						tools.RawArgsKey:    strings.TrimSpace(body),
+					},
+				}})
 				continue
 			}
 			out = append(out, candidate{start: loc[0], call: ToolCall{Name: name, Params: params}})
@@ -200,73 +227,30 @@ func extractBalancedJSON(s string, start int) (string, int, bool) {
 }
 
 func decodeToolJSON(raw string) (map[string]any, bool) {
-	params := map[string]any{}
-	if err := json.Unmarshal([]byte(raw), &params); err == nil {
-		return params, true
+	params, err := ollama.ParseToolArguments(raw)
+	if err != nil {
+		return nil, false
 	}
-	fixed := fixTrailingCommas(raw)
-	if err := json.Unmarshal([]byte(fixed), &params); err == nil {
-		return params, true
-	}
-	// Models routinely emit unescaped Windows paths ("C:\Users\...") inside
-	// tool arguments; strict JSON rejects \U-style sequences and the whole
-	// tool call would be silently dropped.
-	escaped := escapeInvalidJSONEscapes(fixed)
-	if escaped != fixed {
-		if err := json.Unmarshal([]byte(escaped), &params); err == nil {
-			return params, true
-		}
-	}
-	return nil, false
+	return params, true
 }
 
-// escapeInvalidJSONEscapes rewrites backslash sequences that are not valid
-// JSON escapes (e.g. the \U in "C:\Users") as literal backslashes, leaving
-// valid escapes and content outside strings untouched.
-func escapeInvalidJSONEscapes(raw string) string {
-	var b strings.Builder
-	b.Grow(len(raw) + 8)
-	inString := false
-	for i := 0; i < len(raw); i++ {
-		c := raw[i]
-		if c == '"' {
-			inString = !inString
-			b.WriteByte(c)
-			continue
-		}
-		if !inString || c != '\\' {
-			b.WriteByte(c)
-			continue
-		}
-		if i+1 >= len(raw) {
-			b.WriteString(`\\`)
-			continue
-		}
-		n := raw[i+1]
-		if strings.IndexByte(`"\\/bfnrt`, n) >= 0 {
-			b.WriteByte(c)
-			b.WriteByte(n)
-			i++
-			continue
-		}
-		if n == 'u' && i+5 < len(raw) && isHex4(raw[i+2:i+6]) {
-			b.WriteString(raw[i : i+6])
-			i += 5
-			continue
-		}
-		b.WriteString(`\\`)
+func extractEnvelopeInnerBeforeClose(s string, start int, closeTag string) (string, bool) {
+	if start < 0 || start > len(s) {
+		return "", false
 	}
-	return b.String()
+	rel := indexFold(s[start:], closeTag)
+	if rel < 0 {
+		return "", false
+	}
+	inner := s[start : start+rel]
+	if containsFold(inner, "<invoke") || containsFold(inner, "<tool_call") {
+		return "", false
+	}
+	return inner, true
 }
 
-func isHex4(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F') {
-			return false
-		}
-	}
-	return true
+func indexFold(haystack, needle string) int {
+	return strings.Index(strings.ToLower(haystack), strings.ToLower(needle))
 }
 
 func toToolName(raw string) string {
@@ -278,11 +262,6 @@ func toToolName(raw string) string {
 		parts[i] = strings.ToUpper(p[:1]) + p[1:]
 	}
 	return strings.Join(parts, "")
-}
-
-func fixTrailingCommas(in string) string {
-	re := regexp.MustCompile(`,\s*([}\]])`)
-	return re.ReplaceAllString(in, "$1")
 }
 
 func isJSONSpace(c byte) bool {

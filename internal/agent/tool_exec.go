@@ -2,10 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/logger"
+	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
@@ -45,16 +49,18 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	// run, and the raw head tells the model what actually broke.
 	if rawErr, ok := toolParams[tools.ParseErrorKey].(string); ok && strings.TrimSpace(rawErr) != "" {
 		raw, _ := toolParams[tools.RawArgsKey].(string)
-		msg := fmt.Sprintf("tool arguments are not valid JSON: %s\nraw arguments (%d bytes): %s", strings.TrimSpace(rawErr), len(raw), tools.TruncateRawArgs(raw))
-		result := tools.Result{Output: msg, IsError: true, HintsForModel: "The previous tool call had malformed JSON arguments (likely truncated output). Retry with smaller arguments or split the work; for large files write in chunks with append=true."}
-		a.paths.RememberToolResult(toolName, toolParams, result.Output, true)
-		if toolName != "TodoWrite" {
-			a.ui.ShowToolResult(toolName, result.Output, true, toolParams)
+		if !a.tryRepairToolParams(ctx, tool, toolParams, raw, rawErr) {
+			msg := fmt.Sprintf("tool arguments are not valid JSON: %s\nraw arguments (%d bytes): %s", strings.TrimSpace(rawErr), len(raw), tools.TruncateRawArgs(raw))
+			result := tools.Result{Output: msg, IsError: true, HintsForModel: "The previous tool call had malformed JSON arguments (likely truncated output). Retry with smaller arguments or split the work; for large files write in chunks with append=true."}
+			a.paths.RememberToolResult(toolName, toolParams, result.Output, true)
+			if toolName != "TodoWrite" {
+				a.ui.ShowToolResult(toolName, result.Output, true, toolParams)
+			}
+			if !mode.skipSessionRecord {
+				a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
+			}
+			return result, toolRan, nil
 		}
-		if !mode.skipSessionRecord {
-			a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
-		}
-		return result, toolRan, nil
 	}
 	a.rescuePathParam(ctx, toolName, toolParams)
 	if blockMsg := a.toolModeBlock(tool, toolParams); blockMsg != "" {
@@ -498,4 +504,112 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 		}
 	}
 	record(toolName, obs)
+}
+
+const maxConstrainedRepairBytes = 8192
+
+// tryRepairToolParams attempts a one-shot schema-constrained repair via
+// Format / response_format json_schema when a small tool-call JSON payload
+// arrived malformed. Oversized payloads (e.g. truncated 30KB Writes) are
+// skipped so they fail fast with chunking advice.
+func (a *Agent) tryRepairToolParams(ctx context.Context, tool tools.Tool, toolParams map[string]any, rawArgs, parseErr string) bool {
+	if a == nil || a.client == nil || a.cfg == nil || tool == nil || ctx.Err() != nil {
+		return false
+	}
+	if strings.TrimSpace(a.cfg.Model) == "" || strings.TrimSpace(rawArgs) == "" || len(rawArgs) > maxConstrainedRepairBytes {
+		return false
+	}
+	schemaParams := tool.Schema().Function.Parameters
+	if len(schemaParams) == 0 {
+		return false
+	}
+	schemaBytes, err := json.Marshal(schemaParams)
+	if err != nil {
+		return false
+	}
+
+	const systemPrompt = "You are a JSON repair engine for tool calls. Return ONLY a single valid JSON object conforming to the tool's parameter schema. Do not wrap in markdown or add prose."
+	userPrompt := fmt.Sprintf(
+		"Tool: %s\nDescription: %s\nParameter schema:\n%s\n\nParse error: %s\nMalformed arguments:\n%s\n\nReturn only a valid JSON object matching the schema.",
+		tool.Name(),
+		strings.TrimSpace(tool.Description()),
+		string(schemaBytes),
+		strings.TrimSpace(parseErr),
+		rawArgs,
+	)
+
+	numPredict := a.cfg.MaxTokens
+	if numPredict < 1024 {
+		numPredict = 1024
+	}
+	if numPredict > 4096 {
+		numPredict = 4096
+	}
+	numCtx := ollama.NumCtxFor(len(systemPrompt)+len(userPrompt), numPredict, ollama.NumCtxCap(a.cfg.ContextWindow))
+
+	repairCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	a.ui.StartWaiting(fmt.Sprintf("repairing %s arguments with schema…", tool.Name()))
+	resp, err := a.client.ChatSync(repairCtx, ollama.ChatRequest{
+		Model: a.cfg.Model,
+		Messages: []ollama.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Think: ollama.ThinkOff(),
+		Format: &ollama.ResponseFormat{
+			Name:   tool.Name() + "_arguments",
+			Schema: schemaParams,
+		},
+		KeepAlive: a.cfg.KeepAliveFor(config.RoleMain),
+		Options: ollama.ChatOptions{
+			NumCtx:      numCtx,
+			NumPredict:  numPredict,
+			Temperature: 0,
+		},
+	})
+	a.ui.StopWaiting()
+	if err != nil {
+		logger.Infof("Constrained schema repair failed for %s: %v", tool.Name(), err)
+		return false
+	}
+
+	repaired, err := ollama.ParseToolArguments(resp.Content)
+	if err != nil || len(repaired) == 0 {
+		logger.Infof("Constrained schema repair returned invalid JSON for %s: %v", tool.Name(), err)
+		return false
+	}
+	for _, reqKey := range schemaRequiredKeys(schemaParams) {
+		val, exists := repaired[reqKey]
+		if !exists || val == nil {
+			logger.Infof("Constrained schema repair missing required field %q for %s", reqKey, tool.Name())
+			return false
+		}
+	}
+
+	delete(toolParams, tools.ParseErrorKey)
+	delete(toolParams, tools.RawArgsKey)
+	for k, v := range repaired {
+		toolParams[k] = v
+	}
+	logger.Infof("Constrained schema repair succeeded for tool=%s", tool.Name())
+	return true
+}
+
+func schemaRequiredKeys(schema map[string]any) []string {
+	switch req := schema["required"].(type) {
+	case []string:
+		return req
+	case []any:
+		out := make([]string, 0, len(req))
+		for _, item := range req {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }

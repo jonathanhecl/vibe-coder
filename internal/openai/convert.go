@@ -59,6 +59,20 @@ func buildChatRequest(req ollama.ChatRequest) (chatCompletionRequest, error) {
 
 	applyThinking(&out, req.Think)
 
+	if req.Format != nil {
+		if len(req.Format.Schema) > 0 {
+			out.ResponseFormat = &chatResponseFormat{
+				Type: "json_schema",
+				JSONSchema: &chatJSONSchema{
+					Name:   sanitizeSchemaName(req.Format.Name),
+					Schema: req.Format.Schema,
+				},
+			}
+		} else {
+			out.ResponseFormat = &chatResponseFormat{Type: "json_object"}
+		}
+	}
+
 	if len(req.Tools) > 0 {
 		out.Tools = make([]chatTool, 0, len(req.Tools))
 		for _, t := range req.Tools {
@@ -181,12 +195,15 @@ func parseResponseChoice(choice chatChoice) ollama.ChatResponse {
 				continue
 			}
 			var args map[string]any
-			if tc.Function.Arguments != "" {
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+			if argStr := strings.TrimSpace(tc.Function.Arguments); argStr != "" && argStr != "null" {
+				parsedArgs, err := ollama.ParseToolArguments(argStr)
+				if err != nil {
 					args = map[string]any{
-						"__parse_error":   err.Error(),
-						"__raw_arguments": tc.Function.Arguments,
+						ollama.ParseErrorKey: err.Error(),
+						ollama.RawArgsKey:    tc.Function.Arguments,
 					}
+				} else {
+					args = parsedArgs
 				}
 			}
 			if args == nil {
@@ -259,12 +276,15 @@ func (s *streamAccumulator) buildToolCalls() []ollama.MessageToolCall {
 		}
 		var args map[string]any
 		argStr := strings.TrimSpace(stc.args.String())
-		if argStr != "" {
-			if err := json.Unmarshal([]byte(argStr), &args); err != nil {
+		if argStr != "" && argStr != "null" {
+			parsedArgs, err := ollama.ParseToolArguments(argStr)
+			if err != nil {
 				args = map[string]any{
-					"__parse_error":   err.Error(),
-					"__raw_arguments": stc.args.String(),
+					ollama.ParseErrorKey: err.Error(),
+					ollama.RawArgsKey:    stc.args.String(),
 				}
+			} else {
+				args = parsedArgs
 			}
 		}
 		if args == nil {
@@ -278,6 +298,24 @@ func (s *streamAccumulator) buildToolCalls() []ollama.MessageToolCall {
 		})
 	}
 	return out
+}
+
+func sanitizeSchemaName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "tool_arguments"
+	}
+	var b strings.Builder
+	b.Grow(len(trimmed))
+	for i := 0; i < len(trimmed); i++ {
+		c := trimmed[i]
+		if ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9') || c == '_' || c == '-' {
+			b.WriteByte(c)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 func toDataURL(img string) string {

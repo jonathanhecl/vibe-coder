@@ -1,6 +1,10 @@
 package agent
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
+)
 
 func TestParseXMLFallbackInvoke(t *testing.T) {
 	name, params, ok := parseXMLFallback(`<invoke name="Glob">{"pattern":"*.go","path":"./internal"}</invoke>`)
@@ -118,5 +122,22 @@ func TestParseXMLFallbackInvokeWithSurroundingText(t *testing.T) {
 	}
 	if params["pattern"] != "*.go" {
 		t.Fatalf("unexpected params: %#v", params)
+	}
+}
+
+func TestParseXMLFallbackAllSurfacesMalformedInvoke(t *testing.T) {
+	in := `<invoke name="Edit">{"file_path":"a.go" "old_string":"x"}</invoke>`
+	if _, _, ok := parseXMLFallback(in); ok {
+		t.Fatal("single-call parseXMLFallback should still return false for malformed JSON")
+	}
+	calls := parseXMLFallbackAll(in, 5)
+	if len(calls) != 1 || calls[0].Name != "Edit" {
+		t.Fatalf("expected malformed invoke to surface as tool call, got %#v", calls)
+	}
+	if _, hasErr := calls[0].Params[tools.ParseErrorKey]; !hasErr {
+		t.Fatalf("expected ParseErrorKey on surfaced broken invoke, got %#v", calls[0].Params)
+	}
+	if _, hasRaw := calls[0].Params[tools.RawArgsKey]; !hasRaw {
+		t.Fatalf("expected RawArgsKey on surfaced broken invoke, got %#v", calls[0].Params)
 	}
 }

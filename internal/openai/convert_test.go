@@ -1,7 +1,11 @@
 package openai
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -147,5 +151,116 @@ func TestBuildChatRequestToolCallMatching(t *testing.T) {
 	tool2 := converted.Messages[2]
 	if tool2.Role != "tool" || tool2.ToolCallID != "call_Read_1" {
 		t.Fatalf("expected tool2 to match call_Read_1, got %+v", tool2)
+	}
+}
+
+func TestBuildChatRequestResponseFormat(t *testing.T) {
+	messages := []ollama.Message{{Role: "user", Content: "hi"}}
+
+	schemaReq, err := buildChatRequest(ollama.ChatRequest{
+		Model:    "qwen3-coder",
+		Messages: messages,
+		Format: &ollama.ResponseFormat{
+			Name:   "Edit.args",
+			Schema: map[string]any{"type": "object"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildChatRequest failed: %v", err)
+	}
+	if schemaReq.ResponseFormat == nil || schemaReq.ResponseFormat.Type != "json_schema" {
+		t.Fatalf("expected json_schema response_format, got %+v", schemaReq.ResponseFormat)
+	}
+	if schemaReq.ResponseFormat.JSONSchema == nil || schemaReq.ResponseFormat.JSONSchema.Name != "Edit_args" {
+		t.Fatalf("unexpected json_schema metadata: %+v", schemaReq.ResponseFormat.JSONSchema)
+	}
+
+	objReq, err := buildChatRequest(ollama.ChatRequest{
+		Model:    "qwen3-coder",
+		Messages: messages,
+		Format:   &ollama.ResponseFormat{},
+	})
+	if err != nil {
+		t.Fatalf("buildChatRequest failed: %v", err)
+	}
+	if objReq.ResponseFormat == nil || objReq.ResponseFormat.Type != "json_object" || objReq.ResponseFormat.JSONSchema != nil {
+		t.Fatalf("expected json_object response_format, got %+v", objReq.ResponseFormat)
+	}
+}
+
+func TestParseResponseChoiceRepairsRecoverableJSON(t *testing.T) {
+	raw := "{\"file_path\":\"a.txt\",\"contents\":\"hello\nworld\",}"
+	choice := chatChoice{Message: chatResponseMessage{
+		ToolCalls: []chatToolCall{{Function: chatFunctionCall{Name: "Write", Arguments: raw}}},
+	}}
+	got := parseResponseChoice(choice)
+	if len(got.ToolCalls) != 1 {
+		t.Fatalf("got %d calls", len(got.ToolCalls))
+	}
+	args := got.ToolCalls[0].Function.Arguments
+	if _, hasErr := args[ollama.ParseErrorKey]; hasErr {
+		t.Fatalf("expected recoverable JSON to succeed, got %#v", args)
+	}
+	if args["contents"] != "hello\nworld" {
+		t.Fatalf("unexpected contents: %#v", args["contents"])
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestClientResponseFormatFallbackOn400(t *testing.T) {
+	var seenTypes []string
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			raw, _ := io.ReadAll(r.Body)
+			var req chatCompletionRequest
+			_ = json.Unmarshal(raw, &req)
+			if req.ResponseFormat != nil {
+				seenTypes = append(seenTypes, req.ResponseFormat.Type)
+			} else {
+				seenTypes = append(seenTypes, "<omitted>")
+			}
+			switch len(seenTypes) {
+			case 1:
+				return &http.Response{
+					StatusCode: http.StatusBadRequest,
+					Status:     "400 Bad Request",
+					Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"json_schema is not supported for this model"}}`)),
+				}, nil
+			case 2:
+				return &http.Response{
+					StatusCode: http.StatusBadRequest,
+					Status:     "400 Bad Request",
+					Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"response_format json_object unsupported"}}`)),
+				}, nil
+			default:
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Body:       io.NopCloser(bytes.NewBufferString(`{"id":"1","choices":[{"index":0,"message":{"role":"assistant","content":"{\"ok\":true}"}}]}`)),
+				}, nil
+			}
+		}),
+	}
+
+	client := New("http://omlx.local/v1", WithHTTPClient(httpClient))
+	res, err := client.ChatSync(context.Background(), ollama.ChatRequest{
+		Model:    "local-mlx",
+		Messages: []ollama.Message{{Role: "user", Content: "hi"}},
+		Format: &ollama.ResponseFormat{
+			Name:   "Write_arguments",
+			Schema: map[string]any{"type": "object"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ChatSync failed: %v", err)
+	}
+	if res.Content != `{"ok":true}` {
+		t.Fatalf("unexpected content: %q", res.Content)
+	}
+	if len(seenTypes) != 3 || seenTypes[0] != "json_schema" || seenTypes[1] != "json_object" || seenTypes[2] != "<omitted>" {
+		t.Fatalf("unexpected response_format downgrade sequence: %v", seenTypes)
 	}
 }
