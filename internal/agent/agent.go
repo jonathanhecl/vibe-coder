@@ -55,8 +55,9 @@ type Agent struct {
 	// model and the sidecar are consulted.
 	visionRole       *visionrole.Describer
 	decider          decision.Decider
-	currentGoal      string   // verbatim text of the user's request for this Run()
-	runContextBlocks []string // ephemeral RAG/memory blocks for the active Run(); guarded by mu
+	currentGoal      string            // verbatim text of the user's request for this Run()
+	resume           *resumeCheckpoint // durable continuation cursor; guarded by mu
+	runContextBlocks []string          // ephemeral RAG/memory blocks for the active Run(); guarded by mu
 	ctxStore         *contextfiles.Store
 	imgCache         *vision.Cache
 	lastImage        string // newest user-attached image path; guarded by mu

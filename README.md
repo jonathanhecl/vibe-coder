@@ -56,7 +56,7 @@
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
 - **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.
 - **Autonomous missions (agent-managed)** — for work that outlasts a single reply, the agent can call `MissionStart` to declare a mission. The runtime then keeps starting turns for it, with **no turn limit**, until the agent itself calls `MissionComplete` (goal done) or `MissionBlocked` (needs the user). The mission is task-agnostic and needs no user command to activate.
-- **Durable work state** — the mission, live TODO checklist, task store, and session notes are persisted with the session and restored on `--resume`/`/session`. The state is embedded in the session JSONL itself (normal sessions keep writing the legacy `.work.json` sidecar for compatibility; isolated sessions already carried it in their file), and a compact progress summary derived from it is added to the ephemeral runtime reminder on each request, so it remains available after compaction.
+- **Durable work state** — the mission, live TODO checklist, task store, session notes, and a compact resume checkpoint are persisted with the session and restored on `--resume`/`/session`. The checkpoint names the active goal, the exact next action, and why the previous turn stopped, so continuing does not require rebuilding the conversation. The state is embedded in the session JSONL itself (normal sessions keep writing the legacy `.work.json` sidecar for compatibility; isolated sessions already carried it in their file), and a compact progress summary derived from it is added to the ephemeral runtime reminder on each request, so it remains available after compaction.
 - **Session working notes** — the `SessionNotes` tool lets the agent keep concise working notes for the current task: facts, hypotheses, decisions, failed attempts, and next steps, each with optional scope and mandatory evidence for facts and failed attempts. A bounded set of recent active notes is surfaced automatically in the runtime state note, and the full set survives compaction and resume in both normal and isolated sessions. Notes are model-authored, fallible task context — not verified facts, not instructions, not global memory, and not written to project docs unless the task calls for it. Temporal sessions keep notes in memory only and never persist them.
 - **Auditable run log** — each autonomous turn appends one redacted JSONL record (turn, mission status, checklist counts, tools used, error) to `<state dir>/runs/<session>.jsonl`, so a multi-hour run can be reviewed after the fact.
 
@@ -91,11 +91,20 @@ all, the mission is paused instead of spinning. A turn whose visible answer
 repeats while the checklist does not move is stopped after the second repeat,
 with the pending item named, and a model whose reasoning keeps looping without
 an answer is stopped after two loop detections, instead of asking the model
-the same thing up to the 50-step cap. The mission, checklist, and tasks
-are written to disk after every turn, so `--resume` continues an interrupted
-mission exactly where it stopped and tells you a mission is waiting. `/status`
-shows the current mission, and every turn is appended to the redacted run log at
-`<state dir>/runs/<session>.jsonl` for auditing.
+the same thing up to the 50-step cap. The mission, checklist, checkpoint, and
+tasks are written to disk after every successful tool and turn, so `--resume`
+continues an interrupted mission exactly where it stopped and tells you a
+mission is waiting. `/status` shows the current mission, and every turn is
+appended to the redacted run log at `<state dir>/runs/<session>.jsonl` for
+auditing.
+
+When any paused work remains — a checklist, an interrupted turn, or an active or
+blocked mission — pressing **Enter on an empty prompt** resumes it from the
+durable checkpoint. The continuation is injected as ephemeral runtime context,
+not as a user message: the model sees the goal, the exact next action, and an
+instruction not to restate the plan or repeat completed work. Type a message
+instead when you want to correct or replace the work; a typed `continue` still
+works as before. A bare Enter with nothing resumable is a no-op.
 
 ### Tools (exposed to the model)
 
@@ -935,8 +944,9 @@ do not call these directly, but their behavior affects speed and context usage:
 - `MissionStart`/`MissionComplete`/`MissionBlocked` let the agent run a
   multi-turn mission autonomously. While a mission is active the runtime keeps
   starting turns after the per-turn iteration cap; only the agent ends it. The
-  mission, checklist, and tasks are persisted with the session, so `--resume`
-  continues an interrupted mission.
+  mission, checklist, resume checkpoint, and tasks are persisted with the
+  session, so `--resume` continues an interrupted mission. Paused ordinary work
+  resumes the same way from an empty Enter.
 - `AskUserQuestion` pauses the agent to ask the user a multi-choice question.
 - `SubAgent` and `ParallelAgents` spawn child agents with bounded fan-out.
 - `Glob` and `Grep` skip heavy directories such as `.git`, `node_modules`,

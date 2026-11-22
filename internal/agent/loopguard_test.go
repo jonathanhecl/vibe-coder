@@ -60,7 +60,7 @@ func TestRunGivesUpWithResumeHintAfterRepeatedRetries(t *testing.T) {
 	if !IsNoProgressErr(err) {
 		t.Fatalf("expected no-progress error, got %v", err)
 	}
-	if !strings.Contains(err.Error(), `send "continue" to resume`) {
+	if !strings.Contains(err.Error(), "press Enter to continue") {
 		t.Errorf("the stop does not say how to resume: %v", err)
 	}
 	// One budget per retry plus the initial run: the guard cannot spin forever.

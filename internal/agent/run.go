@@ -40,7 +40,19 @@ func toolCallsToWire(calls []ToolCall) []ollama.MessageToolCall {
 	return out
 }
 
+// Run executes one normal user turn. Typed corrections and continuation
+// shorthands keep their existing transcript behavior.
 func (a *Agent) Run(rootCtx context.Context, userInput string) error {
+	return a.run(rootCtx, userInput, false)
+}
+
+// run executes one turn. A continuation turn starts from the durable checkpoint
+// and deliberately adds no user message, so bare Enter cannot steer the model
+// with empty or boilerplate input.
+func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool) (err error) {
+	if continuation && !a.CanResume() {
+		return ErrNothingToResume
+	}
 	ctx, cancel := context.WithCancel(rootCtx)
 	defer cancel()
 	defer terminal.DefaultManager().TerminateAll()
@@ -51,9 +63,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	// A new turn measures its own duration: restart the UI turn timer here so
 	// the "responded in" footer covers this request instead of the session.
 	a.ui.StartTurn()
-	// Persist the checklist/task state at the end of every turn so a crash or
-	// restart never loses what is done and what remains.
-	defer a.PersistWorkState()
+	// Persist the checklist/task state and the continuation cursor at the end
+	// of every turn so a crash or restart never loses where the work stopped.
+	defer func() {
+		a.finishRunCheckpoint(err)
+		a.PersistWorkState()
+	}()
 	// Notes belong to one session id: drop them when the session changed
 	// since they were captured or restored.
 	a.ensureNotesSession()
@@ -64,12 +79,24 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 	a.noProgress.reset()
 	// The repeated-answer budget is per turn for the same reason.
 	a.replyRepeat.reset()
+	var resumed *resumeCheckpoint
+	if continuation {
+		cp, ok := a.beginContinuation()
+		if !ok {
+			return ErrNothingToResume
+		}
+		resumed = &cp
+	}
 	// Keep permission mode in sync with the mission at the start of every turn
 	// so unattended approval can never leak into a non-mission run.
 	if a.perm != nil {
 		a.perm.SetUnattended(a.MissionActive())
 	}
-	a.addRunContext(ctx, userInput)
+	if resumed != nil {
+		a.addContinuationContext(ctx, *resumed)
+	} else {
+		a.addRunContext(ctx, userInput)
+	}
 
 	// ParallelAgents is explicit-only: the model calls it when a task is
 	// genuinely decomposable. Previous auto-detection split any message
@@ -231,7 +258,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				unknownToolRounds = 0
 			}
 			if unknownToolRounds > maxUnknownToolRounds {
-				return fmt.Errorf("the model kept calling tools that do not exist (%s). Nothing was lost: send \"continue\" to resume, or tell the model which tool to use", strings.Join(unknownNames, ", "))
+				return fmt.Errorf("the model kept calling tools that do not exist (%s). Nothing was lost: press Enter to continue; type a correction instead, or tell the model which tool to use", strings.Join(unknownNames, ", "))
 			}
 			if batchErr != nil {
 				if a.recoverNoProgress(ctx, batchErr, &noProgressRetries) {
@@ -326,7 +353,7 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 				unknownToolRounds = 0
 			}
 			if unknownToolRounds > maxUnknownToolRounds {
-				return fmt.Errorf("the model kept calling tools that do not exist (%s). Nothing was lost: send \"continue\" to resume, or tell the model which tool to use", strings.Join(unknownNames, ", "))
+				return fmt.Errorf("the model kept calling tools that do not exist (%s). Nothing was lost: press Enter to continue; type a correction instead, or tell the model which tool to use", strings.Join(unknownNames, ", "))
 			}
 			a.compactBestEffort(ctx)
 			continue
@@ -378,5 +405,5 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 		a.compactBestEffort(ctx)
 		return nil
 	}
-	return fmt.Errorf("iteration cap reached (%d): this turn used all of its steps without finishing. Nothing was lost: send \"continue\" to resume from where it stopped", MaxIterations)
+	return fmt.Errorf("iteration cap reached (%d): this turn used all of its steps without finishing. Nothing was lost: press Enter to continue; type a correction instead from where it stopped", MaxIterations)
 }

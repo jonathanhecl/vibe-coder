@@ -65,6 +65,8 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 			if n == 1 {
 				content = fakeMissionStart
 			}
+		case f.mode == "ok":
+			content = "done"
 		case f.mode == "stuck":
 			// The same call every time: the no-progress guard is the only thing
 			// that can stop this turn.
@@ -96,6 +98,11 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 // newHTTPTestAgent wires the real Ollama HTTP client into an agent so the
 // streaming NDJSON path is exercised end to end.
 func newHTTPTestAgent(t *testing.T, host string) (*agent.Agent, tui.UI) {
+	ag, ui, _ := newHTTPTestAgentWithSession(t, host)
+	return ag, ui
+}
+
+func newHTTPTestAgentWithSession(t *testing.T, host string) (*agent.Agent, tui.UI, *session.Session) {
 	t.Helper()
 	tmp := t.TempDir()
 	cfg := &config.Config{
@@ -118,7 +125,7 @@ func newHTTPTestAgent(t *testing.T, host string) (*agent.Agent, tui.UI) {
 	perm := permissions.NewManager(&config.Config{YesMode: true})
 	ui := tui.NewPlain()
 	t.Cleanup(ui.Stop)
-	return agent.New(cfg, client, reg, perm, sess, ui), ui
+	return agent.New(cfg, client, reg, perm, sess, ui), ui, sess
 }
 
 // TestRunPromptPausesRepeatedToolLoop covers the mission-loop pause: a model
@@ -166,6 +173,27 @@ func TestRunPromptPausesEmptyResponses(t *testing.T) {
 	}
 }
 
+// A continuation turn must not store an empty user message: the checkpoint is
+// runtime context, and Enter is only the explicit signal to start that turn.
+func TestContinuationPromptStoresNoEmptyUserMessage(t *testing.T) {
+	srv, _ := newFakeOllama(t, "ok")
+	ag, ui, sess := newHTTPTestAgentWithSession(t, srv.URL)
+	sess.AddUser("finish the migration")
+	ag.StartMission("finish the migration")
+	ag.BlockActiveMission("needs a decision")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := runContinuationPrompt(ctx, ag, ui); err != nil {
+		t.Fatalf("continuation failed: %v", err)
+	}
+	for _, msg := range sess.MessagesReadOnly() {
+		if msg.Role == "user" && strings.TrimSpace(msg.Content) == "" {
+			t.Fatal("continuation stored an empty user message")
+		}
+	}
+}
+
 // A plain turn (no mission) that gets stuck repeating one tool call used to end
 // with a nil error: runPrompt swallowed the no-progress stop and the user was
 // dropped back to the prompt with no answer and no reason. The stop must reach
@@ -180,7 +208,7 @@ func TestRunPromptReportsRepeatedToolLoopOutsideMission(t *testing.T) {
 	if !agent.IsNoProgressErr(err) {
 		t.Fatalf("runPrompt returned %v, want the repeated-call stop to reach the caller", err)
 	}
-	if !strings.Contains(err.Error(), `send "continue" to resume`) {
+	if !strings.Contains(err.Error(), "press Enter to continue") {
 		t.Errorf("the stop does not say how to resume: %v", err)
 	}
 }
@@ -198,7 +226,7 @@ func TestRunPromptReportsIterationCapOutsideMission(t *testing.T) {
 	if !agent.IsIterationCapErr(err) {
 		t.Fatalf("runPrompt returned %v, want the step cap to reach the caller", err)
 	}
-	if !strings.Contains(err.Error(), `send "continue" to resume`) {
+	if !strings.Contains(err.Error(), "press Enter to continue") {
 		t.Errorf("the step cap does not say how to resume: %v", err)
 	}
 }

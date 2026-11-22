@@ -137,7 +137,7 @@ func noAnswerStopErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%w (nothing else ran this turn; the session is intact: send \"continue\" to resume, or tell the model what to change)", err)
+	return fmt.Errorf("%w (nothing else ran this turn; the session is intact: press Enter to continue; type a correction instead, or tell the model what to change)", err)
 }
 
 // toolCallSignature canonicalizes a tool call (name + params) so identical
@@ -322,5 +322,5 @@ func repeatedReplyErr(streak int, next string) error {
 	if next != "" {
 		detail += fmt.Sprintf(" (next pending item: %q)", next)
 	}
-	return fmt.Errorf("%w: %s. Nothing was lost: the session and the checklist are intact — send \"continue\" to resume from a fresh turn, or tell the model what to change", ErrRepeatedReply, detail)
+	return fmt.Errorf("%w: %s. Nothing was lost: the session and the checklist are intact — press Enter to continue; type a correction instead from a fresh turn, or tell the model what to change", ErrRepeatedReply, detail)
 }

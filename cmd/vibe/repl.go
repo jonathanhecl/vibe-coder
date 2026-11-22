@@ -77,6 +77,14 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 		}
 		line = strings.TrimSpace(line)
 		if line == "" {
+			if !ag.CanResume() {
+				continue
+			}
+			st := tui.NewStyle(os.Stdout)
+			fmt.Fprintln(os.Stdout, st.Yellow("↩ Continuing from checkpoint..."))
+			ui.SetPlanMode(ag.InPlanMode())
+			printTurnOutcome(ag, runContinuationPrompt(rootCtx, ag, ui))
+			_ = sess.Save()
 			continue
 		}
 		if shouldExit := handleInputLine(rootCtx, slashCtx, ag, ui, line); shouldExit {
@@ -170,7 +178,21 @@ func reportPendingWork(ag *agent.Agent) {
 // turns until the agent calls MissionComplete or MissionBlocked; there is no
 // turn limit. The agent owns the mission lifecycle.
 func runPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {
-	err := runAgentWithEmptyRetry(rootCtx, ag, ui, input)
+	return runPromptWithStarter(rootCtx, ag, ui, func(ctx context.Context) error {
+		return runAgentWithEmptyRetry(ctx, ag, ui, input)
+	})
+}
+
+// runContinuationPrompt starts from the durable checkpoint and keeps the same
+// mission-aware turn handling. The first turn adds no user message.
+func runContinuationPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI) error {
+	return runPromptWithStarter(rootCtx, ag, ui, func(ctx context.Context) error {
+		return runContinuationWithRetry(ctx, ag, ui)
+	})
+}
+
+func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, start func(context.Context) error) error {
+	err := start(rootCtx)
 	saveMissionProgress(ag)
 	// Log even when the mission finished inside the first turn (small batches
 	// can complete within the per-turn iteration budget).
@@ -296,16 +318,29 @@ func saveMissionProgress(ag *agent.Agent) {
 }
 
 func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string) error {
+	return runAgentTurnWithRetry(rootCtx, ag, ui, input, false)
+}
+
+func runContinuationWithRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI) error {
+	return runAgentTurnWithRetry(rootCtx, ag, ui, "", true)
+}
+
+func runAgentTurnWithRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI, input string, continuation bool) error {
 	retryCount := 0
 	repeatedState := false
 	currentInput := strings.TrimSpace(input)
 	for {
-		// Wrap each ag.Run in a child context that the signal handler can
-		// cancel without killing the root context, so a Ctrl+C interrupts
-		// only the current operation and the REPL stays alive.
+		// Wrap each run in a child context that the signal handler can cancel
+		// without killing the root context, so a Ctrl+C interrupts only the
+		// current operation and the REPL stays alive.
 		opCtx, opCancel := context.WithCancel(rootCtx)
 		globalInterrupter.arm(opCancel)
-		err := ag.Run(opCtx, currentInput)
+		var err error
+		if continuation {
+			err = ag.RunContinuation(opCtx)
+		} else {
+			err = ag.Run(opCtx, currentInput)
+		}
 		opCancel()
 		globalInterrupter.disarm()
 		if err == nil {
@@ -327,7 +362,9 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 			return fmt.Errorf("empty assistant response persisted after %d retries; pending TODO state may be stuck", retryCount)
 		}
 		if unattended {
-			currentInput = ag.BuildEmptyResponseRetryInput(input, repeatedState)
+			if !continuation {
+				currentInput = ag.BuildEmptyResponseRetryInput(input, repeatedState)
+			}
 			continue
 		}
 		ans, askErr := ui.GetInput("Model returned an empty response. Retry this step? [Y/n]: ")
@@ -336,7 +373,9 @@ func runAgentWithEmptyRetry(rootCtx context.Context, ag *agent.Agent, ui tui.UI,
 		}
 		a := strings.ToLower(strings.TrimSpace(ans))
 		if a == "" || a == "y" || a == "yes" {
-			currentInput = ag.BuildEmptyResponseRetryInput(input, repeatedState)
+			if !continuation {
+				currentInput = ag.BuildEmptyResponseRetryInput(input, repeatedState)
+			}
 			continue
 		}
 		// The user declined the retry: say so instead of returning to the prompt

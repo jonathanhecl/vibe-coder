@@ -73,6 +73,19 @@ func (s *MissionStore) Block(reason string) Mission {
 	return s.current
 }
 
+// Resume reactivates a blocked mission. It is used when the user explicitly
+// continues paused work; active and completed missions are left unchanged.
+func (s *MissionStore) Resume() Mission {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current.Status == MissionStatusBlocked {
+		s.current.Status = MissionStatusActive
+		s.current.Summary = ""
+		s.current.UpdatedAt = time.Now().UTC()
+	}
+	return s.current
+}
+
 // Active reports whether a mission is currently running.
 func (s *MissionStore) Active() bool {
 	if s == nil {

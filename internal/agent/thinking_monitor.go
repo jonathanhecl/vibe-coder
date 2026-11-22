@@ -102,7 +102,7 @@ const maxThinkingLoopStops = 2
 // thinkingLoopStopErr builds the resumable stop error for a turn whose
 // reasoning kept looping past maxThinkingLoopStops.
 func thinkingLoopStopErr(stops int) error {
-	return fmt.Errorf("%w: the model's reasoning looped %d times this turn without reaching an answer. Nothing was lost: send \"continue\" to retry, rephrase the request, or lower the thinking level (--think low or --no-think)", ErrThinkingLoopStop, stops)
+	return fmt.Errorf("%w: the model's reasoning looped %d times this turn without reaching an answer. Nothing was lost: press Enter to continue, type a correction instead, or lower the thinking level (--think low or --no-think)", ErrThinkingLoopStop, stops)
 }
 
 // ThinkingLoopLimitError is returned when a cyclical thinking loop has failed 3 consecutive times in the same step.

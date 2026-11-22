@@ -57,13 +57,26 @@ func TestPendingWorkSummaryNamesOpenChecklistItems(t *testing.T) {
 	})
 
 	got := ag.PendingWorkSummary()
-	for _, want := range []string{"3 TODO items pending", `in progress "unzip the archive"`, `pending "read Follow me.txt"`, "and 1 more", `send "continue" to resume`} {
+	for _, want := range []string{"3 TODO items pending", `in progress "unzip the archive"`, `pending "read Follow me.txt"`, "and 1 more", "Press Enter to continue; type a correction instead."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("summary %q is missing %q", got, want)
 		}
 	}
 	if strings.Contains(got, "already done") {
 		t.Fatalf("summary must not name completed items: %q", got)
+	}
+}
+
+func TestPendingWorkSummaryNamesBlockedMissionAsResumable(t *testing.T) {
+	ag, _, _ := newTurnAgent(t, &fakeClient{})
+	ag.StartMission("finish the migration")
+	ag.BlockActiveMission("needs a decision")
+
+	got := ag.PendingWorkSummary()
+	for _, want := range []string{"mission paused", "finish the migration", "Press Enter to continue"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("summary %q is missing %q", got, want)
+		}
 	}
 }
 

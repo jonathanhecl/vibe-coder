@@ -37,6 +37,18 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	stats := windowStats{MessagesTotal: len(hist)}
 	out := []ollama.Message{{Role: "system", Content: systemPrompt}}
 	if len(hist) == 0 {
+		// A restored checkpoint can be the only context (no transcript yet).
+		// Keep the continuation directive and current state on the wire even
+		// when there is no stored user turn to append them after.
+		if ctxNote := a.runContextNote(); ctxNote != "" {
+			out = append(out, ollama.Message{Role: "user", Content: ctxNote})
+		}
+		if note := a.runtimeStateNote(); note != "" {
+			out = append(out, ollama.Message{
+				Role:    "user",
+				Content: session.RuntimeReminderPrefix + "\n" + note + "\n[/runtime_reminder]",
+			})
+		}
 		stats.MessagesSent = len(out) - 1
 		return out, stats
 	}

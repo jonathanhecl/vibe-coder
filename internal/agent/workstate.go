@@ -7,7 +7,7 @@ import (
 )
 
 // workStateVersion is bumped when the persisted work-state shape changes.
-const workStateVersion = 1
+const workStateVersion = 2
 
 // workStateSnapshot is the task-agnostic durable state of an autonomous run:
 // the TODO checklist the model maintains plus any explicit tasks. Keeping it
@@ -21,6 +21,9 @@ type workStateSnapshot struct {
 	// Mission is the agent-declared long-running goal, when one exists. It is
 	// what lets an interrupted autonomous run resume and keep going.
 	Mission *tools.Mission `json:"mission,omitempty"`
+	// Resume is the compact continuation cursor. It is present only while
+	// durable work remains, so a finished task cannot be resumed by mistake.
+	Resume *resumeCheckpoint `json:"resume,omitempty"`
 }
 
 // captureWorkState serializes the current checklist/task state. It returns
@@ -42,7 +45,11 @@ func (a *Agent) captureWorkState() []byte {
 	if a.notes != nil {
 		snap.Notes = a.notes.Snapshot()
 	}
-	if len(snap.Todos) == 0 && len(snap.Tasks) == 0 && snap.Mission == nil && len(snap.Notes) == 0 {
+	snap.Resume = a.buildResumeCheckpoint()
+	a.mu.Lock()
+	a.resume = snap.Resume
+	a.mu.Unlock()
+	if len(snap.Todos) == 0 && len(snap.Tasks) == 0 && snap.Mission == nil && len(snap.Notes) == 0 && snap.Resume == nil {
 		return nil
 	}
 	raw, err := json.Marshal(snap)
@@ -61,6 +68,9 @@ func (a *Agent) applyWorkState(raw []byte) {
 	if a.notes != nil {
 		a.notes.Restore(nil)
 	}
+	a.mu.Lock()
+	a.resume = nil
+	a.mu.Unlock()
 	if len(raw) > 0 {
 		var snap workStateSnapshot
 		if err := json.Unmarshal(raw, &snap); err == nil {
@@ -76,6 +86,7 @@ func (a *Agent) applyWorkState(raw []byte) {
 			if a.notes != nil && len(snap.Notes) > 0 {
 				a.notes.Restore(snap.Notes)
 			}
+			a.applyResumeCheckpoint(snap.Resume)
 		}
 	}
 	// The restored notes (or their absence) now belong to the current session.

@@ -32,17 +32,24 @@ func (a *Agent) PendingWorkSummary() string {
 	if inProgress, pending := a.openTodoItems(); len(inProgress)+len(pending) > 0 {
 		parts = append(parts, todoSummary(inProgress, pending))
 	}
-	if m := a.MissionSnapshot(); m.Status == tools.MissionStatusActive {
+	if m := a.MissionSnapshot(); m.Status == tools.MissionStatusActive || m.Status == tools.MissionStatusBlocked {
 		mission := "mission still active"
+		if m.Status == tools.MissionStatusBlocked {
+			mission = "mission paused"
+		}
 		if goal := strings.TrimSpace(m.Goal); goal != "" {
 			mission += fmt.Sprintf(" (%q)", trimPendingName(goal))
 		}
 		parts = append(parts, mission)
 	}
 	if len(parts) == 0 {
-		return ""
+		if a.CanResume() {
+			parts = append(parts, "interrupted work is ready")
+		} else {
+			return ""
+		}
 	}
-	return strings.Join(parts, "; ") + ` — send "continue" to resume.`
+	return strings.Join(parts, "; ") + " — Press Enter to continue; type a correction instead."
 }
 
 // openTodoItems splits the meaningful checklist items that are not done.
