@@ -129,7 +129,9 @@ func TestFormatGoalPrompt(t *testing.T) {
 		"As soon as the checklist is actionable",
 		"Planning is not the deliverable",
 		"ask once instead of continuing to inspect",
-		"reuse any passing automatic check that covers the required verification",
+		"define exactly one check that covers the change",
+		"One passing check completes verification",
+		"never stack several passing checks for the same change",
 		"Do not repeat a passing check unless its inputs changed",
 	} {
 		if !strings.Contains(prompt, want) {

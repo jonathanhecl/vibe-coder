@@ -176,7 +176,7 @@ func (a *Agent) MissionContinuationPrompt() string {
 	m := a.mission.Snapshot()
 	return fmt.Sprintf(
 		"%s Continue the active mission autonomously. Goal: %q. "+
-			"Take the next pending checklist step with concrete tool calls, verify it, then mark it completed. "+
+			"Take the next pending checklist step with concrete tool calls, run its single verification check, then mark it completed. "+
 			"Do not repeat finished work. Call MissionComplete with a summary when the goal is fully done, "+
 			"or MissionBlocked if you need the user. The runtime keeps starting turns for you until you do.",
 		missionPromptPrefix, strings.TrimSpace(m.Goal),
@@ -234,8 +234,8 @@ func (a *Agent) CheckMissionCompletion(ctx context.Context) (bool, error) {
 // decisionIncompleteReminder is the explicit feedback injected when the decision model
 // reviews an active mission and reports that the goal is not yet complete.
 const decisionIncompleteReminder = "Decision review: the mission goal is not yet complete. " +
-	"Do not call MissionComplete yet. Re-check the checklist, add any missing step as a pending TODO, " +
-	"and keep working with concrete tool calls until the decision model verifies completion."
+	"Do not call MissionComplete yet. Review the durable checklist without re-reading files, add any missing step as a pending TODO, " +
+	"and keep working with concrete tool calls, one verification check per changed state."
 
 // ReviewMissionCompletion verifies the active mission goal with the decision model and,
 // when it is configured and reports the goal as incomplete, injects an

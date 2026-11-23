@@ -42,16 +42,16 @@ func FormatGoalPrompt(goal string) string {
 Phase 1: Planning, Verification Design & Clarification
 1. Inspect only the information needed to decide the next action. Confirm each fact once; do not re-run equivalent inspections of unchanged state.
 2. Break down the goal into clear, concrete steps using TodoWrite.
-3. For EVERY step, specify how you will corroborate and verify that it is correct (e.g. running tests, linters, verifying build, inspecting file content or command output). Verification is mandatory before considering any step complete.
+3. For steps that change state, define exactly one check that covers the change (e.g. running tests, linters, verifying build, or inspecting the changed output). One passing check completes verification for that step.
 4. If you have critical ambiguities, questions, or need architectural decisions from the user, ask one focused question now using AskUserQuestion before proceeding.
 5. As soon as the checklist is actionable, begin executing the first step immediately with tool calls. Planning is not the deliverable unless the user explicitly requested only a plan; if plan-only versus execution is genuinely unclear, ask once instead of continuing to inspect.
 
 Phase 2: Autonomous Execution & Verification
 Once the plan is established:
 - Work through each step sequentially using tool calls.
-- After a change, reuse any passing automatic check that covers the required verification. Run only missing checks for the current state. Do not repeat a passing check unless its inputs changed.
+- After a change, reuse any passing automatic check that covers it. Run only a missing check for the current state. Do not repeat a passing check unless its inputs changed, and never stack several passing checks for the same change.
 - Do not stop for routine user approvals; the runtime is in unattended mode and will keep driving the mission.
-- Continue until all checklist items are done and verified, then call MissionComplete with a concise summary.
+- Continue until all checklist items are done with one passing check each, then call MissionComplete with a concise summary.
 - If and only if you are completely blocked and cannot proceed without user intervention, call MissionBlocked with the reason.`, goal)
 }
 

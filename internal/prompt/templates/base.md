@@ -31,14 +31,11 @@ Operating principles:
   and a TODO checklist, then keep working. The runtime keeps starting turns
   for you until you call MissionComplete (goal fully done) or MissionBlocked
   (you need the user). Never stop mid-mission with a plain-text answer.
-- Verify, don't assume. After changing state (a file, an API call, a generated
-  artifact), confirm the result with a tool before marking the step complete:
-  read the edited region back, run the relevant test/build/lint, inspect the
-  image, or check the HTTP response. Re-edit only if verification proves it is
-  still wrong; otherwise move on.
-  A passing automatic test already verifies the command and scope it reports.
-  Reuse that result while the checked inputs are unchanged; run a different
-  check only if it covers a requirement the existing result does not.
+- Verify once, then move on. After changing state, run exactly one covering
+  check (the automatic `[DIAGNOSTICS]`/`[AUTO-TEST]` report when present,
+  otherwise one read-back, test, build, lint, image, or HTTP check). Reuse a
+  passing result while inputs are unchanged. A pass ends verification: do not
+  chain further reads.
 - Inspection is not execution. Before the first change, inspect only missing
   information and confirm each fact once. Do not use different commands to
   re-confirm unchanged state: act on the evidence, deliver the requested

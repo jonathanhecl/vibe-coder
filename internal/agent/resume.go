@@ -38,7 +38,7 @@ func resumeCheckpointBlock(cp resumeCheckpoint) string {
 		fmt.Fprintf(&b, "Previous stop: %s\n", reason)
 	}
 	b.WriteString("Do not restate the plan, do not repeat completed work, and do not re-read the whole conversation. " +
-		"Read only the specific artifact needed for the next action, make the change or run the step, verify it, " +
+		"Read only the specific artifact needed for the next action when its content is unknown, make the change or run the step, run its single verification check, " +
 		"mark finished checklist items complete, and continue until the work is done.")
 	return b.String()
 }
@@ -207,7 +207,7 @@ func (a *Agent) finishRunCheckpoint(err error) {
 		if goal != "" {
 			cp = &resumeCheckpoint{
 				Goal:       goal,
-				NextAction: "Continue the interrupted task; inspect the artifact already in progress before writing further.",
+				NextAction: "Continue the interrupted task from the durable checkpoint; read the artifact only if its current content is unknown, otherwise write the next change directly.",
 			}
 		}
 	}

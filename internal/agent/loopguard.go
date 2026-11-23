@@ -165,7 +165,7 @@ func (a *Agent) recoverNoProgress(ctx context.Context, err error, retries *int) 
 		if detail != "" {
 			message += strings.TrimSuffix(detail, ".") + ". "
 		}
-		message += "The same call cannot produce a different result. Change your approach now: re-read the file or the command output, fix the concrete cause, or tell the user in plain text what blocks you."
+		message += "The same call cannot produce a different result. Change your approach now: use the output you already have, fix the concrete cause, or tell the user in plain text what blocks you. Read again only to fetch a specific missing fact."
 		a.sess.AddRuntimeReminder(message)
 	}
 	a.compactBestEffort(ctx)
