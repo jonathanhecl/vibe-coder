@@ -237,6 +237,26 @@ func TestRecordToolObservationKeepsLargeReadOutputVerbatim(t *testing.T) {	t.Par
 	}
 }
 
+func TestRecordToolObservationKeepsSessionNotesVerbatim(t *testing.T) {
+	t.Parallel()
+	sc := &stubClient{reply: "should not be used"}
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
+	a.cfg.ContextWindow = 4000
+	a.sess.AddUser(strings.Repeat("filler context ", 1500))
+	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
+
+	body := strings.Repeat("memory-note\n", 500)
+	a.recordToolObservation(context.Background(), "SessionNotes", body, "", false)
+
+	msgs := a.sess.Messages()
+	if len(msgs) == 0 || !strings.Contains(msgs[len(msgs)-1].Content, body) {
+		t.Fatalf("expected SessionNotes output to remain verbatim")
+	}
+	if atomic.LoadInt32(&sc.calls) != 0 {
+		t.Fatalf("SessionNotes output should not be sent to sidecar")
+	}
+}
+
 func TestRecordToolObservationSkipsSummariseForSmallOutput(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{reply: "should not be used"}

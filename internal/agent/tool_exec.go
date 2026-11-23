@@ -542,7 +542,10 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 	// model's window is unknown, fall back to the pool's byte threshold.
 	shouldCondense := false
 	minBytes := 0
-	if side != nil && side.Enabled() && toolName != "Read" {
+	// Read and SessionNotes stay verbatim: Read resumes by line number, and
+	// SessionNotes are already concise memory — condensing them would
+	// double-summarize evidence the model needs exact.
+	if side != nil && side.Enabled() && toolName != "Read" && toolName != "SessionNotes" {
 		if limit, ok := a.condenseLimitTokens(); ok {
 			shouldCondense = a.calibrateTokens(session.EstimateTokens(obs)) > limit
 		} else {
