@@ -255,33 +255,63 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if _, loop := a.noProgress.observe(callSig, outputSig); loop {
 		return result, toolRan, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
 	}
-	if streak, loop := a.inspection.observe(a.isLocalInspection(tool, toolParams), !result.IsError); loop {
+	inspection, concrete := a.classifyForProgress(tool, toolParams)
+	if streak, loop := a.inspection.observe(inspection, concrete, !result.IsError); loop {
 		return result, toolRan, fmt.Errorf("%w: %d consecutive read-only inspections completed without a state-changing action", ErrInspectionLoop, streak)
 	}
 	return result, toolRan, nil
 }
 
-// isLocalInspection identifies deterministic reads whose repeated use cannot
-// itself complete an execution task. External research, visual analysis and
-// background polling are excluded: their results can change independently of
-// the agent. Plan and review modes are excluded because inspection is their
+// classifyForProgress separates reads that cannot finish a task from actions
+// that change the artifact, leaving bookkeeping neutral. Every EffectRead
+// counts as inspection (local files and external research alike): neither one
+// modifies the working tree, so alternating them is still an inspection-only
+// run. Only writes and mutating executions count as concrete. TodoWrite,
+// SessionNotes, task tools and delegation are neutral: they must neither
+// advance the streak (they are not reads) nor reset it (they are not artifact
+// progress), otherwise a read-note-read loop evades the guard forever.
+// Plan and review modes are fully neutral because inspection is their
 // intended work, not a prelude to edits they are not allowed to make.
-func (a *Agent) isLocalInspection(tool tools.Tool, params map[string]any) bool {
+func (a *Agent) classifyForProgress(tool tools.Tool, params map[string]any) (inspection, concrete bool) {
 	if a.InPlanMode() || a.InReviewMode() {
-		return false
+		return false, false
 	}
 	if tool.Name() == "Bash" {
-		return permissions.IsSafeReadOnlyCommand(asString(params["command"]), a.cfg.Cwd)
+		if permissions.IsSafeReadOnlyCommand(asString(params["command"]), a.cfg.Cwd) {
+			return true, false
+		}
+		return false, true
 	}
-	if tools.EffectOf(tool) != tools.EffectRead {
-		return false
-	}
-	switch tool.Name() {
-	case "Read", "ReadMany", "Glob", "Grep", "Diagnostics", "GitStatus", "GitDiff":
-		return true
+	switch tools.EffectOf(tool) {
+	case tools.EffectRead:
+		return true, false
+	case tools.EffectWrite:
+		return false, true
+	case tools.EffectExecute:
+		return false, true
+	case tools.EffectState:
+		// Asking the user is the sanctioned escape hatch from ambiguity:
+		// treat it as a concrete attempt to move forward, not a stall.
+		if tool.Name() == "AskUserQuestion" {
+			return false, true
+		}
+		if tool.Name() == "MissionStart" || tool.Name() == "MissionComplete" || tool.Name() == "MissionBlocked" {
+			return false, true
+		}
+		return false, false
+	case tools.EffectDelegate:
+		return false, true
 	default:
-		return false
+		return false, false
 	}
+}
+
+// isLocalInspection reports whether a call counts toward the inspection-only
+// streak. It stays as a narrow helper for tests and callers that only need
+// the read side of classifyForProgress.
+func (a *Agent) isLocalInspection(tool tools.Tool, params map[string]any) bool {
+	inspection, _ := a.classifyForProgress(tool, params)
+	return inspection
 }
 
 func (a *Agent) rescuePathParam(ctx context.Context, toolName string, params map[string]any) {

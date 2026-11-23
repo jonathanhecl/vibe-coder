@@ -149,15 +149,52 @@ func TestRunRecoversFromDifferentReadOnlyInspections(t *testing.T) {
 func TestInspectionGuardResetsOnlyOnSuccessfulConcreteAction(t *testing.T) {
 	g := new(inspectionGuard)
 	for i := 0; i < inspectionLimit-1; i++ {
-		if _, loop := g.observe(true, true); loop {
+		if _, loop := g.observe(true, false, true); loop {
 			t.Fatalf("inspection guard tripped early at %d", i+1)
 		}
 	}
-	if streak, loop := g.observe(false, false); loop || streak != inspectionLimit-1 {
+	if streak, loop := g.observe(false, true, false); loop || streak != inspectionLimit-1 {
 		t.Fatalf("a failed action changed the streak to %d (loop=%t)", streak, loop)
 	}
-	if streak, loop := g.observe(false, true); loop || streak != 0 {
+	// Bookkeeping (TodoWrite, SessionNotes, task tools) must be neutral: it
+	// neither advances the streak nor resets it, otherwise a
+	// read-note-read loop never reaches the limit.
+	if streak, loop := g.observe(false, false, true); loop || streak != inspectionLimit-1 {
+		t.Fatalf("a bookkeeping call changed the streak to %d (loop=%t)", streak, loop)
+	}
+	if streak, loop := g.observe(false, true, true); loop || streak != 0 {
 		t.Fatalf("a successful concrete action left streak %d (loop=%t)", streak, loop)
+	}
+}
+
+func TestInspectionGuardIgnoresInterleavedBookkeeping(t *testing.T) {
+	g := new(inspectionGuard)
+	// Read, read, SessionNotes, TodoWrite, read... must still trip at 12
+	// reads even though neutral calls sit between them.
+	reads := 0
+	for i := 0; i < 30 && reads < inspectionLimit; i++ {
+		switch i % 4 {
+		case 2:
+			// SessionNotes upsert: neutral.
+			if _, loop := g.observe(false, false, true); loop {
+				t.Fatal("neutral bookkeeping must never trip the guard")
+			}
+		case 3:
+			// TodoWrite: neutral.
+			if _, loop := g.observe(false, false, true); loop {
+				t.Fatal("neutral bookkeeping must never trip the guard")
+			}
+		default:
+			reads++
+			if _, loop := g.observe(true, false, true); loop {
+				if reads != inspectionLimit {
+					t.Fatalf("tripped at %d reads, want %d", reads, inspectionLimit)
+				}
+			}
+		}
+	}
+	if reads != inspectionLimit {
+		t.Fatalf("neutral calls prevented the streak from reaching %d (got %d reads)", inspectionLimit, reads)
 	}
 }
 
@@ -176,6 +213,33 @@ func TestLocalInspectionClassification(t *testing.T) {
 	}
 	if !ag.isLocalInspection(ag.reg.Get("Read"), map[string]any{"file_path": "captions.txt"}) {
 		t.Fatal("Read should count as local inspection in execution mode")
+	}
+	// Every read counts now: external research and visual reads cannot be
+	// used to launder an inspection-only run by alternating sources.
+	for _, name := range []string{"WebFetch", "WebSearch", "DescribeImage", "BackgroundStatus"} {
+		tool := ag.reg.Get(name)
+		if tool == nil {
+			continue
+		}
+		inspection, concrete := ag.classifyForProgress(tool, map[string]any{})
+		if !inspection || concrete {
+			t.Errorf("%s should count as inspection (got inspection=%t concrete=%t)", name, inspection, concrete)
+		}
+	}
+	// Bookkeeping must stay neutral: TodoWrite and SessionNotes neither
+	// advance nor reset the streak.
+	for _, name := range []string{"TodoWrite", "SessionNotes"} {
+		tool := ag.reg.Get(name)
+		if tool == nil {
+			continue
+		}
+		inspection, concrete := ag.classifyForProgress(tool, map[string]any{})
+		if inspection || concrete {
+			t.Errorf("%s should be neutral (got inspection=%t concrete=%t)", name, inspection, concrete)
+		}
+	}
+	if inspection, concrete := ag.classifyForProgress(ag.reg.Get("Write"), map[string]any{"file_path": "a.txt"}); !concrete || inspection {
+		t.Fatalf("Write should be concrete (got inspection=%t concrete=%t)", inspection, concrete)
 	}
 	ag.EnterPlanMode()
 	if ag.isLocalInspection(ag.reg.Get("Read"), map[string]any{"file_path": "captions.txt"}) {

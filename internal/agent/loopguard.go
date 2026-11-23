@@ -116,17 +116,22 @@ type inspectionGuard struct {
 }
 
 // observe records one completed tool call. Successful concrete actions reset
-// the streak; failed calls neither advance nor clear it because they provide
-// neither fresh evidence nor progress.
-func (g *inspectionGuard) observe(inspection, success bool) (int, bool) {
+// the streak; bookkeeping calls and failures leave it untouched because they
+// provide neither fresh evidence nor artifact progress. Only TodoWrite,
+// SessionNotes and similar state tools resetting the streak is what let a
+// read-note-read loop evade the guard forever.
+func (g *inspectionGuard) observe(inspection, concrete, success bool) (int, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !success {
 		return g.streak, false
 	}
-	if !inspection {
+	if concrete {
 		g.streak = 0
 		return 0, false
+	}
+	if !inspection {
+		return g.streak, false
 	}
 	g.streak++
 	return g.streak, g.streak >= inspectionLimit
