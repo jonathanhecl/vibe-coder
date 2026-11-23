@@ -397,6 +397,8 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 			}
 			if streak > 1 {
 				a.sess.AddRuntimeReminder(a.repeatedReplyNote(reply))
+			} else if next := a.nextPendingTodo(); next != "" {
+				a.sess.AddRuntimeReminder("There are still pending TODO items. Execute the next item now with a concrete change (Write, Edit, or a mutating Bash command) — a further Read, Glob, or Grep is not executing it: " + next)
 			} else {
 				a.sess.AddRuntimeReminder("There are still pending TODO items. Continue executing the remaining steps with tool calls — do not finish the turn with plain text.")
 			}

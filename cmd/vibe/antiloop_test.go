@@ -285,9 +285,10 @@ func TestRunPromptPausesAcrossTurnsWithoutNewProgress(t *testing.T) {
 	}
 }
 
-// The mirror of the stall guard: a mission doing productive read-only work —
-// every command returns new output — must keep running past the three-turn
-// boundary and end on its own MissionComplete, not on a pause.
+// Reads alone are never cross-turn progress — even when every command returns
+// new output. A mission that only opens new references without writing must
+// pause after three turns so the user can redirect it, instead of looking
+// busy forever.
 func TestRunPromptContinuesWithNewReadOnlyEvidence(t *testing.T) {
 	srv, fake := newFakeOllama(t, "productive-reads")
 	ag, ui := newHTTPTestAgent(t, srv.URL)
@@ -295,18 +296,18 @@ func TestRunPromptContinuesWithNewReadOnlyEvidence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := runPrompt(ctx, ag, ui, "continue"); err != nil {
-		t.Fatalf("runPrompt returned an error instead of completing: %v", err)
+		t.Fatalf("runPrompt returned an error instead of pausing: %v", err)
 	}
 
 	snap := ag.MissionSnapshot()
-	if snap.Status != tools.MissionStatusCompleted {
-		t.Fatalf("expected mission status %q, got %q (%q)", tools.MissionStatusCompleted, snap.Status, snap.Summary)
+	if snap.Status != tools.MissionStatusBlocked {
+		t.Fatalf("expected mission status %q, got %q (%q)", tools.MissionStatusBlocked, snap.Status, snap.Summary)
 	}
-	if snap.Summary != "Reviewed all evidence" {
-		t.Fatalf("expected the model's own completion summary, got %q", snap.Summary)
+	if !strings.Contains(strings.ToLower(snap.Summary), "no new evidence") {
+		t.Fatalf("pause reason should mention the missing concrete progress, got %q", snap.Summary)
 	}
-	if calls := fake.calls.Load(); calls != 12 {
-		t.Fatalf("expected exactly 12 chat calls (5 productive continuation turns), got %d", calls)
+	if calls := fake.calls.Load(); calls > hardChatCap/2 {
+		t.Fatalf("read-only mission fired too late: %d chat calls", calls)
 	}
 }
 

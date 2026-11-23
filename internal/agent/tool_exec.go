@@ -249,13 +249,13 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		}
 	}
 	callSig, outputSig := toolCallSignature(toolName, toolParams), toolOutputSignature(result)
+	inspection, concrete := a.classifyForProgress(tool, toolParams)
 	if !mode.skipSessionRecord && a.MissionActive() {
-		observeMissionTool(ctx, toolName, toolParams, result, callSig, outputSig)
+		observeMissionTool(ctx, toolName, toolParams, result, callSig, outputSig, inspection, concrete)
 	}
 	if _, loop := a.noProgress.observe(callSig, outputSig); loop {
 		return result, toolRan, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
 	}
-	inspection, concrete := a.classifyForProgress(tool, toolParams)
 	if streak, loop := a.inspection.observe(inspection, concrete, !result.IsError); loop {
 		return result, toolRan, fmt.Errorf("%w: %d consecutive read-only inspections completed without a state-changing action", ErrInspectionLoop, streak)
 	}

@@ -79,9 +79,17 @@ func (p *MissionProgress) Advanced(a *Agent) bool {
 
 var goTestTiming = regexp.MustCompile(`(?m)^(ok[ \t]+[^ \t\n]+)[ \t]+(?:\(cached\)|[0-9]+(?:\.[0-9]+)?s)[ \t]*$`)
 
-func observeMissionTool(ctx context.Context, toolName string, params map[string]any, result tools.Result, callSig, outputSig string) {
+func observeMissionTool(ctx context.Context, toolName string, params map[string]any, result tools.Result, callSig, outputSig string, inspection, concrete bool) {
 	p, _ := ctx.Value(missionProgressKey{}).(*MissionProgress)
 	if p == nil || result.IsError {
+		return
+	}
+	// Only concrete artifact work counts as cross-turn evidence. Reads never
+	// do — not even reads of new files — otherwise a mission that keeps
+	// opening new references looks productive forever without ever writing.
+	// Bookkeeping (TodoWrite, SessionNotes, task tools) is tracked separately
+	// via completed checklist items in Advanced, not here.
+	if !concrete {
 		return
 	}
 	switch toolName {
