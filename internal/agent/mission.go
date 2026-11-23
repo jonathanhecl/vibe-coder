@@ -76,7 +76,8 @@ func (a *Agent) resetTurnToolCalls() { a.turnToolCalls.Store(0) }
 func (a *Agent) noteToolExecuted() { a.turnToolCalls.Add(1) }
 
 // ToolCallsThisTurn reports how many tools executed in the last/current Run.
-// The mission loop uses it to detect a turn that produced no work.
+// The mission loop uses it as a decision-review trigger and for run logs; the
+// cross-turn progress tracker is what decides whether a turn produced new work.
 func (a *Agent) ToolCallsThisTurn() int { return int(a.turnToolCalls.Load()) }
 
 // SaveSession flushes the session to disk. The mission loop calls it after

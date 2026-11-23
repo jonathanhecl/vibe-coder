@@ -192,6 +192,10 @@ func runContinuationPrompt(rootCtx context.Context, ag *agent.Agent, ui tui.UI) 
 }
 
 func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, start func(context.Context) error) error {
+	// One evidence window per user invocation: completed checklist items from
+	// before this run are the baseline, and the stall guard only credits new
+	// tool evidence gathered while this run is alive.
+	rootCtx, progress := ag.TrackMissionProgress(rootCtx)
 	err := start(rootCtx)
 	saveMissionProgress(ag)
 	// Log even when the mission finished inside the first turn (small batches
@@ -203,7 +207,7 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 		}
 	}
 	emptyStreak := 0
-	idleStreak := 0
+	stalledTurns := 0
 	// A pause already told the user why the mission stopped; reporting the same
 	// error again adds noise, not information.
 	pauseReported := false
@@ -269,15 +273,15 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 			pauseReported = true
 			break
 		}
-		// Stall guard: a turn that executed no tool at all did no work. This is
-		// progress-based, not a turn budget: a mission doing real work keeps
-		// running indefinitely.
-		if ag.ToolCallsThisTurn() == 0 {
-			idleStreak++
+		// Stall guard: a turn is productive only when it adds new evidence or
+		// completes checklist items. Repeating identical calls with identical
+		// outputs across turns is not progress, even if each turn ran tools.
+		if progress.Advanced(ag) {
+			stalledTurns = 0
 		} else {
-			idleStreak = 0
+			stalledTurns++
 		}
-		if ag.PendingTodoCount() == 0 || idleStreak > 0 {
+		if ag.PendingTodoCount() == 0 || ag.ToolCallsThisTurn() == 0 {
 			completed, reviewed, checkErr := reviewMissionCompletion(rootCtx)
 			if checkErr == nil && completed {
 				ag.CompleteMission("Completed (verified by the decision model)")
@@ -293,9 +297,10 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 				fmt.Fprintln(os.Stdout, "[mission] Decision review: goal not yet complete; continuing with the checklist.")
 			}
 		}
-		if idleStreak >= 3 {
-			ag.BlockActiveMission("Several consecutive turns ran no tools; mission paused so the agent does not spin.")
-			fmt.Fprintln(os.Stderr, "Mission paused: no tool activity for several turns. The agent needs your input.")
+		if stalledTurns >= 3 {
+			ag.BlockActiveMission("Three consecutive turns produced no new evidence or checklist progress.")
+			fmt.Fprintln(os.Stderr, "Mission paused: no new progress for three turns. Press Enter to resume, or type a correction.")
+			ag.PersistWorkState()
 			saveMissionProgress(ag)
 			ag.LogMissionTurn(err)
 			pauseReported = true
@@ -303,7 +308,11 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 		}
 		m := ag.MissionSnapshot()
 		fmt.Fprintf(os.Stdout, "[mission] continuing autonomously (turn %d)\n", m.Turns+1)
-		err = runAgentWithEmptyRetry(rootCtx, ag, ui, ag.MissionContinuationPrompt())
+		next := ag.MissionContinuationPrompt()
+		if stalledTurns == 2 {
+			next += " The last two turns produced no new progress. Use the evidence already gathered. Take a different concrete action, finish if the goal is satisfied, or identify the missing fact or decision; do not repeat the same checks on unchanged inputs."
+		}
+		err = runAgentWithEmptyRetry(rootCtx, ag, ui, next)
 		// Flush each turn so a crash or restart resumes the mission where it left off.
 		saveMissionProgress(ag)
 		ag.LogMissionTurn(err)

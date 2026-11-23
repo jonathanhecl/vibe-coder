@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -34,8 +35,9 @@ const (
 // API and returns a scripted reply for every chat turn. It lets these tests
 // exercise the real client/agent/mission-loop stack without a model.
 type fakeOllama struct {
-	mode  string
-	calls atomic.Int64
+	mode         string
+	calls        atomic.Int64
+	nudgesOnWire atomic.Int64
 }
 
 func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
@@ -55,8 +57,25 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 	mux.HandleFunc("/api/show", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, `{"model":"fake:latest","capabilities":["completion"]}`)
 	})
-	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
 		n := f.calls.Add(1)
+		if f.mode == "mixed-progress" {
+			// Verify the corrective prompt actually reached the model, not just
+			// the stored session: n=11 is the first model call after the nudged
+			// continuation (n=1 start, n=2-4 first turn, n=5-7 stalled turn 1,
+			// n=8-10 stalled turn 2). Later calls may carry the same message in
+			// history, so only this call proves it was sent.
+			var request ollama.ChatRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			for _, message := range request.Messages {
+				if strings.Contains(message.Content, "The last two turns produced no new progress") && n == 11 {
+					f.nudgesOnWire.Add(1)
+				}
+			}
+		}
 		content := ""
 		switch {
 		case n > hardChatCap:
@@ -75,6 +94,35 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 			// A different state-changing call every time: real work, so only the
 			// per-turn step budget can end this turn.
 			content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf x > .busy-%d"}</invoke>`, n)
+		case f.mode == "mixed-progress":
+			if n == 1 {
+				content = fakeMissionStart
+			} else {
+				// Alternate a stable read, a stable check and a plain-text turn
+				// ender. Every (call, output) pair repeats from the second turn
+				// on, so no single-turn guard can ever stop this.
+				switch (n - 2) % 3 {
+				case 0:
+					content = `<invoke name="Bash">{"command":"cat evidence.txt"}</invoke>`
+				case 1:
+					content = `<invoke name="Bash">{"command":"sh verify.sh"}</invoke>`
+				default:
+					content = "continuing work"
+				}
+			}
+		case f.mode == "productive-reads":
+			if n == 1 {
+				content = fakeMissionStart
+			} else if n == 12 {
+				content = `<invoke name="MissionComplete">{"summary":"Reviewed all evidence"}</invoke>`
+			} else if n%2 == 0 {
+				// Read-only commands whose output changes every time are real
+				// evidence: each one advances the run, so the stall guard must
+				// never fire no matter how many turns pass.
+				content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'finding %d'"}</invoke>`, n)
+			} else {
+				content = "continuing review"
+			}
 		case f.mode == "loop-inspect":
 			if n == 1 {
 				content = fakeMissionStart
@@ -184,6 +232,81 @@ func TestRunPromptPausesInspectionOnlyLoop(t *testing.T) {
 	}
 	if calls := fake.calls.Load(); calls > 16 {
 		t.Fatalf("inspection guard fired too late: %d chat calls", calls)
+	}
+}
+
+// A mission that alternates different tool calls can still spin: every
+// (call, output) pair repeats identically each turn, so neither the repeated-
+// call guard nor the inspection guard fires. The cross-turn evidence tracker
+// must count three turns with no new progress, nudge once, then pause.
+func TestRunPromptPausesAcrossTurnsWithoutNewProgress(t *testing.T) {
+	srv, fake := newFakeOllama(t, "mixed-progress")
+	ag, ui, sess := newHTTPTestAgentWithSession(t, srv.URL)
+	if err := os.WriteFile("evidence.txt", []byte("fixed evidence\n"), 0o644); err != nil {
+		t.Fatalf("write evidence.txt: %v", err)
+	}
+	if err := os.WriteFile("verify.sh", []byte("printf 'tests passed\\n'\n"), 0o644); err != nil {
+		t.Fatalf("write verify.sh: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := runPrompt(ctx, ag, ui, "continue"); err != nil {
+		t.Fatalf("runPrompt returned an error instead of pausing: %v", err)
+	}
+
+	snap := ag.MissionSnapshot()
+	if snap.Status != tools.MissionStatusBlocked {
+		t.Fatalf("expected mission status %q, got %q", tools.MissionStatusBlocked, snap.Status)
+	}
+	if !strings.Contains(strings.ToLower(snap.Summary), "no new evidence") {
+		t.Fatalf("pause reason should mention the missing new evidence, got %q", snap.Summary)
+	}
+	if calls := fake.calls.Load(); calls != 13 {
+		t.Fatalf("expected exactly 13 chat calls (mission start + four 3-call turns), got %d", calls)
+	}
+	if !ag.CanResume() {
+		t.Fatal("a stalled mission must stay resumable with Enter")
+	}
+	if state := sess.WorkState(); !strings.Contains(string(state), "no new evidence") {
+		t.Fatalf("serialized work state should carry the stall reason, got %s", state)
+	}
+	nudges := 0
+	for _, msg := range sess.MessagesReadOnly() {
+		if strings.Contains(msg.Content, "The last two turns produced no new progress") {
+			nudges++
+		}
+	}
+	if nudges != 1 {
+		t.Fatalf("expected exactly one corrective continuation prompt, got %d", nudges)
+	}
+	if got := fake.nudgesOnWire.Load(); got != 1 {
+		t.Fatalf("expected the corrective prompt on the model wire exactly once, got %d", got)
+	}
+}
+
+// The mirror of the stall guard: a mission doing productive read-only work —
+// every command returns new output — must keep running past the three-turn
+// boundary and end on its own MissionComplete, not on a pause.
+func TestRunPromptContinuesWithNewReadOnlyEvidence(t *testing.T) {
+	srv, fake := newFakeOllama(t, "productive-reads")
+	ag, ui := newHTTPTestAgent(t, srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := runPrompt(ctx, ag, ui, "continue"); err != nil {
+		t.Fatalf("runPrompt returned an error instead of completing: %v", err)
+	}
+
+	snap := ag.MissionSnapshot()
+	if snap.Status != tools.MissionStatusCompleted {
+		t.Fatalf("expected mission status %q, got %q (%q)", tools.MissionStatusCompleted, snap.Status, snap.Summary)
+	}
+	if snap.Summary != "Reviewed all evidence" {
+		t.Fatalf("expected the model's own completion summary, got %q", snap.Summary)
+	}
+	if calls := fake.calls.Load(); calls != 12 {
+		t.Fatalf("expected exactly 12 chat calls (5 productive continuation turns), got %d", calls)
 	}
 }
 

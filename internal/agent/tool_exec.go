@@ -248,7 +248,11 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 			queueOrRun(postCheck)
 		}
 	}
-	if _, loop := a.noProgress.observe(toolCallSignature(toolName, toolParams), toolOutputSignature(result)); loop {
+	callSig, outputSig := toolCallSignature(toolName, toolParams), toolOutputSignature(result)
+	if !mode.skipSessionRecord && a.MissionActive() {
+		observeMissionTool(ctx, toolName, toolParams, result, callSig, outputSig)
+	}
+	if _, loop := a.noProgress.observe(callSig, outputSig); loop {
 		return result, toolRan, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
 	}
 	if streak, loop := a.inspection.observe(a.isLocalInspection(tool, toolParams), !result.IsError); loop {

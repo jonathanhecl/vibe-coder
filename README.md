@@ -86,8 +86,14 @@ active the run is **unattended**: Ask and
 Network tools are auto-approved so nothing blocks waiting for the user, while
 mandatory dangerous-command confirmations are denied (never prompted) so the
 agent gets a denial and can adapt or call `MissionBlocked`. Empty responses are
-retried automatically and, if they persist, or if several turns run no tools at
-all, the mission is paused instead of spinning. A turn whose visible answer
+retried automatically and, if they persist, the mission is paused instead of
+spinning. Progress is tracked across turns too: a run-scoped evidence window
+records each successful tool call plus output (with volatile timing normalized)
+and newly completed checklist items. After two consecutive turns with no new
+evidence the next continuation carries a corrective nudge to act on what is
+already gathered; a third consecutive stalled turn pauses the mission as
+resumable — changing outputs or completing a task resets the streak, and
+pressing Enter resumes with a fresh window. A turn whose visible answer
 repeats while the checklist does not move is stopped after the second repeat,
 with the pending item named, and a model whose reasoning keeps looping without
 an answer is stopped after two loop detections, instead of asking the model
