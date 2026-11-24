@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -52,6 +53,12 @@ type HybridUI struct {
 	mu        sync.Mutex
 	status    StatusInfo
 	slashCmds []SlashCommand
+
+	// Thinking-block streaming state (guarded by plain.mu).
+	thinkActive      bool
+	thinkStart       time.Time
+	thinkAtLineStart bool
+	thinkCol         int
 }
 
 // NewHybrid constructs a HybridUI bound to standard streams.
@@ -119,38 +126,28 @@ func (h *HybridUI) SetSlashCommands(cmds []SlashCommand) {
 	h.mu.Unlock()
 }
 
-func (h *HybridUI) StreamAssistant(text string) { h.plain.StreamAssistant(text) }
+func (h *HybridUI) StreamAssistant(text string) { h.streamAssistant(text) }
 
-func (h *HybridUI) EndAssistant(usage TurnUsage) { h.plain.EndAssistant(usage) }
+func (h *HybridUI) EndAssistant(usage TurnUsage) { h.endAssistant(usage) }
 
-func (h *HybridUI) StreamThinking(text string) { h.plain.StreamThinking(text) }
+func (h *HybridUI) StreamThinking(text string) { h.streamThinking(text) }
 
-func (h *HybridUI) EndThinking() { h.plain.EndThinking() }
+func (h *HybridUI) EndThinking() { h.endThinking() }
 
 func (h *HybridUI) StartWaiting(label string) { h.plain.StartWaiting(label) }
 
 func (h *HybridUI) StopWaiting() { h.plain.StopWaiting() }
 
 func (h *HybridUI) ShowToolCall(name string, params map[string]any) {
-	h.plain.ShowToolCall(name, params)
+	h.showToolCall(name, params)
 }
 
 func (h *HybridUI) ShowToolResult(name, output string, isError bool, toolParams map[string]any) {
-	h.plain.ShowToolResult(name, output, isError, toolParams)
+	h.showToolResult(name, output, isError, toolParams)
 }
 
 func (h *HybridUI) ShowTodos(items []TodoItem) {
-	done := 0
-	for _, it := range items {
-		if it.Status == todoStatusCompleted {
-			done++
-		}
-	}
-	h.mu.Lock()
-	h.status.TodosDone = done
-	h.status.TodosTotal = len(items)
-	h.mu.Unlock()
-	h.plain.ShowTodos(items)
+	h.showTodos(items)
 }
 
 func (h *HybridUI) CollapseAssistantOutput() { h.plain.CollapseAssistantOutput() }
@@ -198,7 +195,7 @@ func (h *HybridUI) GetInput(prompt string) (string, error) {
 	}
 
 	h.plain.mu.Lock()
-	echo := h.plain.renderPromptString(prompt) + formatScrollbackEcho(val)
+	echo := h.renderUserEcho(prompt, val)
 	_, _ = fmt.Fprintln(h.plain.out, echo)
 	h.plain.mu.Unlock()
 	return val, nil

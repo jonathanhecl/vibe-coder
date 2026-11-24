@@ -234,3 +234,131 @@ func TestHybridUINonTTYDelegationAndState(t *testing.T) {
 		t.Fatalf("expected pipe fallback input, got %q err=%v", got, err)
 	}
 }
+
+func newStyledHybridForTest(out *bytes.Buffer) *HybridUI {
+	st := NewStyleForTest(true)
+	plain := &PlainUI{
+		out:      out,
+		outIsTTY: true,
+		style:    st,
+		markdown: NewRichMarkdownRenderer(st),
+		stopCh:   make(chan struct{}),
+		history:  &inputHistory{},
+	}
+	return &HybridUI{
+		plain:  plain,
+		status: StatusInfo{ContextPct: -1},
+	}
+}
+
+func TestHybridThinkingBlockStreamingAndWrap(t *testing.T) {
+	var out bytes.Buffer
+	h := newStyledHybridForTest(&out)
+
+	h.StreamThinking("First line of thought.\n")
+	h.StreamThinking(strings.Repeat("a", 95))
+	h.EndThinking()
+
+	got := out.String()
+	if !strings.Contains(got, "╭─ 💭 Thinking") {
+		t.Fatalf("expected thinking block header, got:\n%s", got)
+	}
+	if !strings.Contains(got, "│") {
+		t.Fatalf("expected continuous left rail in thinking block, got:\n%s", got)
+	}
+	if !strings.Contains(got, "╰─") || !strings.Contains(got, "thought for") {
+		t.Fatalf("expected thinking block footer with duration, got:\n%s", got)
+	}
+	// Wrapped 95-char line should produce at least 3 rail-prefixed lines (1 header text + 2 wrapped).
+	if count := strings.Count(got, "│"); count < 3 {
+		t.Fatalf("expected wrapped thinking lines with rail, got %d rails:\n%s", count, got)
+	}
+}
+
+func TestHybridInBandThinkTagsRenderInBlock(t *testing.T) {
+	var out bytes.Buffer
+	h := newStyledHybridForTest(&out)
+	h.StartTurn()
+
+	h.StreamAssistant("<think>checking files</think>Here is the answer.\n")
+	h.EndAssistant(TurnUsage{CompletionTokens: 20, EvalDuration: 500 * time.Millisecond})
+
+	got := out.String()
+	if !strings.Contains(got, "╭─ 💭 Thinking") || !strings.Contains(got, "checking files") || !strings.Contains(got, "thought for") {
+		t.Fatalf("expected in-band <think> rendered inside thinking block, got:\n%s", got)
+	}
+	if !strings.Contains(got, "● assistant") || !strings.Contains(got, "Here is the answer.") {
+		t.Fatalf("expected assistant header and body, got:\n%s", got)
+	}
+	if !strings.Contains(got, "responded in") || !strings.Contains(got, "40.0 tok/s") {
+		t.Fatalf("expected turn footer with speed, got:\n%s", got)
+	}
+}
+
+func TestHybridToolResultCardWithDiffAndError(t *testing.T) {
+	var out bytes.Buffer
+	h := newStyledHybridForTest(&out)
+
+	h.ShowToolResult("Edit", "updated", false, map[string]any{
+		"file_path":  "internal/app.go",
+		"old_string": "a := 1",
+		"new_string": "a := 2",
+		"_diff":      "@@ -1,1 +1,1 @@\n-a := 1\n+a := 2\n",
+	})
+	h.ShowToolResult("Bash", "exit status 1\ntest failed", true, map[string]any{
+		"command": "go test ./...",
+	})
+
+	got := out.String()
+	if !strings.Contains(got, "✓") || !strings.Contains(got, "Edit") || !strings.Contains(got, "+a := 2") {
+		t.Fatalf("expected styled Edit tool card with diff, got:\n%s", got)
+	}
+	if !strings.Contains(got, "✗") || !strings.Contains(got, "error") || !strings.Contains(got, "test failed") {
+		t.Fatalf("expected styled Bash error card, got:\n%s", got)
+	}
+}
+
+func TestHybridTodosPanelWithProgressBar(t *testing.T) {
+	var out bytes.Buffer
+	h := newStyledHybridForTest(&out)
+
+	h.ShowTodos([]TodoItem{
+		{ID: "1", Content: "Read code", Status: todoStatusCompleted},
+		{ID: "2", Content: "Update UI", Status: todoStatusInProgress},
+		{ID: "3", Content: "Run tests", Status: todoStatusPending},
+	})
+
+	got := out.String()
+	if !strings.Contains(got, "To-dos") || !strings.Contains(got, "1/3") {
+		t.Fatalf("expected To-dos header with 1/3 progress, got:\n%s", got)
+	}
+	if !strings.Contains(got, "█") || !strings.Contains(got, "░") {
+		t.Fatalf("expected progress bar glyphs, got:\n%s", got)
+	}
+	if !strings.Contains(got, "╭") || !strings.Contains(got, "╯") {
+		t.Fatalf("expected rounded panel border, got:\n%s", got)
+	}
+}
+
+func TestHybridStyleDisabledFallsBackToPlain(t *testing.T) {
+	var out bytes.Buffer
+	plain := &PlainUI{
+		out:      &out,
+		style:    NewStyleForTest(false),
+		markdown: NewMarkdownRenderer(NewStyleForTest(false)),
+		stopCh:   make(chan struct{}),
+	}
+	h := &HybridUI{plain: plain, status: StatusInfo{ContextPct: -1}}
+
+	h.StreamThinking("plain thought\n")
+	h.EndThinking()
+	h.ShowTodos([]TodoItem{{ID: "1", Content: "Step 1", Status: todoStatusPending}})
+
+	got := out.String()
+	if strings.Contains(got, "╭─") || strings.Contains(got, "● assistant") {
+		t.Fatalf("non-styled output should fall back to PlainUI formatting, got:\n%s", got)
+	}
+	if !strings.Contains(got, "plain thought") || !strings.Contains(got, "To-dos 1") {
+		t.Fatalf("missing plain content, got:\n%s", got)
+	}
+}
