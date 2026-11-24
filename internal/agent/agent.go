@@ -284,6 +284,37 @@ func (a *Agent) InPlanMode() bool {
 	return a.planMode
 }
 
+// SetUI replaces the active terminal UI in-place (used by /ui hot-swap).
+func (a *Agent) SetUI(ui tui.UI) {
+	if a == nil || ui == nil {
+		return
+	}
+	a.mu.Lock()
+	a.ui = ui
+	a.mu.Unlock()
+}
+
+// TodoCounts returns the number of completed and total meaningful TODO items.
+func (a *Agent) TodoCounts() (done, total int) {
+	if a == nil {
+		return 0, 0
+	}
+	tw := a.todoWriteTool()
+	if tw == nil {
+		return 0, 0
+	}
+	for _, it := range tw.Store().Snapshot() {
+		if !isMeaningfulTodoContent(it.Content) {
+			continue
+		}
+		total++
+		if it.Status == tools.TodoStatusCompleted {
+			done++
+		}
+	}
+	return done, total
+}
+
 func (a *Agent) EnterReviewMode() {
 	a.mu.Lock()
 	defer a.mu.Unlock()

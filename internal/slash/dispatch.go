@@ -41,6 +41,8 @@ type Ctx struct {
 	// used by the Diagnostics tool. Optional: when nil the row reports that no
 	// server resolved for this workspace.
 	LSP LSPReporter
+	// OnUIChange hot-swaps the active terminal UI when /ui switches modes.
+	OnUIChange func(mode string) error
 }
 
 // MCPReporter exposes the state of the configured MCP servers. *mcp.Manager
@@ -246,6 +248,8 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 		return true, false, nil
 	case "/offline":
 		return true, false, runOfflineCommand(c, fields[1:])
+	case "/ui":
+		return true, false, runUICommand(c, fields[1:])
 	case "/compact":
 		before := c.Session.TokenEstimate()
 		if compactor, ok := c.Agent.(interface{ CompactNow(context.Context) error }); ok {

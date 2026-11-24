@@ -156,6 +156,8 @@ func main() {
 	if err != nil {
 		exitWithError(err)
 	}
+	wireHybridSlashCommands(ui)
+	uiBox := newUIHolder(ui)
 	st := tui.NewStyle(os.Stdout)
 	background.DefaultManager().OnTaskFinished(func(task *background.Task) {
 		snap := task.Snapshot()
@@ -264,11 +266,11 @@ func main() {
 	fileWatcher := watcher.New(cfg.Cwd)
 	ag.SetWatcher(fileWatcher)
 	defer fileWatcher.Close()
-	defer ui.Stop()
+	defer uiBox.Stop()
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
-	installSignalHandler(ui, sess, globalInterrupter)
+	installSignalHandler(uiBox, sess, globalInterrupter)
 
 	logger.Infof("Configuring RAG...")
 	ragHandled, ragMsg, ragClose, ragErr := configureRAG(rootCtx, cfg, embeddingClientFor(cfg, client, sideClient), ag)
@@ -346,7 +348,7 @@ func main() {
 		reportPendingWork(ag)
 	}
 	logger.Infof("Entering interactive REPL loop.")
-	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore, mcpMgr, lspMgr)
+	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, reg, uiBox, ctxStore, mcpMgr, lspMgr)
 	logger.Infof("Exiting interactive REPL loop, finishing execution.")
 }
 

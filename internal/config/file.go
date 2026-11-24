@@ -311,6 +311,14 @@ func (c *Config) persistEntries() (map[string]string, []string) {
 		"PERMISSION_TIMEOUT": formatPermissionTimeoutSetting(c.PermissionTimeout),
 	}
 	ordered := []string{"HIDE_THINK", "THINK", "KEEP_ALIVE_MAIN", "KEEP_ALIVE_WORKER", "SKILLS_DIRS", "PERMISSION_TIMEOUT"}
+	if ui := strings.TrimSpace(c.UI); ui != "" {
+		if norm, ok := NormalizeUIMode(ui); ok {
+			updates["UI"] = norm
+		} else {
+			updates["UI"] = ui
+		}
+		ordered = append(ordered, "UI")
+	}
 
 	for _, name := range c.ProviderNames() {
 		p := c.Providers[name]

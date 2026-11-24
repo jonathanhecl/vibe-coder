@@ -8,14 +8,16 @@ import (
 )
 
 // NewFromMode builds a terminal UI implementation from a user-facing mode.
-// Supported values: plain, rich.
+// Supported values: plain, cli, tui, hybrid, rich.
 func NewFromMode(cfg *config.Config) (UI, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.UI)) {
-	case "", "plain":
+	case "", "plain", "cli":
 		return NewPlain(cfg), nil
+	case "tui", "hybrid":
+		return NewHybrid(cfg), nil
 	case "rich":
 		return NewRich(cfg), nil
 	default:
-		return nil, fmt.Errorf("invalid ui mode %q: expected plain or rich", cfg.UI)
+		return nil, fmt.Errorf("invalid ui mode %q: expected plain, cli, tui, or rich", cfg.UI)
 	}
 }

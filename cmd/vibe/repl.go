@@ -46,7 +46,7 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	), nil
 }
 
-func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, ui tui.UI, ctxStore *contextfiles.Store, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) {
+func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client ollama.Client, ag *agent.Agent, sess *session.Session, perm *permissions.Manager, reg *tools.Registry, uiBox *uiHolder, ctxStore *contextfiles.Store, mcpMgr *mcp.Manager, lspMgr *lsp.Manager) {
 	// Model listing (/models) should come from the default provider, not from
 	// the main model's chat client, so capabilities match the provider's API.
 	// The main client stays available for live capability probes.
@@ -64,13 +64,16 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 		DefaultLister: defaultLister,
 		Out:           os.Stdout,
 		Contexts:      ctxStore,
-		Prompter:      ui,
+		Prompter:      uiBox.Get(),
 		MCP:           mcpMgr,
 		LSP:           lspMgr,
 	}
+	slashCtx.OnUIChange = makeUISwitcher(cfg, ag, sess, reg, uiBox, slashCtx)
 
 	for {
+		ui := uiBox.Get()
 		ui.SetPlanMode(ag.InPlanMode())
+		syncUIStatus(ui, cfg, ag, sess)
 		line, err := ui.GetInput("> ")
 		if err != nil {
 			if cfg == nil || !cfg.Temporal {

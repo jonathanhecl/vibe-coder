@@ -823,3 +823,64 @@ func TestEndpointAndProviderPrecedence(t *testing.T) {
 		t.Errorf("expected sidecar endpoint not to be OpenAI")
 	}
 }
+
+func TestNormalizeAndLoadUIModeAliases(t *testing.T) {
+	cases := []struct {
+		flag string
+		want string
+	}{
+		{"plain", "plain"},
+		{"cli", "plain"},
+		{"tui", "tui"},
+		{"hybrid", "tui"},
+		{"rich", "rich"},
+	}
+	for _, tc := range cases {
+		tmp := t.TempDir()
+		t.Setenv("LOCALAPPDATA", tmp)
+		t.Setenv("VIBE_CODER_CONFIG", filepath.Join(tmp, "vibe-coder.env"))
+		cfg, err := Load([]string{"--ui", tc.flag})
+		if err != nil {
+			t.Fatalf("Load(--ui %s) failed: %v", tc.flag, err)
+		}
+		if cfg.UI != tc.want {
+			t.Fatalf("--ui %s: got %q, want %q", tc.flag, cfg.UI, tc.want)
+		}
+	}
+}
+
+func TestSaveModelSettingsPersistsUI(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "vibe-coder.env")
+	t.Setenv("LOCALAPPDATA", tmp)
+	t.Setenv("VIBE_CODER_CONFIG", cfgPath)
+
+	cfg := &Config{
+		ConfigDir:  tmp,
+		ConfigFile: cfgPath,
+		UI:         "tui",
+		Model:      "qwen3:8b",
+	}
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatalf("SaveModelSettings(tui): %v", err)
+	}
+	loaded, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load after tui save: %v", err)
+	}
+	if loaded.UI != "tui" {
+		t.Fatalf("expected persisted UI=tui, got %q", loaded.UI)
+	}
+
+	cfg.UI = "cli"
+	if err := SaveModelSettings(cfg); err != nil {
+		t.Fatalf("SaveModelSettings(cli): %v", err)
+	}
+	loaded2, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load after cli save: %v", err)
+	}
+	if loaded2.UI != "plain" {
+		t.Fatalf("expected normalized UI=plain, got %q", loaded2.UI)
+	}
+}

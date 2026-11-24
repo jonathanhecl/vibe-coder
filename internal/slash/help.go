@@ -7,13 +7,13 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
-func printHelp(c *Ctx) {
-	st := tui.NewStyle(c.Out)
-	fmt.Fprintln(c.Out, st.BoldCyan("vibe-coder commands"))
-	groups := []struct {
-		title string
-		items [][2]string
-	}{
+type helpGroup struct {
+	title string
+	items [][2]string
+}
+
+func helpGroups() []helpGroup {
+	return []helpGroup{
 		{"Session", [][2]string{
 			{"/save", "persist model/thinking settings (and the session when permanent)"},
 			{"/promote", "keep a temporal session (promote to permanent)"},
@@ -66,6 +66,7 @@ func printHelp(c *Ctx) {
 			{"/setmodel [PROVIDER] <role> off", "unbind a role"},
 		}},
 		{"Mode", [][2]string{
+			{"/ui [tui|cli|plain|rich]", "show or switch UI mode in-place and save to settings"},
 			{"/yes", "auto-approve subsequent permission prompts"},
 			{"/allow_all true|false", "toggle auto-approve (same as /yes and /no)"},
 			{"/no", "require manual approval (default)"},
@@ -95,6 +96,35 @@ func printHelp(c *Ctx) {
 			{"ESC ESC (double-tap)", "stop the running agent and return to prompt"},
 		}},
 	}
+}
+
+// CommandCatalog returns primary slash command names and descriptions for
+// interactive autocomplete.
+func CommandCatalog() [][2]string {
+	seen := map[string]bool{}
+	var out [][2]string
+	for _, g := range helpGroups() {
+		for _, it := range g.items {
+			head := strings.Split(it[0], ",")[0]
+			fields := strings.Fields(head)
+			if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
+				continue
+			}
+			cmd := fields[0]
+			if seen[cmd] {
+				continue
+			}
+			seen[cmd] = true
+			out = append(out, [2]string{cmd, it[1]})
+		}
+	}
+	return out
+}
+
+func printHelp(c *Ctx) {
+	st := tui.NewStyle(c.Out)
+	fmt.Fprintln(c.Out, st.BoldCyan("vibe-coder commands"))
+	groups := helpGroups()
 	maxCmd := 0
 	for _, g := range groups {
 		for _, it := range g.items {

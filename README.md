@@ -152,7 +152,7 @@ works as before. A bare Enter with nothing resumable is a no-op.
 
 ### TUI
 
-- **Two UI modes**: `plain` (default, line-based) and `rich` (Bubble Tea + Lipgloss with pinned status bar, themed markdown, and syntax highlighting). Select with `--ui rich`.
+- **Three UI modes**: `plain` (default, line-based CLI), `tui` (hybrid Bubble Tea + Lipgloss inline composer, live status bar, slash autocomplete, and interactive permission/question cards while preserving native terminal scrollback and mouse copy-paste), and `rich` (pinned status bar + syntax-highlighted markdown). Select with `--ui tui` or switch in-place with `/ui tui` / `/ui cli` (persisted automatically to `vibe-coder.env`).
 - **To-do panel** — `TodoWrite` renders a live Cursor-style task list with status glyphs.
 - **Inline diff renderer** — `Edit` tool shows colored unified-diff (red/green/cyan) with 50-line truncation.
 - **Type-ahead** — keystrokes pressed mid-generation are captured and prefilled into the next prompt.
@@ -591,7 +591,7 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 
 - `--version` — print version and exit
 - `--help` — show usage and exit
-- `--ui <mode>` — UI mode (`plain` or `rich`)
+- `--ui <mode>` — UI mode (`plain`, `cli`, `tui`, or `rich`)
 - `-p, --prompt <text>` — one-shot prompt
 - `-i, --interactive` — interactive mode (combine with `-p` to send an initial prompt and keep chatting)
 - `-m, --model <name>` — model name
@@ -874,6 +874,7 @@ These settings persist as `PROVIDER_<NAME>_KIND`, `PROVIDER_<NAME>_ENDPOINT`, `P
 
 ### Mode
 
+- `/ui [tui|cli|plain|rich]` — show or switch UI mode in-place (`tui` = hybrid Bubble Tea composer + status bar with native scrollback, `cli`/`plain` = classic line-based CLI, `rich` = pinned status bar) and save to `vibe-coder.env`
 - `/yes` — auto-approve subsequent permission prompts
 - `/yes assisted` — enable assisted execution mode (auto-approve safe commands via the decision model)
 - `/no` — require manual approval (default)

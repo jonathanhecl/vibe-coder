@@ -316,17 +316,28 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 }
 
+// NormalizeUIMode maps UI mode aliases onto their canonical mode names.
+func NormalizeUIMode(mode string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "plain", "cli":
+		return "plain", true
+	case "tui", "hybrid":
+		return "tui", true
+	case "rich":
+		return "rich", true
+	default:
+		return "", false
+	}
+}
+
 func validateUIMode(mode string) error {
-	v := strings.ToLower(strings.TrimSpace(mode))
-	if v == "" {
+	if strings.TrimSpace(mode) == "" {
 		return errors.New("ui mode cannot be empty")
 	}
-	switch v {
-	case "plain", "rich":
-		return nil
-	default:
-		return fmt.Errorf("invalid ui mode %q: expected plain or rich", mode)
+	if _, ok := NormalizeUIMode(mode); !ok {
+		return fmt.Errorf("invalid ui mode %q: expected plain, cli, tui, or rich", mode)
 	}
+	return nil
 }
 
 type optionalString struct {

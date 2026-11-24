@@ -292,6 +292,9 @@ func Load(args []string) (*Config, error) {
 	if err := validateUIMode(cfg.UI); err != nil {
 		return nil, err
 	}
+	if norm, ok := NormalizeUIMode(cfg.UI); ok {
+		cfg.UI = norm
+	}
 	if norm, ok := ollama.NormalizeThinkLevel(cfg.OllamaThinkLevel); !ok {
 		return nil, fmt.Errorf("invalid think level %q: expected off|low|medium|high|max", cfg.OllamaThinkLevel)
 	} else {
@@ -327,7 +330,7 @@ func Usage(binName string) string {
 Flags:
   --version                 Print version and exit
   --help                    Show this help and exit
-  --ui string               UI mode (plain|rich)
+  --ui string               UI mode (plain|cli|tui|rich)
   -p, --prompt string       One-shot prompt
   --goal                    Run -p prompt in autonomous goal mode (unattended, continues across step caps)
   -i, --interactive         Interactive mode (with -p, keep chatting)
