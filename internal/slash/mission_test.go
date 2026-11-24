@@ -55,6 +55,9 @@ func TestMissionStatusWithoutMission(t *testing.T) {
 	if !strings.Contains(out.String(), "No mission") {
 		t.Fatalf("expected a no-mission notice, got %q", out.String())
 	}
+	if !strings.Contains(out.String(), "/goal") {
+		t.Fatalf("expected /goal hint in no-mission notice, got %q", out.String())
+	}
 }
 
 func TestMissionStatusShowsActiveMission(t *testing.T) {

@@ -68,19 +68,17 @@ Rules:
 - Append one line per item, in dataset order. Do not rewrite or reorder lines.
 - Use `Read` to check the file and `Write`/`Edit` to append.
 
-## Checklist and mission lifecycle
+## Checklist and autonomous lifecycle
 
 1. Call `TodoWrite` once with a short plan. Keep every TODO entry to at most
    6 words and never paste this guide into a TODO. Example entries:
    `process item-01`, `process item-02`, `process item-03`, `finish`.
-2. Call `MissionStart` with the goal: "Process every item in dataset.jsonl
-   through the local job API and record only verified results in results.jsonl."
-3. Work one item at a time, using `HTTPRequest` for the API calls. After each
+2. Work one item at a time, using `HTTPRequest` for the API calls. After each
    verified item, update its TODO to `completed`.
-4. Do not stop with plain text while items remain. Keep calling tools. If a
+3. Do not stop with plain text while items remain. Keep calling tools. If a
    reply would be empty, call the next tool instead.
-5. After every item has a verified line in `results.jsonl`, call
-   `MissionComplete` with a short summary (items processed and retries used).
+4. After every item has a verified line in `results.jsonl` and all TODOs are
+   `completed`, reply with a short summary (items processed and retries used).
 
 ## Success criteria
 

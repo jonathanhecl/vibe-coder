@@ -31,7 +31,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/watcher"
 )
 
-const maxExternalEmptyRetries = 3
+const maxExternalEmptyRetries = 2
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
@@ -201,7 +201,6 @@ func main() {
 	}
 	if decider != nil && decider.Enabled() {
 		perm.SetSafetyDecider(decider)
-		reg.Register(tools.NewDecideTool(decider))
 	}
 	// One shared sidecar pool for the agent and the DescribeImage tool so
 	// vision second-opinions respect the same load controls as summaries.

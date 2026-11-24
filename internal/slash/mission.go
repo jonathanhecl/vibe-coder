@@ -44,7 +44,7 @@ func runMissionCommand(c *Ctx, args []string) error {
 	case "done", "complete", "finish":
 		m := mc.MissionSnapshot()
 		if m.Status != tools.MissionStatusActive {
-			fmt.Fprintln(c.Out, "No active mission to complete. The agent declares one with MissionStart.")
+			fmt.Fprintln(c.Out, "No active mission to complete. Start one with /goal <objective>.")
 			return nil
 		}
 		summary := strings.TrimSpace(strings.Join(args[1:], " "))
@@ -82,7 +82,7 @@ func runMissionCommand(c *Ctx, args []string) error {
 // not have to wait for the model to call MissionComplete.
 func printMissionStatus(c *Ctx, m tools.Mission) {
 	if m.Status == "" {
-		fmt.Fprintln(c.Out, "No mission. The agent declares one with MissionStart when a task spans many turns.")
+		fmt.Fprintln(c.Out, "No mission. Start one with /goal <objective>.")
 		return
 	}
 	fmt.Fprintf(c.Out, "Mission: %s\n", m.Status)

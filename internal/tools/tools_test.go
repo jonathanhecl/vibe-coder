@@ -88,7 +88,7 @@ func TestRegistryDefaults(t *testing.T) {
 	for _, name := range []string{
 		"Read", "Write", "Edit", "Glob", "Bash",
 		"Grep", "WebFetch", "WebSearch", "NotebookEdit",
-		"TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "AskUserQuestion",
+		"AskUserQuestion", "TodoWrite",
 	} {
 		if reg.Get(name) == nil {
 			t.Fatalf("missing default tool: %s", name)
@@ -321,15 +321,6 @@ func TestNotebookEditAndTaskTools(t *testing.T) {
 	firstCell := cells[0].(map[string]any)
 	if len(firstCell["outputs"].([]any)) != 1 {
 		t.Fatalf("cell outputs were lost: %+v", firstCell)
-	}
-
-	create := NewTaskCreateTool().Execute(context.Background(), map[string]any{"content": "ship mvp"})
-	if create.IsError {
-		t.Fatalf("task create failed: %s", create.Output)
-	}
-	list := NewTaskListTool().Execute(context.Background(), map[string]any{})
-	if list.IsError || !strings.Contains(list.Output, "ship mvp") {
-		t.Fatalf("task list failed: %s", list.Output)
 	}
 }
 

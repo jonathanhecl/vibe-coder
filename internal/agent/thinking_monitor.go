@@ -11,10 +11,10 @@ import (
 
 var (
 	// Default intervals and counts for thinking supervision.
-	defaultThinkingCheckInterval     = 2 * time.Minute
-	defaultThinkingNoDecisionTimeout = 15 * time.Minute
+	defaultThinkingCheckInterval     = 45 * time.Second
+	defaultThinkingNoDecisionTimeout = 5 * time.Minute
 	defaultThinkingParagraphCount    = 5
-	defaultMaxThinkingLoopRetries    = 3
+	defaultMaxThinkingLoopRetries    = 2
 
 	thinkingCheckInterval     = defaultThinkingCheckInterval
 	thinkingNoDecisionTimeout = defaultThinkingNoDecisionTimeout
@@ -85,8 +85,8 @@ var (
 	// ErrThinkingLoopDetected is returned when the decision model detects that the model is in a cyclical loop.
 	ErrThinkingLoopDetected = errors.New("thinking loop detected by the decision model")
 
-	// ErrThinkingTimeoutNoDecision is returned when continuous thinking exceeds 15 minutes without a decision model enabled.
-	ErrThinkingTimeoutNoDecision = errors.New("thinking timeout: exceeded 15 minutes of thinking without a decision model enabled")
+	// ErrThinkingTimeoutNoDecision is returned when continuous thinking exceeds the safety limit without a decision model enabled.
+	ErrThinkingTimeoutNoDecision = errors.New("thinking timeout: exceeded continuous thinking limit without a decision model enabled")
 
 	// ErrThinkingLoopStop marks a turn that ended because the model's
 	// reasoning looped repeatedly without producing an answer. Callers use

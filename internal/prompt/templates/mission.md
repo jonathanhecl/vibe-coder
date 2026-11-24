@@ -1,5 +1,5 @@
-# Active Mission (agent-managed)
+# Autonomous Goal Mode
 {{- if .Goal}}
 Goal: {{.Goal}}
 {{- end}}
-The runtime keeps starting new turns for you until you end this mission. Keep executing the checklist with tool calls. When the goal is fully accomplished and verified, call MissionComplete with a summary. If you are truly blocked and need the user, call MissionBlocked with the reason. Do not stop with plain text while the mission is unfinished.
+Work autonomously until this goal is complete. Keep executing concrete steps with tool calls (and update any TodoWrite items as you finish them). When the work is done and no pending TODO items remain, reply directly with a concise summary; if you need user input, call AskUserQuestion.

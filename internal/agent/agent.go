@@ -99,6 +99,9 @@ type Agent struct {
 	// was computed for, the masking frontier, and the sticky window start.
 	wireMu sync.Mutex
 	wire   wireState
+	// reads tracks unchanged files whose Read results are still visible in the
+	// current wire window so redundant re-reads short-circuit.
+	reads readCache
 	// compactedPending marks that a compaction rewrote the transcript since
 	// the last recorded metrics entry, so the next entry carries
 	// Entry.Compacted.
@@ -174,16 +177,9 @@ func New(
 	// /new) and temporal/isolated state lives on cfg.
 	a.metrics = metrics.NewRecorder(func() string { return a.MetricsPath() })
 	a.decider = decision.FromConfig(cfg)
-	// Mission tools let the agent own the lifecycle of long-running work:
-	// it decides when to start, and only the agent completes or blocks it.
+	// Mission tools were retired in favor of TodoWrite + /goal autonomous mode.
 	if reg != nil {
-		reg.Register(tools.NewMissionStartTool(a.mission))
-		reg.Register(tools.NewMissionCompleteTool(a.mission))
-		reg.Register(tools.NewMissionBlockedTool(a.mission))
 		reg.Register(tools.NewSessionNotesTool(a.notes))
-		if a.decider != nil {
-			reg.Register(tools.NewDecideTool(a.decider))
-		}
 		// One shared output cap for every tool that honors it, derived from
 		// the harness tuning knob (or 15% of the context window on auto).
 		reg.SetOutputLimit(tools.OutputLimitBytes(cfg))
@@ -196,9 +192,6 @@ func (a *Agent) SetDecider(d decision.Decider) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.decider = d
-	if a.reg != nil && d != nil {
-		a.reg.Register(tools.NewDecideTool(d))
-	}
 }
 
 // Decider returns the current decision model decider.

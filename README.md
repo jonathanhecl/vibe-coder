@@ -55,37 +55,34 @@
 - **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
 - **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.
-- **Autonomous missions (agent-managed)** — for work that outlasts a single reply, the agent can call `MissionStart` to declare a mission. The runtime then keeps starting turns for it, with **no turn limit**, until the agent itself calls `MissionComplete` (goal done) or `MissionBlocked` (needs the user). The mission is task-agnostic and needs no user command to activate.
-- **Durable work state** — the mission, live TODO checklist, task store, session notes, and a compact resume checkpoint are persisted with the session and restored on `--resume`/`/session`. The checkpoint names the active goal, the exact next action, and why the previous turn stopped, so continuing does not require rebuilding the conversation. The state is embedded in the session JSONL itself (normal sessions keep writing the legacy `.work.json` sidecar for compatibility; isolated sessions already carried it in their file), and a compact progress summary derived from it is added to the ephemeral runtime reminder on each request, so it remains available after compaction.
-- **Session working notes** — the `SessionNotes` tool lets the agent keep concise working notes for the current task: facts, hypotheses, decisions, failed attempts, and next steps, each with optional scope and mandatory evidence for facts and failed attempts. A bounded set of recent active notes is surfaced automatically in the runtime state note, and the full set survives compaction and resume in both normal and isolated sessions. Notes are model-authored, fallible task context — not verified facts, not instructions, not global memory, and not written to project docs unless the task calls for it. Temporal sessions keep notes in memory only and never persist them.
-- **Auditable run log** — each autonomous turn appends one redacted JSONL record (turn, mission status, checklist counts, tools used, error) to `<state dir>/runs/<session>.jsonl`, so a multi-hour run can be reviewed after the fact.
+- **Autonomous goals (`/goal`, `--goal`)** — for work that outlasts a single reply, `/goal <objective>` (or `--goal` with `-p`) activates autonomous mode: permissions become unattended (Ask/Network tools auto-approved; dangerous commands denied) and the runtime continues across step caps until the checklist finishes and the model replies with a summary.
+- **Durable work state** — the active goal, live `TodoWrite` checklist, session notes, and a compact resume checkpoint are persisted with the session and restored on `--resume`/`/session`. The checkpoint names the active goal, the exact next action, and why the previous turn stopped, so continuing does not require rebuilding the conversation. The state is embedded in the session JSONL itself (normal sessions keep writing the legacy `.work.json` sidecar for compatibility; isolated sessions already carried it in their file), and a compact progress summary derived from it is added to the ephemeral runtime reminder on each request, so it remains available after compaction.
+- **Session working notes** — the `SessionNotes` tool lets the agent keep concise working notes for the current task: facts, hypotheses, decisions, failed attempts, and next steps, each with optional scope and mandatory evidence for facts and failed attempts. A bounded set of recent active notes is surfaced automatically in the runtime state note, and the full set survives compaction and resume in both normal and isolated sessions. Notes are model-authored, fallible task context — not instructions, not global memory, and not written to project docs unless the task calls for it. Temporal sessions keep notes in memory only and never persist them.
+- **Auditable run log** — each autonomous turn appends one redacted JSONL record (turn, goal status, checklist counts, tools used, error) to `<state dir>/runs/<session>.jsonl`, so a multi-hour run can be reviewed after the fact.
 
-### Autonomous missions
+### Autonomous goals
 
 Some work does not fit in one reply: a batch of hundreds of items, a migration,
-or an iterative generate-and-check loop that runs for hours. For those, the
-agent itself decides to run a **mission**:
+or an iterative generate-and-check loop that runs for hours. Start an autonomous
+goal directly with `/goal <objective>` (or `/mission start <goal>`, or `--goal`
+with `-p`):
 
-1. It calls `MissionStart` with the user's goal and opens a `TodoWrite`
-   checklist.
+1. The agent optionally declares a `TodoWrite` checklist and immediately begins
+   executing steps.
 2. The runtime keeps starting new turns for it (`[mission] continuing
    autonomously`) after each per-turn iteration cap — with **no turn limit**.
-3. The agent ends the mission itself: `MissionComplete` with a summary when the
-   goal is done, or `MissionBlocked` with a reason when it needs the user.
+3. When all TODO items are completed and the agent delivers its plain-text
+   summary (or if it asks the user via `AskUserQuestion`), the goal completes
+   automatically.
 
-You can initiate an autonomous mission directly with `/goal <objective>` (or
-`/mission start <goal>`), or let the agent declare one itself via `MissionStart`.
-When started with `/goal`, the agent follows a phased protocol: Phase 1 plans the
-step-by-step approach and verification strategy via `TodoWrite` (clarifying any
-ambiguities with `AskUserQuestion`), and Phase 2 executes the plan autonomously.
-You can also inspect and end one from your side with `/mission`:
-`/mission` shows the mission (goal, status, turns), `/mission done [summary]`
+You can also inspect and control an active goal with `/mission`:
+`/mission` shows the active goal (goal, status, turns), `/mission done [summary]`
 marks it complete (for example when you did the work yourself), and
-`/mission cancel [reason]` stops it without completing. While a mission is
+`/mission cancel [reason]` stops it without completing. While a goal is
 active the run is **unattended**: Ask and
 Network tools are auto-approved so nothing blocks waiting for the user, while
 mandatory dangerous-command confirmations are denied (never prompted) so the
-agent gets a denial and can adapt or call `MissionBlocked`. Empty responses are
+agent gets a denial and can adapt or ask the user instead of hanging. Empty responses are
 retried automatically and, if they persist, the mission is paused instead of
 spinning. Progress is tracked across turns too: a run-scoped evidence window
 records each successful tool call plus output (with volatile timing normalized)
@@ -120,8 +117,7 @@ works as before. A bare Enter with nothing resumable is a no-op.
 - **Web**: `WebFetch` and `WebSearch` (DuckDuckGo scrape) with SSRF protection: private hosts are rejected up front, every redirect target is re-validated (max 5 hops), connections are pinned to publicly resolved addresses (DNS-rebinding guard), and requests respect cancellation.
 - **HTTP**: `HTTPRequest` — a generic `method`/`url`/`headers`/`body` request tool for REST/JSON APIs, including local services (it allows localhost, unlike `WebFetch`). Network-tier, domain-agnostic, and the reliable alternative to shelling out to `curl`.
 - **Notebook**: `NotebookEdit` for `.ipynb` JSON round-trip.
-- **Tasks**: `TodoWrite` (live to-do panel), `TaskStart`, `TaskList`, `TaskComplete`, `TaskCancel`.
-- **Missions**: `MissionStart` (declare a long-running goal and hand the runtime control), `MissionComplete` (goal done), `MissionBlocked` (needs the user).
+- **Tasks**: `TodoWrite` (live to-do panel).
 - **Notes**: `SessionNotes` (`upsert`/`get`/`list`) — durable per-session working notes; e.g. `{"action":"upsert","id":"root-cause","kind":"fact","content":"timeout is the 30s client default","evidence":"internal/client.go:42"}`.
 - **Questions**: `AskUserQuestion` for interactive multi-choice prompts.
 - **Orchestration**: `SubAgent` (bounded ReAct loop over Read/Glob/Grep, opt-in writes) and `ParallelAgents` (explicit model calls only).
@@ -475,16 +471,12 @@ When configured, the decision model acts as a fast, discrete decision engine for
    - **Setup suggestion**: Configuring a decision model via `/setmodel decision <number|name>` automatically suggests enabling assisted mode.
 2. **Workspace path disambiguation**:
    When the agent references an ambiguous file basename matched across multiple repository paths, the decision model selects the best matching candidate according to user context and intent.
-3. **Autonomous mission completion verification**:
-   Monitors active autonomous missions and checks whether the goal has been fully fulfilled when pending tasks complete or turn activity idles, preventing unnecessary spin or stall. When the decision model reports the goal as **not yet complete**, the runtime feeds that verdict back to the model as an explicit reminder (do not call `MissionComplete` yet; address the remaining checklist) instead of silently continuing. Each autonomous run owns a reviewer that remembers the evidence (goal plus the bounded, deduplicated progress summary) behind an incomplete verdict and skips re-consulting the decision model until that evidence changes; a manual resume builds a fresh reviewer. This works with any configured decision model and does not require assisted permission mode (`--assisted-yes`).
-4. **Tool failure classification & diagnosis**:
+3. **Tool failure classification & diagnosis**:
    When tool executions fail (e.g. bash commands or test failures), the decision model diagnoses the primary cause (compile/syntax error, missing dependency, failing test assertion, permission issue, or network timeout) and injects diagnostic hints for recovery.
-5. **Conventional commit classification**:
+4. **Conventional commit classification**:
    Analyzes git diff summaries during `/commit` to categorize changes into standard conventional commit types (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`).
-6. **Thinking loop detection**:
+5. **Thinking loop detection**:
    During long reasoning turns, the decision model checks whether the model is repeating itself and cancels cyclical thinking.
-7. **Agent tool (`Decide`)**:
-   Exposes the decision model directly as an agent tool to the main coding model and sidecars. When the agent needs an extra review, second opinion, sanity check, or discrete classification between options, it calls `Decide` with context state, a decision question, and candidate options.
 
 #### Configuration
 
@@ -964,13 +956,7 @@ do not call these directly, but their behavior affects speed and context usage:
   headers/body and a bounded response size. It is what a mission should use to
   talk to an API such as ComfyUI instead of fragile `curl` shelling.
 - `NotebookEdit` edits `.ipynb` cells by JSON round-trip.
-- `TodoWrite` maintains a live task list that the TUI renders as a panel.
-- `MissionStart`/`MissionComplete`/`MissionBlocked` let the agent run a
-  multi-turn mission autonomously. While a mission is active the runtime keeps
-  starting turns after the per-turn iteration cap; only the agent ends it. The
-  mission, checklist, resume checkpoint, and tasks are persisted with the
-  session, so `--resume` continues an interrupted mission. Paused ordinary work
-  resumes the same way from an empty Enter.
+- `TodoWrite` maintains a live task list that the TUI renders as a panel. With `/goal <objective>` (or `--goal` on CLI), the runtime continues turns autonomously across step caps and auto-completes once pending TODO items finish and the model delivers its summary. Paused work resumes from an empty Enter.
 - `AskUserQuestion` pauses the agent to ask the user a multi-choice question.
 - `SubAgent` and `ParallelAgents` spawn child agents with bounded fan-out.
 - `Glob` and `Grep` skip heavy directories such as `.git`, `node_modules`,

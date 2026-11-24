@@ -39,36 +39,22 @@ func (a *Agent) progressPromptBlock() string {
 		}
 	}
 
-	openTasks := 0
-	for _, task := range tools.SnapshotTasks() {
-		if task.Status != "completed" && task.Status != "cancelled" {
-			openTasks++
-		}
-	}
-
-	if total == 0 && openTasks == 0 {
+	if total == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("# Work Progress (durable)\n")
-	if total > 0 {
-		fmt.Fprintf(&b, "Checklist: %d total, %d done, %d pending\n", total, done, pending)
-		if len(next) > 0 {
-			b.WriteString("Next steps:\n")
-			for _, item := range next {
-				b.WriteString("- ")
-				b.WriteString(item)
-				b.WriteString("\n")
-			}
+	fmt.Fprintf(&b, "Checklist: %d total, %d done, %d pending\n", total, done, pending)
+	if len(next) > 0 {
+		b.WriteString("Next steps:\n")
+		for _, item := range next {
+			b.WriteString("- ")
+			b.WriteString(item)
+			b.WriteString("\n")
 		}
 	}
-	if openTasks > 0 {
-		fmt.Fprintf(&b, "Open tasks: %d\n", openTasks)
-	}
-	b.WriteString("This summary comes from durable state and is always current; trust it over older transcript notes. " +
-		"Continue in order with the next pending step top to bottom and mark items completed as they finish. " +
-		"Completed items never move; new steps always go after completed work.")
+	b.WriteString("Continue top to bottom and mark items completed as they finish.")
 	return strings.TrimSpace(b.String())
 }
 

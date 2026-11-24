@@ -257,6 +257,24 @@ func TestRecordToolObservationKeepsSessionNotesVerbatim(t *testing.T) {
 	}
 }
 
+func TestRecordToolObservationKeepsReadManyVerbatim(t *testing.T) {
+	t.Parallel()
+	sc := &stubClient{reply: "condensed summary"}
+	a, _ := newTestAgent(t, "qwen3.5:9b", sc)
+	a.SetSidecar(sidecar.New(a.cfg, sc, sidecar.WithSummariseThreshold(10)))
+
+	body := "===== 1/1: main.go =====\npackage main\n" + strings.Repeat("x", 2048)
+	a.recordToolObservation(context.Background(), "ReadMany", body, "", false)
+
+	msgs := a.sess.Messages()
+	if len(msgs) == 0 || !strings.Contains(msgs[len(msgs)-1].Content, body) {
+		t.Fatalf("expected ReadMany output to remain verbatim")
+	}
+	if atomic.LoadInt32(&sc.calls) != 0 {
+		t.Fatalf("ReadMany output should not be sent to sidecar")
+	}
+}
+
 func TestRecordToolObservationSkipsSummariseForSmallOutput(t *testing.T) {
 	t.Parallel()
 	sc := &stubClient{reply: "should not be used"}

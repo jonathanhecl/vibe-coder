@@ -89,8 +89,8 @@ func (a *Agent) ContextPressure() (used, limit int) {
 	if len(hist) == 0 {
 		return 0, 0
 	}
-	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, a.sess.Generation()))
 	budget := a.computeBudget(a.buildSystemPrompt())
+	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, a.sess.Generation(), budget.Transcript))
 	return a.calibratedTranscriptCost(masked), a.transcriptFullAt(budget.Transcript)
 }
 

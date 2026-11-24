@@ -23,6 +23,9 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	// can always see which model/session/host served the answer.
 	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
+	if cfg != nil && cfg.Goal && !ag.MissionActive() && strings.TrimSpace(cfg.Prompt) != "" {
+		ag.StartMission(cfg.Prompt)
+	}
 	if err := runPrompt(rootCtx, ag, ui, cfg.Prompt); err != nil {
 		return false, err
 	}
@@ -211,12 +214,16 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 	// A pause already told the user why the mission stopped; reporting the same
 	// error again adds noise, not information.
 	pauseReported := false
-	// The reviewer skips re-consulting the decision model while the evidence of
-	// an incomplete verdict is unchanged; a manual resume builds a fresh one.
-	reviewMissionCompletion := ag.NewMissionCompletionReviewer()
 	for ag.MissionActive() {
 		if ctxErr := rootCtx.Err(); ctxErr != nil {
 			return ctxErr
+		}
+		if err == nil && ag.PendingTodoCount() == 0 {
+			ag.CompleteMission("Completed")
+			fmt.Fprintln(os.Stdout, "[goal] Autonomous goal completed.")
+			saveMissionProgress(ag)
+			ag.LogMissionTurn(nil)
+			break
 		}
 		if err != nil && !agent.IsIterationCapErr(err) && !agent.IsEmptyAssistantResponseErr(err) {
 			if agent.IsNoProgressErr(err) {
@@ -265,7 +272,7 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 		} else {
 			emptyStreak = 0
 		}
-		if emptyStreak >= 3 {
+		if emptyStreak >= 2 {
 			ag.BlockActiveMission("The model returned repeated empty responses; mission paused for user input.")
 			fmt.Fprintln(os.Stderr, "Mission paused: repeated empty responses. The agent needs your input.")
 			saveMissionProgress(ag)
@@ -280,22 +287,6 @@ func runPromptWithStarter(rootCtx context.Context, ag *agent.Agent, ui tui.UI, s
 			stalledTurns = 0
 		} else {
 			stalledTurns++
-		}
-		if ag.PendingTodoCount() == 0 || ag.ToolCallsThisTurn() == 0 {
-			completed, reviewed, checkErr := reviewMissionCompletion(rootCtx)
-			if checkErr == nil && completed {
-				ag.CompleteMission("Completed (verified by the decision model)")
-				fmt.Fprintln(os.Stdout, "[mission] The decision model verified the goal is accomplished; mission completed.")
-				saveMissionProgress(ag)
-				ag.LogMissionTurn(err)
-				break
-			}
-			if checkErr == nil && reviewed {
-				// The decision model judged the goal incomplete: the runtime injected an
-				// explicit reminder so the model keeps working instead of
-				// closing the mission on its own.
-				fmt.Fprintln(os.Stdout, "[mission] Decision review: goal not yet complete; continuing with the checklist.")
-			}
 		}
 		if stalledTurns >= 3 {
 			ag.BlockActiveMission("Three consecutive turns produced no new evidence or checklist progress.")

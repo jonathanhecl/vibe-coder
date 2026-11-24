@@ -339,11 +339,12 @@ func TestRunXMLWriteRelativePathAnchorsToCwd(t *testing.T) {
 }
 
 func TestMissionProgressPersistsDuringRun(t *testing.T) {
-	// A single Run can execute many tool calls before returning, so mission
-	// state must hit disk as soon as MissionStart runs; otherwise a crash
+	// A single Run can execute many tool calls before returning, so active
+	// autonomous state must hit disk as soon as tools run; otherwise a crash
 	// mid-turn leaves --resume unable to find the interrupted session.
-	c := &sequenceClient{replies: []string{`<invoke name="MissionStart">{"goal":"process every item"}</invoke>`}}
+	c := &sequenceClient{replies: []string{`<invoke name="TodoWrite">{"todos":[{"id":"1","content":"process every item","status":"in_progress"}]}</invoke>`}}
 	ag := newCoverageAgent(t, c, tui.DecisionAllowOnce, true)
+	ag.StartMission("process every item")
 	if err := ag.Run(context.Background(), "start a mission"); err == nil {
 		t.Fatal("expected the run to stop when the client is exhausted")
 	}

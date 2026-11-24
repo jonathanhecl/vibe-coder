@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -34,9 +33,7 @@ func TestProgressPromptBlock(t *testing.T) {
 
 func TestRunLogWritesRedactedJSONL(t *testing.T) {
 	ag := newMissionAgent(t)
-	ag.reg.Get("MissionStart").Execute(context.Background(), map[string]any{
-		"goal": "process GITHUB_TOKEN=ghp_secret items",
-	})
+	ag.StartMission("process GITHUB_TOKEN=ghp_secret items")
 	ag.resetTurnToolCalls()
 	ag.noteToolExecuted()
 	ag.LogMissionTurn(nil)
@@ -69,9 +66,7 @@ func TestRunLogIsolated_RecordsNothingAnywhere(t *testing.T) {
 		t.Fatalf("expected empty RunLogPath for an isolated session, got %q", path)
 	}
 
-	ag.reg.Get("MissionStart").Execute(context.Background(), map[string]any{
-		"goal": "autonomous task in isolated session",
-	})
+	ag.StartMission("autonomous task in isolated session")
 	ag.resetTurnToolCalls()
 	ag.noteToolExecuted()
 	ag.LogMissionTurn(nil)
@@ -96,9 +91,7 @@ func TestRunLogTemporal_SuppressesRunLog(t *testing.T) {
 		t.Fatalf("expected empty RunLogPath for temporal session, got %q", path)
 	}
 
-	ag.reg.Get("MissionStart").Execute(context.Background(), map[string]any{
-		"goal": "autonomous task in temporal session",
-	})
+	ag.StartMission("autonomous task in temporal session")
 	ag.resetTurnToolCalls()
 	ag.noteToolExecuted()
 	ag.LogMissionTurn(nil)

@@ -464,9 +464,9 @@ func (m *Manager) Check(toolName string, params map[string]any, ui prompter) boo
 			return true
 		}
 		if unattended {
-			// An unattended mission must never block on a prompt. Dangerous commands
+			// An unattended run must never block on a prompt. Dangerous commands
 			// are denied (not prompted) so the agent receives a denial and can adapt
-			// or call MissionBlocked instead of hanging forever.
+			// or explain the blocker via AskUserQuestion/plain text instead of hanging forever.
 			if alwaysConfirm {
 				return false
 			}

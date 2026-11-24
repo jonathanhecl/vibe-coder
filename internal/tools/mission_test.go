@@ -1,9 +1,6 @@
 package tools
 
-import (
-	"context"
-	"testing"
-)
+import "testing"
 
 func TestMissionStoreLifecycle(t *testing.T) {
 	t.Parallel()
@@ -40,37 +37,5 @@ func TestMissionRestore(t *testing.T) {
 	}
 	if got := store.Snapshot(); got.Goal != "resume me" || got.Turns != 5 {
 		t.Fatalf("unexpected restored mission: %#v", got)
-	}
-}
-
-func TestMissionTools(t *testing.T) {
-	t.Parallel()
-
-	store := NewMissionStore()
-
-	if res := NewMissionStartTool(store).Execute(context.Background(), map[string]any{}); !res.IsError {
-		t.Fatal("MissionStart without goal should error")
-	}
-	if res := NewMissionStartTool(store).Execute(context.Background(), map[string]any{"goal": "do the thing"}); res.IsError {
-		t.Fatalf("MissionStart failed: %s", res.Output)
-	}
-	if !store.Active() {
-		t.Fatal("expected mission active after MissionStart")
-	}
-
-	if res := NewMissionBlockedTool(store).Execute(context.Background(), map[string]any{"reason": "need a key"}); res.IsError {
-		t.Fatalf("MissionBlocked failed: %s", res.Output)
-	}
-	if store.Active() {
-		t.Fatal("blocked mission must not be active")
-	}
-
-	// A new mission can be completed directly.
-	store.Start("second")
-	if res := NewMissionCompleteTool(store).Execute(context.Background(), map[string]any{"summary": "done"}); res.IsError {
-		t.Fatalf("MissionComplete failed: %s", res.Output)
-	}
-	if got := store.Snapshot(); got.Status != MissionStatusCompleted || got.Summary != "done" {
-		t.Fatalf("unexpected mission after complete: %#v", got)
 	}
 }

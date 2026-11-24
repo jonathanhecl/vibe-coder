@@ -27,12 +27,6 @@ func (a *Agent) prepareRunContext(ctx context.Context, userInput, goal string, s
 	a.mu.Unlock()
 	if storeUser {
 		a.sess.AddUser(userInput)
-		// When the user requests changes while TODOs remain open, force an
-		// intelligent replan first: completed items are immutable at the top,
-		// new steps go after completed work where they logically belong.
-		if a.hasPendingTodos() && !isContinuationMessage(userInput) && !strings.HasPrefix(strings.TrimSpace(userInput), missionPromptPrefix) {
-			a.sess.AddRuntimeReminder("User requested a change while TODOs remain open. First update the checklist with TodoWrite using full replace in coherent order: keep completed items unchanged at the top, cancel removed steps, insert new steps after completed work where they logically belong with exactly one in_progress, then continue top to bottom.")
-		}
 	}
 	// Compact before computing the wire window or recalling memory when the
 	// incoming transcript already exceeds the compaction threshold (e.g. a
@@ -164,7 +158,7 @@ func (a *Agent) recallMemoryWanted() bool {
 }
 
 func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool, error) {
-	if a.hasPendingTodos() && *retries < 2 {
+	if a.hasPendingTodos() && *retries < 1 {
 		*retries++
 		a.sess.AddRuntimeReminder("Model returned an empty response while TODO items remain. Retrying the next pending step.")
 		a.compactBestEffort(ctx)
@@ -196,8 +190,8 @@ func (a *Agent) compactBestEffort(ctx context.Context) {
 		return
 	}
 	gen := a.sess.Generation()
-	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, gen))
 	budget := a.computeBudget(a.buildSystemPrompt())
+	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, gen, budget.Transcript))
 	histLimit := 300
 	if a.cfg.SessionHistoryRAGEnabled() {
 		histLimit = 120

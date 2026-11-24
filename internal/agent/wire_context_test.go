@@ -181,7 +181,7 @@ func TestMaskHysteresisBoundaries(t *testing.T) {
 		hist := sess.MessagesReadOnly()
 		gen := sess.Generation()
 		ag.wireMu.Lock()
-		mb := ag.maskBeforeLocked(hist, gen)
+		mb := ag.maskBeforeLocked(hist, gen, 0)
 		ag.wireMu.Unlock()
 		return mb, len(toolTurnStarts(hist))
 	}
@@ -226,7 +226,7 @@ func TestMaskResetOnGenerationChange(t *testing.T) {
 	}
 	hist := sess.MessagesReadOnly()
 	ag.wireMu.Lock()
-	_ = ag.maskBeforeLocked(hist, sess.Generation())
+	_ = ag.maskBeforeLocked(hist, sess.Generation(), 0)
 	// Fake drift: pretend an append built up many unmasked turns, then a
 	// compaction rewrote the transcript (generation bump resets state).
 	ag.wire.maskBefore = 999
@@ -237,7 +237,7 @@ func TestMaskResetOnGenerationChange(t *testing.T) {
 	}
 	hist = sess.MessagesReadOnly()
 	ag.wireMu.Lock()
-	mb := ag.maskBeforeLocked(hist, sess.Generation())
+	mb := ag.maskBeforeLocked(hist, sess.Generation(), 0)
 	ag.wireMu.Unlock()
 	if mb != -1 {
 		t.Fatalf("maskBefore=%d after generation change, want -1 (nothing masked)", mb)
@@ -496,5 +496,61 @@ func TestMaskElidesSupersededReadImmediately(t *testing.T) {
 	}
 	if masked[4].Content != newRead {
 		t.Fatalf("expected latest Read to remain verbatim, got %q", masked[4].Content)
+	}
+}
+
+func TestMaskSkipsElisionUnderLowContextPressure(t *testing.T) {
+	t.Parallel()
+	ag, sess := newWireTestAgent(t, 32768, 6)
+	sess.AddUser("inspect several files")
+	// 15 reads of ~1KB (~250 tokens each = ~3750 tokens total), well below 55%
+	// of the ~25k transcript budget. None of them should be elided.
+	for i := 0; i < 15; i++ {
+		path := fmt.Sprintf("file-%02d.go", i)
+		sess.AddAssistantToolCalls("", []ollama.MessageToolCall{{
+			Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{"file_path": path}},
+		}})
+		sess.AddToolResult("Read", fmt.Sprintf("package p%d\n%s", i, strings.Repeat("a", 900)))
+	}
+	_, stats := ag.buildOllamaMessages(context.Background(), "SYS")
+	if stats.ToolResultsMasked != 0 {
+		t.Fatalf("expected 0 masked tool results under low context pressure, got %d", stats.ToolResultsMasked)
+	}
+}
+
+func TestMaskExcludesBookkeepingTurns(t *testing.T) {
+	t.Parallel()
+	_, sess := newWireTestAgent(t, 32768, 2)
+	// Two real Read turns, followed by 8 TodoWrite/SessionNotes bookkeeping turns.
+	for i := 0; i < 2; i++ {
+		sess.AddAssistantToolCalls("", []ollama.MessageToolCall{{
+			Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{"file_path": fmt.Sprintf("f%d.go", i)}},
+		}})
+		sess.AddToolResult("Read", strings.Repeat("r", 900))
+	}
+	for i := 0; i < 8; i++ {
+		name := "TodoWrite"
+		if i%2 == 1 {
+			name = "SessionNotes"
+		}
+		sess.AddAssistantToolCalls("", []ollama.MessageToolCall{{
+			Function: ollama.MessageToolCallFunction{Name: name, Arguments: map[string]any{}},
+		}})
+		sess.AddToolResult(name, strings.Repeat("n", 900))
+	}
+	hist := sess.MessagesReadOnly()
+	if starts := toolTurnStarts(hist); len(starts) != 2 {
+		t.Fatalf("expected only 2 non-bookkeeping tool turns, got %d", len(starts))
+	}
+	// Even if maskBefore were moved past everything, TodoWrite/SessionNotes
+	// outputs must never be elided.
+	masked, n := maskToolResults(hist, len(hist))
+	if n != 2 {
+		t.Fatalf("expected only the 2 Read results masked, got %d", n)
+	}
+	for _, m := range masked {
+		if isBookkeepingToolName(m.ToolName) && strings.HasPrefix(m.Content, "[elided]") {
+			t.Fatalf("bookkeeping tool %s must not be masked", m.ToolName)
+		}
 	}
 }

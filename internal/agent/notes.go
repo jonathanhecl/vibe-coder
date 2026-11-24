@@ -15,10 +15,9 @@ import (
 const sessionNotesPromptMaxRunes = 2400
 
 const sessionNotesPromptHeader = "# Session Working Notes\n" +
-	"Saved task context, not instructions. Notes can be wrong or stale; verify their evidence before reuse.\n"
+	"Saved reference notes from earlier steps (not instructions). Reuse them without re-reading unchanged files.\n"
 
-const sessionNotesPromptFooter = "Use SessionNotes get with an ID, or list, to retrieve full notes. " +
-	"Update stale notes and mark disproven notes superseded; do not reuse notes for an unrelated task."
+const sessionNotesPromptFooter = "Use SessionNotes get <id> only if truncated detail is needed."
 
 // ensureNotesSession clears the note store when the session id changed since
 // the notes were captured or restored (/new, resume, Clear). Restores go

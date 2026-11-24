@@ -198,8 +198,8 @@ func TestChatOnceThinkingLoopExceedsLimit(t *testing.T) {
 	if !IsThinkingLoopLimitErr(err) {
 		t.Fatalf("expected IsThinkingLoopLimitErr=true, got err: %v", err)
 	}
-	if calls := atomic.LoadInt32(&client.calls); calls != 3 {
-		t.Fatalf("expected exactly 3 chat calls before returning limit error, got %d", calls)
+	if calls := atomic.LoadInt32(&client.calls); calls != int32(maxThinkingLoopRetries) {
+		t.Fatalf("expected exactly %d chat calls before returning limit error, got %d", maxThinkingLoopRetries, calls)
 	}
 }
 
@@ -209,9 +209,9 @@ func TestRunStepNewStepOnThinkingLoop(t *testing.T) {
 	defer func() { thinkingCheckInterval = origInterval }()
 
 	cfg := &config.Config{Model: "thinker", ContextWindow: 4096}
-	// Attempt 1, 2, 3 in step 1 loop.
-	// Step 2 starts (call 4), and succeeds!
-	client := &loopTestClient{loopAttemptsTill: 3}
+	// Step 1 hits the limit (maxThinkingLoopRetries=2 calls), injects a reminder,
+	// and step 2 (call 3) succeeds!
+	client := &loopTestClient{loopAttemptsTill: int32(maxThinkingLoopRetries)}
 	stubDec := &stubDecider{
 		enabled:            true,
 		model:              "decision-v1",
@@ -239,9 +239,10 @@ func TestRunStepNewStepOnThinkingLoop(t *testing.T) {
 		t.Fatal("expected runtime reminder about thinking loop to be injected into session")
 	}
 
-	// Total calls: 3 in step 1 (which failed and triggered new step) + 1 in step 2 = 4
-	if calls := atomic.LoadInt32(&client.calls); calls != 4 {
-		t.Fatalf("expected 4 calls total across the two steps, got %d", calls)
+	// Total calls: maxThinkingLoopRetries in step 1 + 1 in step 2.
+	wantCalls := int32(maxThinkingLoopRetries + 1)
+	if calls := atomic.LoadInt32(&client.calls); calls != wantCalls {
+		t.Fatalf("expected %d calls total across the two steps, got %d", wantCalls, calls)
 	}
 }
 

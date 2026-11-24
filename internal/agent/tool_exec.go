@@ -134,7 +134,17 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if showCard {
 		a.ui.ShowToolCall(toolName, toolParams)
 	}
-	result := tool.Execute(tools.WithExecutor(ctx, a.executeDelegatedTool), toolParams)
+	var result tools.Result
+	cacheHit := false
+	if !mode.skipSessionRecord && toolName == "Read" {
+		if msg, hit := a.checkRedundantRead(toolParams); hit {
+			result = tools.Result{Output: msg}
+			cacheHit = true
+		}
+	}
+	if !cacheHit {
+		result = tool.Execute(tools.WithExecutor(ctx, a.executeDelegatedTool), toolParams)
+	}
 	if result.IsError && !strings.Contains(result.Output, "attempted args") {
 		if summary := tools.AttemptedArgsSummary(toolParams); summary != "" {
 			result.Output += "\n" + summary
@@ -187,6 +197,9 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	a.maybeShowTodos(toolName)
 	if !mode.skipSessionRecord {
 		a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
+		if toolName == "Read" && !result.IsError && !cacheHit {
+			a.rememberReadResult(toolParams, result.Output, a.sess.MessageCount()-1)
+		}
 	}
 
 	queueOrRun := func(fn func()) {
@@ -219,6 +232,7 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		}
 	}
 	if !result.IsError && (toolName == "Write" || toolName == "Edit") {
+		a.invalidateReadCache(asString(toolParams["file_path"]))
 		if w := a.getWatcher(); w != nil {
 			w.RefreshSnapshot()
 		}
@@ -256,8 +270,15 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if _, loop := a.noProgress.observe(callSig, outputSig); loop {
 		return result, toolRan, fmt.Errorf("%w: %s produced identical output %d times in a row", ErrNoProgress, toolName, noProgressLimit)
 	}
-	if streak, loop := a.inspection.observe(inspection, concrete, !result.IsError); loop {
+	streak, nudge, stop := a.inspection.observe(inspection, concrete, !result.IsError)
+	if stop {
 		return result, toolRan, fmt.Errorf("%w: %d consecutive read-only inspections completed without a state-changing action", ErrInspectionLoop, streak)
+	}
+	if nudge && !mode.skipSessionRecord {
+		queueOrRun(func() {
+			a.ui.ShowToolResult("RECOVERY", "inspection streak reached; asking the model to act on the evidence", false, nil)
+			a.sess.AddRuntimeReminder(inspectionNudgeMessage)
+		})
 	}
 	return result, toolRan, nil
 }
@@ -266,12 +287,11 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 // that change the artifact, leaving bookkeeping neutral. Every EffectRead
 // counts as inspection (local files and external research alike): neither one
 // modifies the working tree, so alternating them is still an inspection-only
-// run. Only writes and mutating executions count as concrete. TodoWrite,
-// SessionNotes, task tools and delegation are neutral: they must neither
-// advance the streak (they are not reads) nor reset it (they are not artifact
-// progress), otherwise a read-note-read loop evades the guard forever.
-// Plan and review modes are fully neutral because inspection is their
-// intended work, not a prelude to edits they are not allowed to make.
+// run. Read-only SubAgent/ParallelAgents runs also count as inspection.
+// Only writes, mutating executions, write-enabled delegation, and AskUser
+// count as concrete. TodoWrite and SessionNotes are neutral so a
+// read-note-read loop cannot evade the guard. Plan and review modes are fully
+// neutral because inspection is their intended work.
 func (a *Agent) classifyForProgress(tool tools.Tool, params map[string]any) (inspection, concrete bool) {
 	if a.InPlanMode() || a.InReviewMode() {
 		return false, false
@@ -295,15 +315,39 @@ func (a *Agent) classifyForProgress(tool tools.Tool, params map[string]any) (ins
 		if tool.Name() == "AskUserQuestion" {
 			return false, true
 		}
-		if tool.Name() == "MissionStart" || tool.Name() == "MissionComplete" || tool.Name() == "MissionBlocked" {
-			return false, true
-		}
 		return false, false
 	case tools.EffectDelegate:
-		return false, true
+		if delegateAllowsWrites(tool.Name(), params) {
+			return false, true
+		}
+		return true, false
 	default:
 		return false, false
 	}
+}
+
+func delegateAllowsWrites(toolName string, params map[string]any) bool {
+	if toolName == "SubAgent" {
+		allow, _ := params["allow_writes"].(bool)
+		return allow
+	}
+	if toolName == "ParallelAgents" {
+		tasks, ok := params["tasks"].([]any)
+		if !ok {
+			return false
+		}
+		for _, item := range tasks {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if allow, _ := m["allow_writes"].(bool); allow {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // isLocalInspection reports whether a call counts toward the inspection-only
@@ -494,7 +538,7 @@ func (a *Agent) condenseLimitTokens() (int, bool) {
 	}
 	free := budget.Transcript
 	if hist := a.sess.MessagesReadOnly(); len(hist) > 0 {
-		masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, a.sess.Generation()))
+		masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, a.sess.Generation(), budget.Transcript))
 		free -= a.calibratedTranscriptCost(masked)
 	}
 	limit := free * condenseSharePercent / 100
@@ -517,7 +561,7 @@ func (a *Agent) transcriptNearLimit() bool {
 		return false
 	}
 	gen := a.sess.Generation()
-	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, gen))
+	masked, _ := maskToolResults(hist, a.maskBeforeForState(hist, gen, budget.Transcript))
 	cost := a.calibratedTranscriptCost(masked)
 	return cost*100 >= budget.Transcript*condensePressurePercent
 }
@@ -542,10 +586,10 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 	// model's window is unknown, fall back to the pool's byte threshold.
 	shouldCondense := false
 	minBytes := 0
-	// Read and SessionNotes stay verbatim: Read resumes by line number, and
-	// SessionNotes are already concise memory — condensing them would
-	// double-summarize evidence the model needs exact.
-	if side != nil && side.Enabled() && toolName != "Read" && toolName != "SessionNotes" {
+	// Read, ReadMany, and SessionNotes stay verbatim: Read resumes by line number,
+	// ReadMany gathers specific files the model asked for, and SessionNotes are
+	// already concise memory — condensing them loses exact evidence the model needs.
+	if side != nil && side.Enabled() && toolName != "Read" && toolName != "ReadMany" && toolName != "SessionNotes" {
 		if limit, ok := a.condenseLimitTokens(); ok {
 			shouldCondense = a.calibrateTokens(session.EstimateTokens(obs)) > limit
 		} else {

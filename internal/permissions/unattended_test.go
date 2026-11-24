@@ -50,15 +50,6 @@ func TestUnattendedRespectsPersistentDeny(t *testing.T) {
 	}
 }
 
-func TestMissionToolsAreSafeTier(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{"MissionStart", "MissionComplete", "MissionBlocked"} {
-		if toolTier(normalizeTool(name)) != TierSafe {
-			t.Fatalf("%s should be safe tier so it never prompts", name)
-		}
-	}
-}
-
 func TestScreenshotIsSafeTier(t *testing.T) {
 	t.Parallel()
 	if toolTier(normalizeTool("Screenshot")) != TierSafe {

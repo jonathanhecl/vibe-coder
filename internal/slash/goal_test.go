@@ -110,32 +110,23 @@ func TestGoalTaskFromSlash(t *testing.T) {
 
 func TestFormatGoalPrompt(t *testing.T) {
 	prompt := FormatGoalPrompt("Implement caching layer")
-	if !strings.Contains(prompt, "Autonomous goal: \"Implement caching layer\"") {
+	if !strings.Contains(prompt, "[goal] Implement caching layer") {
 		t.Fatalf("prompt missing goal title: %s", prompt)
-	}
-	if !strings.Contains(prompt, "Phase 1: Planning, Verification Design & Clarification") {
-		t.Fatalf("prompt missing phase 1: %s", prompt)
 	}
 	if !strings.Contains(prompt, "TodoWrite") {
 		t.Fatalf("prompt missing TodoWrite instruction: %s", prompt)
 	}
-	if !strings.Contains(prompt, "Phase 2: Autonomous Execution & Verification") {
-		t.Fatalf("prompt missing phase 2: %s", prompt)
-	}
-	if !strings.Contains(prompt, "MissionComplete") || !strings.Contains(prompt, "MissionBlocked") {
-		t.Fatalf("prompt missing completion tools: %s", prompt)
+	if strings.Contains(prompt, "MissionComplete") || strings.Contains(prompt, "MissionBlocked") {
+		t.Fatalf("prompt must not reference retired Mission tools: %s", prompt)
 	}
 	for _, want := range []string{
-		"As soon as the checklist is actionable",
-		"Planning is not the deliverable",
-		"ask once instead of continuing to inspect",
-		"define exactly one check that covers the change",
-		"One passing check completes verification",
-		"never stack several passing checks for the same change",
-		"Do not repeat a passing check unless its inputs changed",
+		"start executing the first concrete step immediately",
+		"Do not re-read unchanged files",
+		"AskUserQuestion",
+		"mark all TODO items completed",
 	} {
 		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt missing execution safeguard %q: %s", want, prompt)
+			t.Errorf("prompt missing execution guidance %q: %s", want, prompt)
 		}
 	}
 }

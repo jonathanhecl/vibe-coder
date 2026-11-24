@@ -62,13 +62,11 @@ func turnCancelledErr(err error) error {
 // tolerated before the run stops. Kept comfortably above common legitimate
 // repeats such as polling a job whose status output stays "running" for a few
 // polls, so real work is not mistaken for a loop.
-const noProgressLimit = 8
+const noProgressLimit = 6
 
 // maxNoProgressRetries is how many times one turn restates the task after the
-// repeated-call stop fires before giving up. The first trip used to end the run
-// outright, which dropped the user back to the prompt with nothing to read and
-// no way to tell a stuck model from a crash.
-const maxNoProgressRetries = 2
+// repeated-call stop fires before giving up.
+const maxNoProgressRetries = 1
 
 type noProgressGuard struct {
 	mu     sync.Mutex
@@ -104,75 +102,78 @@ func (g *noProgressGuard) reset() {
 	g.call, g.output, g.streak = "", "", 0
 }
 
+// inspectionNudgeAt injects one non-fatal reminder to act on gathered evidence
+// before the hard inspectionLimit stops the turn.
+const inspectionNudgeAt = 8
+
 // inspectionLimit bounds consecutive successful local inspections without an
-// intervening state-changing action. It is deliberately higher than
-// noProgressLimit: different reads can be legitimate exploration, so only a
-// sustained inspection-only run is considered a stall.
-const inspectionLimit = 12
+// intervening state-changing action.
+const inspectionLimit = 14
 
 type inspectionGuard struct {
 	mu     sync.Mutex
 	streak int
+	nudged bool
 }
 
 // observe records one completed tool call. Successful concrete actions reset
-// the streak; bookkeeping calls and failures leave it untouched because they
-// provide neither fresh evidence nor artifact progress. Only TodoWrite,
-// SessionNotes and similar state tools resetting the streak is what let a
-// read-note-read loop evade the guard forever.
-func (g *inspectionGuard) observe(inspection, concrete, success bool) (int, bool) {
+// the streak; bookkeeping calls and failures leave it untouched. At
+// inspectionNudgeAt, nudge is returned once so the model gets a warning before
+// stop fires at inspectionLimit.
+func (g *inspectionGuard) observe(inspection, concrete, success bool) (streak int, nudge bool, stop bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !success {
-		return g.streak, false
+		return g.streak, false, false
 	}
 	if concrete {
 		g.streak = 0
-		return 0, false
+		g.nudged = false
+		return 0, false, false
 	}
 	if !inspection {
-		return g.streak, false
+		return g.streak, false, false
 	}
 	g.streak++
-	return g.streak, g.streak >= inspectionLimit
+	if g.streak >= inspectionLimit {
+		return g.streak, false, true
+	}
+	if g.streak >= inspectionNudgeAt && !g.nudged {
+		g.nudged = true
+		return g.streak, true, false
+	}
+	return g.streak, false, false
 }
 
 func (g *inspectionGuard) reset() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.streak = 0
+	g.nudged = false
 }
 
-// recoverNoProgress turns a repeated-work stop into one more attempt inside the
-// same turn: it clears the streak, tells the model exactly what stalled and
-// lets the loop ask again, so the next reply is a different request instead of
-// the same dead end. A mission is left alone because the mission loop pauses it
-// with a printed reason; retrying there would only burn tokens.
+const inspectionNudgeMessage = "Stop inspecting: you have run several read-only calls without acting. " +
+	"Use the evidence already gathered and take the next concrete action now: change the artifact, produce the requested deliverable, or ask one focused question if the goal is genuinely ambiguous. " +
+	"Do not inspect again unless you can name a specific new fact that is missing. Verify changes after making them, not by re-confirming pre-change state."
+
+// recoverNoProgress turns a repeated-call stop into one more attempt inside the
+// same turn. An inspection-only stop is never retried here because the model
+// already received the inspectionNudgeMessage at read 8 and ignored it.
 func (a *Agent) recoverNoProgress(ctx context.Context, err error, retries *int) bool {
-	if !IsNoProgressErr(err) || a.MissionActive() || *retries >= maxNoProgressRetries {
+	if !IsNoProgressErr(err) || IsInspectionLoopErr(err) || a.MissionActive() || *retries >= maxNoProgressRetries {
 		return false
 	}
 	*retries = *retries + 1
 	detail := strings.TrimSpace(strings.TrimPrefix(err.Error(), ErrNoProgress.Error()+":"))
 	a.noProgress.reset()
 	a.inspection.reset()
-	if IsInspectionLoopErr(err) {
-		a.ui.ShowToolResult("RECOVERY", "inspection-only loop detected; asking the model to act on the evidence", false, nil)
-		message := "Stop inspecting: "
-		if detail != "" {
-			message += strings.TrimSuffix(detail, ".") + ". "
-		}
-		message += "Use the evidence already gathered and take the next concrete action now: change the artifact, produce the requested deliverable, or ask one focused question if the goal is genuinely ambiguous. Do not inspect again unless you can name a specific new fact that is missing. Verify changes after making them, not by re-confirming the same pre-change state."
-		a.sess.AddRuntimeReminder(message)
-	} else {
-		a.ui.ShowToolResult("RECOVERY", "repeated tool call detected; asking the model to change its approach", false, nil)
-		message := "Stop repeating: "
-		if detail != "" {
-			message += strings.TrimSuffix(detail, ".") + ". "
-		}
-		message += "The same call cannot produce a different result. Change your approach now: use the output you already have, fix the concrete cause, or tell the user in plain text what blocks you. Read again only to fetch a specific missing fact."
-		a.sess.AddRuntimeReminder(message)
+	a.ui.ShowToolResult("RECOVERY", "repeated tool call detected; asking the model to change its approach", false, nil)
+	message := "Stop repeating: "
+	if detail != "" {
+		message += strings.TrimSuffix(detail, ".") + ". "
 	}
+	message += "The same call cannot produce a different result. Change your approach now: use the output you already have, fix the concrete cause, or tell the user in plain text what blocks you. Read again only to fetch a specific missing fact."
+	a.sess.AddRuntimeReminder(message)
 	a.compactBestEffort(ctx)
 	return true
 }

@@ -23,12 +23,10 @@ import (
 )
 
 const (
-	fakeMissionStart = `<invoke name="MissionStart">{"goal":"keep doing busywork"}</invoke>`
-	fakeNoopCall     = `<invoke name="Bash">{"command":"true"}</invoke>`
-	fakeMissionDone  = `<invoke name="MissionComplete">{"summary":"call cap reached"}</invoke>`
+	fakeNoopCall = `<invoke name="Bash">{"command":"true"}</invoke>`
 	// hardChatCap bounds a broken guard so a regression cannot spin unbounded
-	// in the test; the mission then completes (and the assertion fails).
-	hardChatCap = 200
+	// in the test; the test then hits the cap and fails assertions.
+	hardChatCap = 400
 )
 
 // fakeOllama is an in-process Ollama stub that speaks just enough of the HTTP
@@ -58,20 +56,23 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 		writeJSON(w, `{"model":"fake:latest","capabilities":["completion"]}`)
 	})
 	mux.HandleFunc("/api/chat", func(w http.ResponseWriter, r *http.Request) {
+		var request ollama.ChatRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !request.Stream {
+			writeJSON(w, `{"model":"fake:latest","message":{"role":"assistant","content":"summary"},"done":true}`)
+			return
+		}
 		n := f.calls.Add(1)
 		if f.mode == "mixed-progress" {
 			// Verify the corrective prompt actually reached the model, not just
-			// the stored session: n=11 is the first model call after the nudged
-			// continuation (n=1 start, n=2-4 first turn, n=5-7 stalled turn 1,
-			// n=8-10 stalled turn 2). Later calls may carry the same message in
-			// history, so only this call proves it was sent.
-			var request ollama.ChatRequest
-			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
+			// the stored session: Turn 1 runs 50 steps (n=1..50, records initial
+			// sh verify.sh evidence), Turn 2 stalls (n=51..100, stalled=1),
+			// Turn 3 stalls (n=101..150, stalled=2 -> nudge on n=151!).
 			for _, message := range request.Messages {
-				if strings.Contains(message.Content, "The last two turns produced no new progress") && n == 11 {
+				if strings.Contains(message.Content, "The last two turns produced no new progress") && n == 151 {
 					f.nudgesOnWire.Add(1)
 				}
 			}
@@ -79,11 +80,9 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 		content := ""
 		switch {
 		case n > hardChatCap:
-			content = fakeMissionDone
+			content = "call cap reached"
 		case f.mode == "empty":
-			if n == 1 {
-				content = fakeMissionStart
-			}
+			// Return empty replies until stalled/empty guard pauses the goal.
 		case f.mode == "ok":
 			content = "done"
 		case f.mode == "stuck":
@@ -95,47 +94,23 @@ func newFakeOllama(t *testing.T, mode string) (*httptest.Server, *fakeOllama) {
 			// per-turn step budget can end this turn.
 			content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf x > .busy-%d"}</invoke>`, n)
 		case f.mode == "mixed-progress":
-			if n == 1 {
-				content = fakeMissionStart
+			// Alternate a stable read and a stable check every step so
+			// neither the repeated-call guard nor the inspection guard fires,
+			// exercising cross-turn stall detection across MaxIterations turns.
+			if n%2 == 1 {
+				content = `<invoke name="Bash">{"command":"cat evidence.txt"}</invoke>`
 			} else {
-				// Alternate a stable read, a stable check and a plain-text turn
-				// ender. Every (call, output) pair repeats from the second turn
-				// on, so no single-turn guard can ever stop this.
-				switch (n - 2) % 3 {
-				case 0:
-					content = `<invoke name="Bash">{"command":"cat evidence.txt"}</invoke>`
-				case 1:
-					content = `<invoke name="Bash">{"command":"sh verify.sh"}</invoke>`
-				default:
-					content = "continuing work"
-				}
+				content = `<invoke name="Bash">{"command":"sh verify.sh"}</invoke>`
 			}
 		case f.mode == "productive-reads":
-			if n == 1 {
-				content = fakeMissionStart
-			} else if n == 12 {
-				content = `<invoke name="MissionComplete">{"summary":"Reviewed all evidence"}</invoke>`
-			} else if n%2 == 0 {
-				// Read-only commands whose output changes every time are real
-				// evidence: each one advances the run, so the stall guard must
-				// never fire no matter how many turns pass.
-				content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'finding %d'"}</invoke>`, n)
-			} else {
-				content = "continuing review"
-			}
+			// Read-only commands whose output changes every time still perform
+			// no concrete work, so the inspection guard pauses the goal.
+			content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'finding %d'"}</invoke>`, n)
 		case f.mode == "loop-inspect":
-			if n == 1 {
-				content = fakeMissionStart
-			} else {
-				// Different commands and outputs still perform no concrete work.
-				content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'check %d'"}</invoke>`, n)
-			}
+			// Different commands and outputs still perform no concrete work.
+			content = fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'check %d'"}</invoke>`, n)
 		default: // loop-tool
-			if n == 1 {
-				content = fakeMissionStart
-			} else {
-				content = fakeNoopCall
-			}
+			content = fakeNoopCall
 		}
 		payload, _ := json.Marshal(map[string]any{
 			"model":   "fake:latest",
@@ -158,6 +133,10 @@ func newHTTPTestAgent(t *testing.T, host string) (*agent.Agent, tui.UI) {
 }
 
 func newHTTPTestAgentWithSession(t *testing.T, host string) (*agent.Agent, tui.UI, *session.Session) {
+	return newHTTPTestAgentWithContext(t, host, 4096)
+}
+
+func newHTTPTestAgentWithContext(t *testing.T, host string, contextWindow int) (*agent.Agent, tui.UI, *session.Session) {
 	t.Helper()
 	tmp := t.TempDir()
 	// Bash inherits the process working directory, so keep every fixture and
@@ -165,7 +144,7 @@ func newHTTPTestAgentWithSession(t *testing.T, host string) (*agent.Agent, tui.U
 	t.Chdir(tmp)
 	cfg := &config.Config{
 		Model:         "fake:latest",
-		ContextWindow: 4096,
+		ContextWindow: contextWindow,
 		MaxTokens:     128,
 		Temperature:   0.2,
 		Cwd:           tmp,
@@ -186,12 +165,13 @@ func newHTTPTestAgentWithSession(t *testing.T, host string) (*agent.Agent, tui.U
 	return agent.New(cfg, client, reg, perm, sess, ui), ui, sess
 }
 
-// TestRunPromptPausesRepeatedToolLoop covers the mission-loop pause: a model
-// that declares a mission and then repeats the same no-op tool call must be
-// stopped by the no-progress guard, not spin forever.
+// TestRunPromptPausesRepeatedToolLoop covers the autonomous-goal pause: an
+// active goal that repeats the same no-op tool call must be stopped by the
+// no-progress guard, not spin forever.
 func TestRunPromptPausesRepeatedToolLoop(t *testing.T) {
 	srv, fake := newFakeOllama(t, "loop-tool")
 	ag, ui := newHTTPTestAgent(t, srv.URL)
+	ag.StartMission("keep doing busywork")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -206,16 +186,17 @@ func TestRunPromptPausesRepeatedToolLoop(t *testing.T) {
 	if !strings.Contains(strings.ToLower(snap.Summary), "repeated") {
 		t.Fatalf("pause reason should mention the repeated tool call, got %q", snap.Summary)
 	}
-	if calls := fake.calls.Load(); calls > 12 {
+	if calls := fake.calls.Load(); calls > 10 {
 		t.Fatalf("no-progress guard fired too late: %d chat calls", calls)
 	}
 }
 
 // Different read-only commands evade the identical-call guard, but they still
-// cannot keep an autonomous mission busy for an hour without doing real work.
+// cannot keep an autonomous goal busy for an hour without doing real work.
 func TestRunPromptPausesInspectionOnlyLoop(t *testing.T) {
 	srv, fake := newFakeOllama(t, "loop-inspect")
 	ag, ui := newHTTPTestAgent(t, srv.URL)
+	ag.StartMission("keep inspecting")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -235,13 +216,16 @@ func TestRunPromptPausesInspectionOnlyLoop(t *testing.T) {
 	}
 }
 
-// A mission that alternates different tool calls can still spin: every
+// A goal that alternates different tool calls can still spin: every
 // (call, output) pair repeats identically each turn, so neither the repeated-
 // call guard nor the inspection guard fires. The cross-turn evidence tracker
 // must count three turns with no new progress, nudge once, then pause.
 func TestRunPromptPausesAcrossTurnsWithoutNewProgress(t *testing.T) {
 	srv, fake := newFakeOllama(t, "mixed-progress")
-	ag, ui, sess := newHTTPTestAgentWithSession(t, srv.URL)
+	// Use a roomier window so compaction does not archive Turn 3's nudge
+	// before the assertion inspects sess.MessagesReadOnly().
+	ag, ui, sess := newHTTPTestAgentWithContext(t, srv.URL, 65536)
+	ag.StartMission("finish task")
 	if err := os.WriteFile("evidence.txt", []byte("fixed evidence\n"), 0o644); err != nil {
 		t.Fatalf("write evidence.txt: %v", err)
 	}
@@ -262,8 +246,8 @@ func TestRunPromptPausesAcrossTurnsWithoutNewProgress(t *testing.T) {
 	if !strings.Contains(strings.ToLower(snap.Summary), "no new evidence") {
 		t.Fatalf("pause reason should mention the missing new evidence, got %q", snap.Summary)
 	}
-	if calls := fake.calls.Load(); calls != 13 {
-		t.Fatalf("expected exactly 13 chat calls (mission start + four 3-call turns), got %d", calls)
+	if calls := fake.calls.Load(); calls != 200 {
+		t.Fatalf("expected exactly 200 chat calls (4x50 MaxIterations turns across stalled window), got %d", calls)
 	}
 	if !ag.CanResume() {
 		t.Fatal("a stalled mission must stay resumable with Enter")
@@ -285,13 +269,13 @@ func TestRunPromptPausesAcrossTurnsWithoutNewProgress(t *testing.T) {
 	}
 }
 
-// Reads alone are never cross-turn progress — even when every command returns
-// new output. A mission that only opens new references without writing must
-// pause after three turns so the user can redirect it, instead of looking
-// busy forever.
+// Reads alone are never concrete progress — even when every command returns
+// new output. An autonomous goal that only opens new references without writing
+// must pause instead of looking busy forever.
 func TestRunPromptContinuesWithNewReadOnlyEvidence(t *testing.T) {
 	srv, fake := newFakeOllama(t, "productive-reads")
 	ag, ui := newHTTPTestAgent(t, srv.URL)
+	ag.StartMission("review and edit")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -303,20 +287,40 @@ func TestRunPromptContinuesWithNewReadOnlyEvidence(t *testing.T) {
 	if snap.Status != tools.MissionStatusBlocked {
 		t.Fatalf("expected mission status %q, got %q (%q)", tools.MissionStatusBlocked, snap.Status, snap.Summary)
 	}
-	if !strings.Contains(strings.ToLower(snap.Summary), "no new evidence") {
-		t.Fatalf("pause reason should mention the missing concrete progress, got %q", snap.Summary)
-	}
-	if calls := fake.calls.Load(); calls > hardChatCap/2 {
+	if calls := fake.calls.Load(); calls > 20 {
 		t.Fatalf("read-only mission fired too late: %d chat calls", calls)
 	}
 }
 
-// TestRunPromptPausesEmptyResponses covers the other runaway mode: a mission
-// that keeps producing empty replies must also pause (via the empty/stall
+// TestRunPromptAutoCompletesGoalWithoutMissionComplete verifies that an active
+// autonomous goal finishes cleanly when the model replies in plain text with
+// no pending TODO items remaining (no MissionComplete tool call needed).
+func TestRunPromptAutoCompletesGoalWithoutMissionComplete(t *testing.T) {
+	srv, fake := newFakeOllama(t, "ok")
+	ag, ui := newHTTPTestAgent(t, srv.URL)
+	ag.StartMission("answer concisely")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := runPrompt(ctx, ag, ui, "answer concisely"); err != nil {
+		t.Fatalf("runPrompt returned error: %v", err)
+	}
+	snap := ag.MissionSnapshot()
+	if snap.Status != tools.MissionStatusCompleted {
+		t.Fatalf("expected goal status %q, got %q", tools.MissionStatusCompleted, snap.Status)
+	}
+	if calls := fake.calls.Load(); calls != 1 {
+		t.Fatalf("expected 1 chat call for direct goal completion, got %d", calls)
+	}
+}
+
+// TestRunPromptPausesEmptyResponses covers the other runaway mode: an active
+// goal that keeps producing empty replies must also pause (via the empty/stall
 // guards) instead of looping.
 func TestRunPromptPausesEmptyResponses(t *testing.T) {
 	srv, fake := newFakeOllama(t, "empty")
 	ag, ui := newHTTPTestAgent(t, srv.URL)
+	ag.StartMission("produce an answer")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

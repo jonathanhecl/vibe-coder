@@ -13,6 +13,14 @@ func errResult(msg string) Result {
 	}
 }
 
+func asStringParam(params map[string]any, key string) string {
+	if params == nil {
+		return ""
+	}
+	v, _ := params[key].(string)
+	return v
+}
+
 // Parse-error keys preserved when tool arguments are not valid JSON.
 // They use a __ prefix so they never collide with real tool params.
 const (

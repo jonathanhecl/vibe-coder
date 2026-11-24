@@ -370,7 +370,7 @@ func buildSubAgentPrompt(cfg *config.Config, allowWrites bool, allowed map[strin
 	b.WriteString(base)
 	b.WriteString("\n\n# Sub-agent scope\n")
 	b.WriteString("You are an isolated bounded sub-agent. Answer the delegated prompt directly and concisely.\n")
-	b.WriteString("Do NOT call TodoWrite, MissionStart, MissionComplete, or MissionBlocked; those belong only to the parent agent.\n")
+	b.WriteString("Do NOT call TodoWrite; checklist management belongs only to the parent agent.\n")
 	if allowWrites {
 		b.WriteString("You may use ONLY these tools:\n")
 	} else {

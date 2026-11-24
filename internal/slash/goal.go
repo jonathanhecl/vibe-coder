@@ -33,26 +33,16 @@ func GoalTaskFromSlash(line string) (string, bool) {
 	return "", false
 }
 
-// FormatGoalPrompt constructs the phased autonomous mission prompt instructing
-// the agent to first plan step-by-step and design verification, ask clarifying
-// questions if needed, and then execute autonomously without routine user prompts.
+// FormatGoalPrompt constructs the direct autonomous goal prompt instructing the
+// agent to execute concrete steps right away without verification theater.
 func FormatGoalPrompt(goal string) string {
-	return fmt.Sprintf(`[goal] Autonomous goal: %q
+	return fmt.Sprintf(`[goal] %s
 
-Phase 1: Planning, Verification Design & Clarification
-1. Inspect only the information needed to decide the next action. Confirm each fact once; do not re-run equivalent inspections of unchanged state.
-2. Break down the goal into clear, concrete steps using TodoWrite.
-3. For steps that change state, define exactly one check that covers the change (e.g. running tests, linters, verifying build, or inspecting the changed output). One passing check completes verification for that step.
-4. If you have critical ambiguities, questions, or need architectural decisions from the user, ask one focused question now using AskUserQuestion before proceeding.
-5. As soon as the checklist is actionable, begin executing the first step immediately with tool calls. Planning is not the deliverable unless the user explicitly requested only a plan; if plan-only versus execution is genuinely unclear, ask once instead of continuing to inspect.
-
-Phase 2: Autonomous Execution & Verification
-Once the plan is established:
-- Work through each step sequentially using tool calls.
-- After a change, reuse any passing automatic check that covers it. Run only a missing check for the current state. Do not repeat a passing check unless its inputs changed, and never stack several passing checks for the same change.
-- Do not stop for routine user approvals; the runtime is in unattended mode and will keep driving the mission.
-- Continue until all checklist items are done with one passing check each, then call MissionComplete with a concise summary.
-- If and only if you are completely blocked and cannot proceed without user intervention, call MissionBlocked with the reason.`, goal)
+Work autonomously until this goal is complete:
+- Use TodoWrite only if the task needs 3+ distinct steps, and start executing the first concrete step immediately.
+- Inspect only what you need, then edit or run commands right away. Do not re-read unchanged files or stack redundant checks.
+- If a genuine requirement is ambiguous, call AskUserQuestion once.
+- When finished, mark all TODO items completed and reply with a concise summary.`, goal)
 }
 
 // runGoalCommand handles the /goal slash command.
@@ -70,8 +60,8 @@ func runGoalCommand(c *Ctx, args []string) error {
 			return nil
 		}
 		fmt.Fprintln(c.Out, "Usage: /goal <objective>")
-		fmt.Fprintln(c.Out, "Start an autonomous mission. The agent will first organize a step-by-step plan")
-		fmt.Fprintln(c.Out, "and verification strategy, clarify any doubts with you, and then execute autonomously.")
+		fmt.Fprintln(c.Out, "Start an autonomous goal. The agent executes the checklist with unattended permissions")
+		fmt.Fprintln(c.Out, "and stops automatically when the work is finished.")
 		return nil
 	}
 
@@ -87,11 +77,8 @@ func runGoalCommand(c *Ctx, args []string) error {
 	}
 
 	mc.StartMission(goal)
-	if c.Session != nil {
-		c.Session.AddUser("[System Note] Autonomous mission started: " + goal)
-	}
 	st := tui.NewStyle(c.Out)
 	fmt.Fprintf(c.Out, "%s %s\n", st.BoldCyan("[goal] Autonomous mission initialized:"), st.BrightWhite(goal))
-	fmt.Fprintln(c.Out, st.Dim("Phase 1: Planning step-by-step approach & verification criteria..."))
+	fmt.Fprintln(c.Out, st.Dim("Working autonomously until complete (unattended permissions)..."))
 	return nil
 }

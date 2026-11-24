@@ -130,10 +130,10 @@ func TestRunRecoversFromDifferentReadOnlyInspections(t *testing.T) {
 	ag := newCoverageAgent(t, client, tui.DecisionAllowOnce, true)
 
 	if err := ag.Run(context.Background(), "produce the artifact"); err != nil {
-		t.Fatalf("Run returned %v, want the turn to recover and finish", err)
+		t.Fatalf("Run returned %v, want the turn to recover after the soft nudge", err)
 	}
-	if got, want := client.chatCalls.Load(), int32(inspectionLimit+1); got != want {
-		t.Fatalf("chat calls = %d, want %d (inspection limit plus recovery)", got, want)
+	if got, want := client.chatCalls.Load(), int32(inspectionNudgeAt+1); got != want {
+		t.Fatalf("chat calls = %d, want %d (soft nudge at %d plus recovery)", got, want, inspectionNudgeAt)
 	}
 	if !diagnosticsTranscriptHas(ag, "Stop inspecting") {
 		t.Error("the model was not told to stop re-confirming known state")
@@ -146,49 +146,88 @@ func TestRunRecoversFromDifferentReadOnlyInspections(t *testing.T) {
 	}
 }
 
+type stubbornInspectClient struct {
+	coverageClient
+}
+
+func (c *stubbornInspectClient) Chat(_ context.Context, _ ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	call := c.chatCalls.Add(1)
+	ch := make(chan ollama.Chunk, 1)
+	ch <- ollama.Chunk{
+		Delta: fmt.Sprintf(`<invoke name="Bash">{"command":"printf 'check %d'"}</invoke>`, call),
+		Done:  true,
+	}
+	close(ch)
+	return ch, nil
+}
+
+func TestRunStopsWhenModelIgnoresInspectionNudge(t *testing.T) {
+	client := &stubbornInspectClient{}
+	ag := newCoverageAgent(t, client, tui.DecisionAllowOnce, true)
+
+	err := ag.Run(context.Background(), "produce the artifact")
+	if !IsInspectionLoopErr(err) {
+		t.Fatalf("expected ErrInspectionLoop when model ignores nudge, got %v", err)
+	}
+	if got := client.chatCalls.Load(); got != inspectionLimit {
+		t.Fatalf("chat calls = %d, want exactly %d (no infinite recovery resets)", got, inspectionLimit)
+	}
+}
+
 func TestInspectionGuardResetsOnlyOnSuccessfulConcreteAction(t *testing.T) {
 	g := new(inspectionGuard)
+	nudged := false
 	for i := 0; i < inspectionLimit-1; i++ {
-		if _, loop := g.observe(true, false, true); loop {
-			t.Fatalf("inspection guard tripped early at %d", i+1)
+		streak, nudge, stop := g.observe(true, false, true)
+		if stop {
+			t.Fatalf("inspection guard stopped early at %d", streak)
+		}
+		if nudge {
+			if streak != inspectionNudgeAt {
+				t.Fatalf("nudge fired at %d, want %d", streak, inspectionNudgeAt)
+			}
+			nudged = true
 		}
 	}
-	if streak, loop := g.observe(false, true, false); loop || streak != inspectionLimit-1 {
-		t.Fatalf("a failed action changed the streak to %d (loop=%t)", streak, loop)
+	if !nudged {
+		t.Fatal("expected inspection nudge before hitting hard limit")
 	}
-	// Bookkeeping (TodoWrite, SessionNotes, task tools) must be neutral: it
-	// neither advances the streak nor resets it, otherwise a
-	// read-note-read loop never reaches the limit.
-	if streak, loop := g.observe(false, false, true); loop || streak != inspectionLimit-1 {
-		t.Fatalf("a bookkeeping call changed the streak to %d (loop=%t)", streak, loop)
+	if streak, _, stop := g.observe(false, true, false); stop || streak != inspectionLimit-1 {
+		t.Fatalf("a failed action changed the streak to %d (stop=%t)", streak, stop)
 	}
-	if streak, loop := g.observe(false, true, true); loop || streak != 0 {
-		t.Fatalf("a successful concrete action left streak %d (loop=%t)", streak, loop)
+	// Bookkeeping (TodoWrite, SessionNotes) must be neutral: it neither
+	// advances the streak nor resets it, otherwise a read-note-read loop never
+	// reaches the limit.
+	if streak, _, stop := g.observe(false, false, true); stop || streak != inspectionLimit-1 {
+		t.Fatalf("a bookkeeping call changed the streak to %d (stop=%t)", streak, stop)
+	}
+	if streak, _, stop := g.observe(false, true, true); stop || streak != 0 {
+		t.Fatalf("a successful concrete action left streak %d (stop=%t)", streak, stop)
 	}
 }
 
 func TestInspectionGuardIgnoresInterleavedBookkeeping(t *testing.T) {
 	g := new(inspectionGuard)
-	// Read, read, SessionNotes, TodoWrite, read... must still trip at 12
-	// reads even though neutral calls sit between them.
+	// Read, read, SessionNotes, TodoWrite, read... must still stop at
+	// inspectionLimit even though neutral calls sit between them.
 	reads := 0
-	for i := 0; i < 30 && reads < inspectionLimit; i++ {
+	for i := 0; i < 40 && reads < inspectionLimit; i++ {
 		switch i % 4 {
 		case 2:
 			// SessionNotes upsert: neutral.
-			if _, loop := g.observe(false, false, true); loop {
-				t.Fatal("neutral bookkeeping must never trip the guard")
+			if _, _, stop := g.observe(false, false, true); stop {
+				t.Fatal("neutral bookkeeping must never stop the guard")
 			}
 		case 3:
 			// TodoWrite: neutral.
-			if _, loop := g.observe(false, false, true); loop {
-				t.Fatal("neutral bookkeeping must never trip the guard")
+			if _, _, stop := g.observe(false, false, true); stop {
+				t.Fatal("neutral bookkeeping must never stop the guard")
 			}
 		default:
 			reads++
-			if _, loop := g.observe(true, false, true); loop {
+			if _, _, stop := g.observe(true, false, true); stop {
 				if reads != inspectionLimit {
-					t.Fatalf("tripped at %d reads, want %d", reads, inspectionLimit)
+					t.Fatalf("stopped at %d reads, want %d", reads, inspectionLimit)
 				}
 			}
 		}
@@ -240,6 +279,14 @@ func TestLocalInspectionClassification(t *testing.T) {
 	}
 	if inspection, concrete := ag.classifyForProgress(ag.reg.Get("Write"), map[string]any{"file_path": "a.txt"}); !concrete || inspection {
 		t.Fatalf("Write should be concrete (got inspection=%t concrete=%t)", inspection, concrete)
+	}
+	if sub := ag.reg.Get("SubAgent"); sub != nil {
+		if inspection, concrete := ag.classifyForProgress(sub, map[string]any{"prompt": "find foo"}); !inspection || concrete {
+			t.Fatalf("read-only SubAgent must count as inspection (got inspection=%t concrete=%t)", inspection, concrete)
+		}
+		if inspection, concrete := ag.classifyForProgress(sub, map[string]any{"prompt": "fix foo", "allow_writes": true}); inspection || !concrete {
+			t.Fatalf("write-enabled SubAgent must count as concrete (got inspection=%t concrete=%t)", inspection, concrete)
+		}
 	}
 	ag.EnterPlanMode()
 	if ag.isLocalInspection(ag.reg.Get("Read"), map[string]any{"file_path": "captions.txt"}) {

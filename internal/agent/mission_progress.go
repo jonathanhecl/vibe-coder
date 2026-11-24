@@ -93,7 +93,7 @@ func observeMissionTool(ctx context.Context, toolName string, params map[string]
 		return
 	}
 	switch toolName {
-	case "TodoWrite", "MissionStart", "MissionComplete", "MissionBlocked", "AskUserQuestion", "SessionNotes", "Decide", "BackgroundList":
+	case "TodoWrite", "AskUserQuestion", "SessionNotes", "BackgroundList":
 		return // Bookkeeping, or polling with volatile elapsed-time metadata.
 	case "Bash":
 		args := strings.Fields(asString(params["command"]))

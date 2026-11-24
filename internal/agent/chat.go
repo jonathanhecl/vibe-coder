@@ -66,7 +66,7 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	a.wireMu.Lock()
 	sameGen := a.wire.set && a.wire.gen == gen
 	prevStart := a.wire.start
-	maskBefore := a.maskBeforeLocked(hist, gen)
+	maskBefore := a.maskBeforeLocked(hist, gen, budget.Transcript)
 	masked, _ := maskToolResults(hist, maskBefore)
 	start := -1
 	if sameGen && prevStart >= 0 && prevStart < len(masked) &&
@@ -376,6 +376,11 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 			}
 			cancel()
 			if attempt < MaxRetries {
+				// Empty assistant replies only get 1 retry inside chatOnce so
+				// outer recovery does not stack 3x3 rounds on a wedged turn.
+				if lastErr == nil && attempt >= 1 {
+					break
+				}
 				// A model that just answered with nothing receives an identical
 				// request on retry, which asks the same question twice. The
 				// reminder changes the prompt and names what was missing, so the

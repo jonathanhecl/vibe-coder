@@ -24,6 +24,10 @@ const (
 	// turns are unmasked, so maskBefore does not crawl forward one turn per
 	// request.
 	maskHysteresis = 4
+	// maskTriggerPercent is the transcript budget fill percentage at which
+	// age-based observation masking begins. Below this threshold, tool results
+	// stay visible verbatim so the model does not re-read files unnecessarily.
+	maskTriggerPercent = 55
 )
 
 var toolResultEnvelopeRe = regexp.MustCompile(`(?s)^\[tool_result name=([^\]\n]+)\]\n?(.*)$`)
@@ -33,10 +37,11 @@ var toolResultEnvelopeRe = regexp.MustCompile(`(?s)^\[tool_result name=([^\]\n]+
 // history index before which tool results are masked; start is the sticky
 // window start.
 type wireState struct {
-	set        bool
-	gen        uint64
-	maskBefore int
-	start      int
+	set           bool
+	gen           uint64
+	maskingActive bool
+	maskBefore    int
+	start         int
 }
 
 func isToolResult(m session.Message) bool {
@@ -44,10 +49,30 @@ func isToolResult(m session.Message) bool {
 		(m.Role == "user" && strings.HasPrefix(m.Content, "[tool_result"))
 }
 
+func isBookkeepingToolName(name string) bool {
+	switch name {
+	case "TodoWrite", "SessionNotes":
+		return true
+	default:
+		return false
+	}
+}
+
+func messageToolName(m session.Message) string {
+	if m.Role == "tool" {
+		return m.ToolName
+	}
+	if m.Role == "user" && strings.HasPrefix(m.Content, "[tool_result") {
+		name, _ := parseToolResultEnvelope(m.Content)
+		return name
+	}
+	return ""
+}
+
 // toolTurnStarts returns the turn-start indices of every turn that contains
-// at least one tool result, in order. A turn starts at each assistant message
-// whose content does not begin with "[runtime]"; results appearing before the
-// first assistant message belong to turn -1.
+// at least one non-bookkeeping tool result, in order. A turn starts at each
+// assistant message whose content does not begin with "[runtime]"; results
+// appearing before the first assistant message belong to turn -1.
 func toolTurnStarts(hist []session.Message) []int {
 	var out []int
 	turn := -1
@@ -61,7 +86,7 @@ func toolTurnStarts(hist []session.Message) []int {
 			hasResult = false
 			continue
 		}
-		if isToolResult(m) {
+		if isToolResult(m) && !isBookkeepingToolName(messageToolName(m)) {
 			hasResult = true
 		}
 	}
@@ -246,6 +271,9 @@ func maskToolResults(hist []session.Message, maskBefore int) ([]session.Message,
 			if name == "" {
 				name = meta[i].name
 			}
+			if isBookkeepingToolName(name) {
+				continue
+			}
 			if name == "" {
 				name = "unknown"
 			}
@@ -254,6 +282,9 @@ func maskToolResults(hist []session.Message, maskBefore int) ([]session.Message,
 			name, inner := parseToolResultEnvelope(m.Content)
 			if name == "" {
 				name = meta[i].name
+			}
+			if isBookkeepingToolName(name) {
+				continue
 			}
 			if name == "" {
 				name = "unknown"
@@ -318,18 +349,49 @@ func (a *Agent) keepToolResults() int {
 	return k
 }
 
+// maskingTriggerTokens returns the calibrated transcript token count above
+// which age-based observation masking activates. Kept comfortably below
+// transcriptFullAt so masking shrinks tool outputs before compaction fires.
+func (a *Agent) maskingTriggerTokens(transcriptBudget int) int {
+	if transcriptBudget <= 0 {
+		return 0
+	}
+	trigger := transcriptBudget * maskTriggerPercent / 100
+	if fullAt := a.transcriptFullAt(transcriptBudget); fullAt > 0 && trigger > fullAt*80/100 {
+		trigger = fullAt * 80 / 100
+	}
+	return trigger
+}
+
+func (a *Agent) exceedsMaskPressure(hist []session.Message, transcriptBudget int) bool {
+	if transcriptBudget <= 0 {
+		return true
+	}
+	supersededOnly, _ := maskToolResults(hist, -1)
+	return a.calibratedTranscriptCost(supersededOnly) >= a.maskingTriggerTokens(transcriptBudget)
+}
+
 // maskBeforeLocked resolves the masking frontier with hysteresis. A new
-// session generation recomputes exactly K unmasked tool turns and resets the
-// sticky window start; within a generation maskBefore is retained (and can
-// only move forward) until more than K+4 turns sit unmasked. Caller must hold
-// a.wireMu.
-func (a *Agent) maskBeforeLocked(hist []session.Message, gen uint64) int {
+// session generation recomputes once context pressure crosses maskTriggerPercent
+// (and resets the sticky window start); below that pressure threshold, age-based
+// masking stays disabled (-1) so files read earlier stay in context. Within a
+// generation maskBefore is retained (and can only move forward) until more than
+// K+4 turns sit unmasked. Caller must hold a.wireMu.
+func (a *Agent) maskBeforeLocked(hist []session.Message, gen uint64, transcriptBudget int) int {
 	k := a.keepToolResults()
 	st := &a.wire
 	if !st.set || st.gen != gen {
 		st.set = true
 		st.gen = gen
 		st.start = 0
+		st.maskingActive = false
+		st.maskBefore = -1
+	}
+	if !st.maskingActive {
+		if !a.exceedsMaskPressure(hist, transcriptBudget) {
+			return -1
+		}
+		st.maskingActive = true
 		st.maskBefore = maskBeforeForTurns(toolTurnStarts(hist), k)
 		return st.maskBefore
 	}
@@ -348,14 +410,16 @@ func (a *Agent) maskBeforeLocked(hist []session.Message, gen uint64) int {
 	return st.maskBefore
 }
 
-// wireMaskBefore applies hysteresis and returns the masked copy of hist.
-// Intended for buildOllamaMessages; compaction uses maskBeforeForState to
-// peek without taking the hysteresis lock.
-func (a *Agent) maskBeforeForState(hist []session.Message, gen uint64) int {
+// maskBeforeForState peeks at the masking frontier without mutating wire
+// hysteresis state.
+func (a *Agent) maskBeforeForState(hist []session.Message, gen uint64, transcriptBudget int) int {
 	a.wireMu.Lock()
 	defer a.wireMu.Unlock()
 	if a.wire.set && a.wire.gen == gen {
 		return a.wire.maskBefore
+	}
+	if !a.exceedsMaskPressure(hist, transcriptBudget) {
+		return -1
 	}
 	return maskBeforeForTurns(toolTurnStarts(hist), a.keepToolResults())
 }

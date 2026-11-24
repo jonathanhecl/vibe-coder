@@ -240,12 +240,6 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 					break
 				}
 				a.persistMissionProgress()
-				if isMissionEndTool(c.Name) {
-					for _, fn := range auxNotes {
-						fn()
-					}
-					return nil
-				}
 			}
 			for _, fn := range auxNotes {
 				fn()
@@ -336,12 +330,6 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 					return nil
 				}
 				a.persistMissionProgress()
-				if isMissionEndTool(c.Name) {
-					for _, fn := range auxNotes {
-						fn()
-					}
-					return nil
-				}
 			}
 			for _, fn := range auxNotes {
 				fn()
@@ -361,7 +349,7 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 			continue
 		}
 		if assistantVisibleText(reply) == "" {
-			if thinkingOnlyRetries < 2 {
+			if thinkingOnlyRetries < 1 {
 				thinkingOnlyRetries++
 				// Retrying with an identical prompt asks the same question that
 				// just got no answer. The reminder makes the retry a different

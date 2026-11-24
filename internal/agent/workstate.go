@@ -16,7 +16,6 @@ const workStateVersion = 2
 type workStateSnapshot struct {
 	Version int                 `json:"version"`
 	Todos   []tools.TodoItem    `json:"todos,omitempty"`
-	Tasks   []tools.Task        `json:"tasks,omitempty"`
 	Notes   []tools.SessionNote `json:"notes,omitempty"`
 	// Mission is the agent-declared long-running goal, when one exists. It is
 	// what lets an interrupted autonomous run resume and keep going.
@@ -32,7 +31,6 @@ func (a *Agent) captureWorkState() []byte {
 	a.ensureNotesSession()
 	snap := workStateSnapshot{
 		Version: workStateVersion,
-		Tasks:   tools.SnapshotTasks(),
 	}
 	if tw := a.todoWriteTool(); tw != nil {
 		snap.Todos = tw.Store().Snapshot()
@@ -49,7 +47,7 @@ func (a *Agent) captureWorkState() []byte {
 	a.mu.Lock()
 	a.resume = snap.Resume
 	a.mu.Unlock()
-	if len(snap.Todos) == 0 && len(snap.Tasks) == 0 && snap.Mission == nil && len(snap.Notes) == 0 && snap.Resume == nil {
+	if len(snap.Todos) == 0 && snap.Mission == nil && len(snap.Notes) == 0 && snap.Resume == nil {
 		return nil
 	}
 	raw, err := json.Marshal(snap)
@@ -76,9 +74,6 @@ func (a *Agent) applyWorkState(raw []byte) {
 		if err := json.Unmarshal(raw, &snap); err == nil {
 			if tw := a.todoWriteTool(); tw != nil {
 				tw.Store().Replace(snap.Todos)
-			}
-			if len(snap.Tasks) > 0 {
-				tools.RestoreTasks(snap.Tasks)
 			}
 			if snap.Mission != nil && a.mission != nil {
 				a.mission.Restore(*snap.Mission)

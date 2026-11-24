@@ -46,7 +46,7 @@ for _ in $(seq 1 20); do
   sleep 0.25
 done
 
-PROMPT="Run the pinned mission guide end to end: process every item in dataset.jsonl through the local job API at http://127.0.0.1:${PORT}, retry transient job failures, verify each result against the expect field, and record only verified results in results.jsonl. Start a mission with MissionStart so you keep working autonomously, and call MissionComplete only when every item is verified."
+PROMPT="Run the pinned mission guide end to end: process every item in dataset.jsonl through the local job API at http://127.0.0.1:${PORT}, retry transient job failures, verify each result against the expect field, and record only verified results in results.jsonl. Mark every TodoWrite item completed and summarize the results when done."
 
 # run_vibe starts vibe in the mission workdir and sets VIBE_PID. The process is
 # backgrounded in the current shell (not a command-substitution subshell) so
@@ -60,6 +60,7 @@ run_vibe() {
       --model "$MODEL" \
       --ollama-host "$OLLAMA_HOST" \
       --max-tokens "$MAX_TOKENS" \
+      --goal \
       -y $EXTRA_FLAGS \
       --context "$WORK/mission-context.md" \
       "$@" ) >"$log" 2>&1 &

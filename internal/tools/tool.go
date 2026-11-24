@@ -22,11 +22,10 @@ const (
 
 func EffectOf(tool Tool) Effect {
 	switch tool.(type) {
-	case *ReadTool, *ReadManyTool, *GlobTool, *GrepTool, *WebFetchTool, *WebSearchTool, *DescribeImageTool, *ScreenshotTool, *SkillTool, *GitStatusTool, *GitDiffTool, *DecideTool,
+	case *ReadTool, *ReadManyTool, *GlobTool, *GrepTool, *WebFetchTool, *WebSearchTool, *DescribeImageTool, *ScreenshotTool, *SkillTool, *GitStatusTool, *GitDiffTool,
 		*DiagnosticsTool, *BackgroundStatusTool, *BackgroundListTool:
 		return EffectRead
-	case *TodoWriteTool, *TaskCreateTool, *TaskListTool, *TaskGetTool, *TaskUpdateTool, *AskUserQuestionTool,
-		*MissionStartTool, *MissionCompleteTool, *MissionBlockedTool, *SessionNotesTool:
+	case *TodoWriteTool, *AskUserQuestionTool, *SessionNotesTool:
 		return EffectState
 	case *WriteTool, *EditTool, *NotebookEditTool, *GitUndoTool:
 		return EffectWrite

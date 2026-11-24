@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,47 +42,6 @@ func TestToolMetadataAndRegistryCaches(t *testing.T) {
 
 	// Cached schemas path.
 	_ = reg.Schemas()
-}
-
-func TestTaskGetAndUpdatePaths(t *testing.T) {
-	t.Parallel()
-	create := NewTaskCreateTool()
-	get := NewTaskGetTool()
-	update := NewTaskUpdateTool()
-
-	created := create.Execute(context.Background(), map[string]any{"content": "cover task"})
-	if created.IsError {
-		t.Fatalf("create failed: %s", created.Output)
-	}
-	var task Task
-	if err := json.Unmarshal([]byte(created.Output), &task); err != nil {
-		t.Fatalf("decode task: %v", err)
-	}
-
-	got := get.Execute(context.Background(), map[string]any{"id": task.ID})
-	if got.IsError {
-		t.Fatalf("get failed: %s", got.Output)
-	}
-	updated := update.Execute(context.Background(), map[string]any{
-		"id":      task.ID,
-		"content": "updated content",
-		"status":  "done",
-		"notes":   "covered",
-	})
-	if updated.IsError {
-		t.Fatalf("update failed: %s", updated.Output)
-	}
-	if !strings.Contains(updated.Output, "updated content") || !strings.Contains(updated.Output, "covered") {
-		t.Fatalf("unexpected update output: %s", updated.Output)
-	}
-
-	// Error branches.
-	if ok := get.Execute(context.Background(), map[string]any{"id": "missing"}); !ok.IsError {
-		t.Fatal("expected missing task get to fail")
-	}
-	if ok := update.Execute(context.Background(), map[string]any{"id": "missing"}); !ok.IsError {
-		t.Fatal("expected missing task update to fail")
-	}
 }
 
 func TestAskUserAndHelpers(t *testing.T) {

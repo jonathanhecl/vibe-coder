@@ -12,6 +12,7 @@ import (
 
 type cliOptions struct {
 	prompt            optionalString
+	goal              optionalBool
 	interactive       optionalBool
 	model             optionalString
 	ui                optionalString
@@ -71,6 +72,7 @@ func parseCLI(args []string) (cliOptions, error) {
 
 	fs.Var(&opts.prompt, "p", "one-shot prompt")
 	fs.Var(&opts.prompt, "prompt", "one-shot prompt")
+	fs.Var(&opts.goal, "goal", "run -p prompt in autonomous goal mode (unattended, continues across step caps)")
 	fs.Var(&opts.interactive, "i", "interactive mode")
 	fs.Var(&opts.interactive, "interactive", "interactive mode")
 	fs.Var(&opts.model, "m", "model")
@@ -150,6 +152,9 @@ func parseCLI(args []string) (cliOptions, error) {
 func applyCLI(cfg *Config, cli cliOptions) {
 	if cli.prompt.set {
 		cfg.Prompt = cli.prompt.value
+	}
+	if cli.goal.set {
+		cfg.Goal = cli.goal.value
 	}
 	if cli.interactive.set {
 		cfg.Interactive = cli.interactive.value

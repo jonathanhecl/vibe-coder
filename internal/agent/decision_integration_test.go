@@ -88,8 +88,8 @@ func TestAgentDecisionWiring(t *testing.T) {
 	if ag.Decider() != stub {
 		t.Fatal("SetDecider did not store the decider")
 	}
-	if ag.reg.Get("Decide") == nil {
-		t.Fatal("expected Decide tool to be registered in agent registry")
+	if ag.reg.Get("Decide") != nil {
+		t.Fatal("Decide tool must not be registered for the agent; decision model is internal-only")
 	}
 }
 
@@ -161,41 +161,5 @@ func TestAgentDecisionFailureDiagnosis(t *testing.T) {
 	}
 	if !strings.Contains(res.HintsForModel, "[Failure Diagnosis: Missing package, module, or dependency]") {
 		t.Fatalf("expected failure diagnosis hint, got: %q", res.HintsForModel)
-	}
-}
-
-func TestAgentCheckMissionCompletion(t *testing.T) {
-	cfg := &config.Config{
-		Cwd:           t.TempDir(),
-		Model:         "main-model",
-		DecisionModel: "decision-model",
-	}
-	ag := New(cfg, nil, tools.NewRegistry(), permissions.NewManager(cfg), session.New(cfg), &fakeUI{})
-
-	// No mission active -> false
-	done, err := ag.CheckMissionCompletion(context.Background())
-	if err != nil || done {
-		t.Fatalf("expected false when no mission active, got done=%t err=%v", done, err)
-	}
-
-	// Start mission
-	ag.mission.Start("Build the authentication system")
-
-	stub := &stubDecider{
-		enabled:        true,
-		model:          "decision-model",
-		goalDoneResult: true,
-	}
-	ag.SetDecider(stub)
-
-	done, err = ag.CheckMissionCompletion(context.Background())
-	if err != nil || !done {
-		t.Fatalf("expected mission completion true, got done=%t err=%v", done, err)
-	}
-
-	// Test CompleteMission
-	ag.CompleteMission("All done")
-	if ag.MissionActive() {
-		t.Fatal("expected mission to be inactive after CompleteMission")
 	}
 }

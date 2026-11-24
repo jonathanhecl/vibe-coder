@@ -21,8 +21,8 @@ func TestRenderAllTemplates(t *testing.T) {
 		{"plan_mode", nil, []string{"# Plan Mode"}},
 		{"review_mode", nil, []string{"# Review Mode"}},
 		{"offline_mode", nil, []string{"# Offline Mode"}},
-		{"mission", struct{ Goal string }{Goal: "ship it"}, []string{"# Active Mission", "ship it"}},
-		{"mission", struct{ Goal string }{}, []string{"# Active Mission"}},
+		{"mission", struct{ Goal string }{Goal: "ship it"}, []string{"# Autonomous Goal Mode", "ship it"}},
+		{"mission", struct{ Goal string }{}, []string{"# Autonomous Goal Mode"}},
 		{"compaction_summary", nil, []string{"Summarize the earlier portion"}},
 	}
 	for _, tc := range cases {

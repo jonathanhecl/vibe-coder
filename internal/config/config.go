@@ -69,6 +69,7 @@ type Config struct {
 	// VRAM while the main model needs it.
 	KeepAliveWorker int
 	Prompt          string
+	Goal            bool
 	Interactive     bool
 	YesMode         bool
 	AssistedYes     bool
@@ -328,6 +329,7 @@ Flags:
   --help                    Show this help and exit
   --ui string               UI mode (plain|rich)
   -p, --prompt string       One-shot prompt
+  --goal                    Run -p prompt in autonomous goal mode (unattended, continues across step caps)
   -i, --interactive         Interactive mode (with -p, keep chatting)
   -m, --model string        Model name
   --sidecar string          Sidecar model name
