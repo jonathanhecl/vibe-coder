@@ -195,6 +195,9 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 		a.ui.ShowToolResult(toolName, result.Output, result.IsError, toolParams)
 	}
 	a.maybeShowTodos(toolName)
+	if !mode.skipSessionRecord && !result.IsError && toolName == "TodoWrite" {
+		a.setChecklistPaused(false)
+	}
 	if !mode.skipSessionRecord {
 		a.recordToolObservation(ctx, toolName, result.Output, result.HintsForModel, mode.structured)
 		if toolName == "Read" && !result.IsError && !cacheHit {
@@ -586,10 +589,11 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 	// model's window is unknown, fall back to the pool's byte threshold.
 	shouldCondense := false
 	minBytes := 0
-	// Read, ReadMany, and SessionNotes stay verbatim: Read resumes by line number,
-	// ReadMany gathers specific files the model asked for, and SessionNotes are
-	// already concise memory — condensing them loses exact evidence the model needs.
-	if side != nil && side.Enabled() && toolName != "Read" && toolName != "ReadMany" && toolName != "SessionNotes" {
+	// Read, ReadMany, SessionNotes, and AskUserQuestion stay verbatim: Read resumes
+	// by line number, ReadMany gathers specific files the model asked for,
+	// SessionNotes are already concise memory, and AskUserQuestion carries the
+	// user's confirmed choices — condensing them loses exact evidence or decisions.
+	if side != nil && side.Enabled() && toolName != "Read" && toolName != "ReadMany" && toolName != "SessionNotes" && toolName != "AskUserQuestion" {
 		if limit, ok := a.condenseLimitTokens(); ok {
 			shouldCondense = a.calibrateTokens(session.EstimateTokens(obs)) > limit
 		} else {

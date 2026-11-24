@@ -263,6 +263,7 @@ func (m *sessionMemory) recall(ctx context.Context, query string, k int) string 
 
 	var b strings.Builder
 	b.WriteString("[Session memory]\n")
+	b.WriteString("(Archived excerpts from earlier turns for background reference only; later user messages and decisions always take precedence.)\n")
 	for _, item := range ranked {
 		b.WriteString("- ")
 		b.WriteString(item.entry.text)
@@ -423,6 +424,7 @@ var memoryTargetKeys = []string{
 	"query",
 	"url",
 	"task_id",
+	"prompt",
 }
 
 func extractMemoryToolTarget(args map[string]any) string {

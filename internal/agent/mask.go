@@ -51,7 +51,7 @@ func isToolResult(m session.Message) bool {
 
 func isBookkeepingToolName(name string) bool {
 	switch name {
-	case "TodoWrite", "SessionNotes":
+	case "TodoWrite", "SessionNotes", "AskUserQuestion":
 		return true
 	default:
 		return false

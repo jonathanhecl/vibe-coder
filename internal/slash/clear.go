@@ -54,6 +54,7 @@ func runClearSession(c *Ctx) error {
 		if err := c.Session.ClearIsolated(); err != nil {
 			return fmt.Errorf("discard isolated session: %w", err)
 		}
+		resetWorkState(c)
 		fmt.Fprintf(c.Out, "Discarded current session without saving. Started a new session (%s)\n", c.Session.ID())
 		return nil
 	}
@@ -62,6 +63,7 @@ func runClearSession(c *Ctx) error {
 		return fmt.Errorf("discard current session: %w", err)
 	}
 	c.Session.Clear()
+	resetWorkState(c)
 	// Clear() keeps pinned context paths by design (they are dropped only
 	// via /clear context). Persist the fresh id so the sidecar stays in sync.
 	if err := c.Session.Save(); err != nil {

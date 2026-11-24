@@ -14,6 +14,9 @@ import (
 // compaction — the model always knows what is done and what remains on a
 // long run.
 func (a *Agent) progressPromptBlock() string {
+	if a.isChecklistPaused() {
+		return ""
+	}
 	tw := a.todoWriteTool()
 	total, done, pending := 0, 0, 0
 	var next []string
@@ -67,7 +70,10 @@ func (a *Agent) shouldAnchorGoal() bool {
 	if a == nil {
 		return false
 	}
-	if a.ToolCallsThisTurn() > 0 || a.hasPendingTodos() || a.MissionActive() {
+	if a.ToolCallsThisTurn() > 0 || a.hasActivePendingTodos() || a.MissionActive() {
+		return true
+	}
+	if a.runContextNote() != "" || a.sessionNotesPromptBlock() != "" {
 		return true
 	}
 	if a.sess != nil {
@@ -109,14 +115,16 @@ func (a *Agent) runtimeStateNote() string {
 		goal := strings.TrimSpace(a.currentGoal)
 		a.mu.RUnlock()
 		// When a mission is active its block already carries the goal;
-		// a second copy only wastes tokens and splits the model's focus.
-		if m := a.MissionSnapshot(); m.Status != tools.MissionStatusActive || strings.TrimSpace(m.Goal) == "" {
-			if goal != "" {
-				if b.Len() > 0 {
-					b.WriteString("\n\n")
-				}
-				b.WriteString(prompt.Render("goal", struct{ Goal string }{Goal: goal}))
+		// skip the duplicate only when identical, so follow-up refinements
+		// and choices still stay anchored at the tail.
+		m := a.MissionSnapshot()
+		missionGoal := strings.TrimSpace(m.Goal)
+		if goal != "" && !strings.HasPrefix(goal, missionPromptPrefix) && !isContinuationMessage(goal) &&
+			(m.Status != tools.MissionStatusActive || missionGoal == "" || goal != missionGoal) {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
 			}
+			b.WriteString(prompt.Render("goal", struct{ Goal string }{Goal: goal}))
 		}
 	}
 	return strings.TrimSpace(b.String())

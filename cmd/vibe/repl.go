@@ -15,6 +15,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/permissions"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 	"github.com/jonathanhecl/vibe-coder/internal/slash"
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
@@ -24,7 +25,11 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	if cfg != nil && cfg.Goal && !ag.MissionActive() && strings.TrimSpace(cfg.Prompt) != "" {
-		ag.StartMission(cfg.Prompt)
+		if ag.MissionSnapshot().Status == tools.MissionStatusBlocked && agent.IsContinuationPrompt(cfg.Prompt) {
+			ag.ResumeMission()
+		} else {
+			ag.StartMission(cfg.Prompt)
+		}
 	}
 	if err := runPrompt(rootCtx, ag, ui, cfg.Prompt); err != nil {
 		return false, err

@@ -8,6 +8,31 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
+func (a *Agent) isChecklistPaused() bool {
+	if a == nil {
+		return false
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.checklistPaused
+}
+
+func (a *Agent) setChecklistPaused(paused bool) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.checklistPaused = paused
+	a.mu.Unlock()
+}
+
+func (a *Agent) hasActivePendingTodos() bool {
+	if a.isChecklistPaused() {
+		return false
+	}
+	return a.hasPendingTodos()
+}
+
 func (a *Agent) hasPendingTodos() bool {
 	tw := a.todoWriteTool()
 	if tw == nil {

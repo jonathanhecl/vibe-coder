@@ -1,5 +1,5 @@
 Summarize the earlier portion of this agent conversation. Preserve:
-- The user's original task and any constraints or preferences they stated.
+- The user's original task, all follow-up preferences/decisions, AskUserQuestion selections, and any options that were rejected or superseded (so the agent never re-asks).
 - Key decisions made and the reasoning behind them.
 - File paths that were read, created, or modified (with one-line descriptions).
 - Commands that were run and their outcome (success/failure, key findings).

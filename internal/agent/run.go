@@ -7,6 +7,7 @@ import (
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/terminal"
+	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
 type toolExecutionMode struct {
@@ -88,6 +89,24 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 			return ErrNothingToResume
 		}
 		resumed = &cp
+	}
+	// Leftover pending TODOs from a restored session or an earlier turn only
+	// auto-drive turns during explicit continuations or an active mission; a
+	// fresh user request pauses old checklist enforcement until updated.
+	explicitContinue := continuation ||
+		isContinuationMessage(userInput) ||
+		strings.HasPrefix(strings.TrimSpace(userInput), missionPromptPrefix)
+	if explicitContinue {
+		a.setChecklistPaused(false)
+		if !continuation && a.MissionSnapshot().Status == tools.MissionStatusBlocked {
+			a.mission.Resume()
+		}
+	} else if a.MissionActive() {
+		a.setChecklistPaused(false)
+	} else if a.hasPendingTodos() {
+		a.setChecklistPaused(true)
+	} else {
+		a.setChecklistPaused(false)
 	}
 	// Keep permission mode in sync with the mission at the start of every turn
 	// so unattended approval can never leak into a non-mission run.
@@ -359,7 +378,7 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 				continue
 			}
 			thinkingOnlyRetries = 0
-			if a.hasPendingTodos() {
+			if a.hasActivePendingTodos() {
 				a.sess.AddRuntimeReminder("Model reply was empty while TODO items remain. Continue with the next pending step via a tool call; do not re-investigate completed steps.")
 				a.compactBestEffort(ctx)
 				continue
@@ -372,7 +391,7 @@ func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool
 			return emptyAssistantResponseErr()
 		}
 		thinkingOnlyRetries = 0
-		if a.hasPendingTodos() {
+		if a.hasActivePendingTodos() {
 			a.sess.AddAssistant(reply)
 			// A checklist that does not move while the answer repeats is a
 			// stall no other guard can see: there is no tool call to compare

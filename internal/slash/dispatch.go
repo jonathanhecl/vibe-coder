@@ -144,6 +144,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 			if c.Session != nil {
 				c.Session.Clear()
 			}
+			resetWorkState(c)
 			fmt.Fprintf(c.Out, "Started a new temporal session (%s)\n", c.Session.ID())
 			return true, false, nil
 		}
@@ -153,6 +154,7 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 					return true, false, err
 				}
 			}
+			resetWorkState(c)
 			fmt.Fprintf(c.Out, "Started a new isolated session (%s)\n", c.Session.ID())
 			return true, false, nil
 		}
@@ -161,11 +163,13 @@ func Dispatch(c *Ctx, line string) (bool, bool, error) {
 				return true, false, err
 			}
 			c.Session.Clear()
+			resetWorkState(c)
 			fmt.Fprintf(c.Out, "Session saved. Started a new session (%s)\n", c.Session.ID())
 		} else {
 			if c.Session != nil {
 				c.Session.Clear()
 			}
+			resetWorkState(c)
 			fmt.Fprintf(c.Out, "Started a new session (%s)\n", c.Session.ID())
 		}
 		return true, false, nil

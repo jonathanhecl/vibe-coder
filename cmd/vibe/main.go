@@ -309,16 +309,11 @@ func main() {
 	applyIsolatedPermissions(cfg, sess, perm)
 	if resumed {
 		restoreSessionContexts(sess, ctxStore)
-		// Restore the durable TODO/task state so a resumed autonomous run
-		// knows what is already done.
+		// Restore durable TODO/mission/notes state, but pause leftover work on
+		// startup unless this invocation explicitly continues via -p.
 		ag.RestoreWorkState(sess.WorkState())
-		if ag.MissionActive() {
-			m := ag.MissionSnapshot()
-			resumeGoal := strings.TrimSpace(m.Goal)
-			if resumeGoal == "" {
-				resumeGoal = "the previous goal"
-			}
-			fmt.Fprintf(os.Stdout, "Active mission restored (%s). Send any message (e.g. \"continue\") to keep working autonomously.\n", resumeGoal)
+		if !(strings.TrimSpace(cfg.Prompt) != "" && agent.IsContinuationPrompt(cfg.Prompt)) {
+			ag.PauseRestoredWork()
 		}
 		// An isolated session keeps no history file: Up/Down recall is
 		// seeded from the prompts stored in the transcript itself.
@@ -347,6 +342,9 @@ func main() {
 		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
 	}
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
+	if resumed {
+		reportPendingWork(ag)
+	}
 	logger.Infof("Entering interactive REPL loop.")
 	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, ui, ctxStore, mcpMgr, lspMgr)
 	logger.Infof("Exiting interactive REPL loop, finishing execution.")

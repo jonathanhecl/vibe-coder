@@ -783,3 +783,90 @@ func TestSecondCompactionRequestFitsContextCap(t *testing.T) {
 		t.Fatalf("NumCtxFor uncapped = %d exceeds cap %d", uncapped, ollama.NumCtxCap(cfg.ContextWindow))
 	}
 }
+
+func TestCompactPreservesLatestUserChoiceAndAskUserAnswers(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Cwd:           t.TempDir(),
+		SessionsDir:   t.TempDir(),
+		ContextWindow: 8192,
+		SidecarModel:  "sidecar",
+	}
+	s := New(cfg)
+	s.SetClient(capturingSidecarClient{summary: "Earlier search found mirrors A, B, C."})
+
+	s.AddUser("download dataset X")
+	s.AddAssistant("I found three options: mirror A, mirror B, mirror C. How would you like to download it?")
+	s.AddUser("I want option B saved in ./data")
+	s.AddAssistantToolCalls("", []ollama.MessageToolCall{{
+		Function: ollama.MessageToolCallFunction{
+			Name:      "AskUserQuestion",
+			Arguments: map[string]any{"prompt": "Archive format?"},
+		},
+	}})
+	s.AddToolResult("AskUserQuestion", "{\"q1\":\"2\"}\n\n[assistant-hints]\nUser confirmed choice (do not re-ask):\n- Archive format?: [2] TAR.GZ\n[/assistant-hints]")
+
+	for i := 0; i < 16; i++ {
+		s.AddAssistantToolCalls("", []ollama.MessageToolCall{{
+			Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{"file_path": "step.txt"}},
+		}})
+		s.AddToolResult("Read", strings.Repeat("r", 300))
+	}
+
+	if err := s.CompactTo(context.Background(), 250); err != nil {
+		t.Fatalf("first CompactTo failed: %v", err)
+	}
+
+	assertChoicesVisible := func(msgs []Message, stage string) {
+		t.Helper()
+		var hasFirst, hasChoice, hasAskAnswer bool
+		for _, m := range msgs {
+			if m.Role != "user" {
+				continue
+			}
+			if m.Content == "download dataset X" && m.Anchor {
+				hasFirst = true
+			}
+			if m.Content == "I want option B saved in ./data" && m.Anchor {
+				hasChoice = true
+			}
+			if strings.HasPrefix(m.Content, ConfirmedChoicesAnchorPrefix) &&
+				strings.Contains(m.Content, "Archive format?: [2] TAR.GZ") && m.Anchor {
+				hasAskAnswer = true
+			}
+		}
+		if !hasFirst || !hasChoice || !hasAskAnswer {
+			t.Fatalf("%s missing preserved anchors (first=%t choice=%t ask=%t) in %#v",
+				stage, hasFirst, hasChoice, hasAskAnswer, msgs)
+		}
+	}
+
+	assertChoicesVisible(s.Messages(), "after first compaction")
+
+	if err := s.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	reloaded := New(cfg)
+	if err := reloaded.Load(s.ID()); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	assertChoicesVisible(reloaded.Messages(), "after save/load")
+
+	// Append more tool-only turns and compact a second time; anchors must stay
+	// intact and never be archived twice.
+	for i := 0; i < 16; i++ {
+		reloaded.AddAssistantToolCalls("", []ollama.MessageToolCall{{
+			Function: ollama.MessageToolCallFunction{Name: "Read", Arguments: map[string]any{"file_path": "more.txt"}},
+		}})
+		reloaded.AddToolResult("Read", strings.Repeat("y", 300))
+	}
+	if err := reloaded.CompactTo(context.Background(), 250); err != nil {
+		t.Fatalf("second CompactTo failed: %v", err)
+	}
+	assertChoicesVisible(reloaded.Messages(), "after second compaction")
+	for _, m := range reloaded.FullTranscript() {
+		if m.Archived && m.Anchor {
+			t.Fatalf("anchor message must never enter archive: %#v", m)
+		}
+	}
+}

@@ -58,6 +58,7 @@ func (a *Agent) buildResumeCheckpoint() *resumeCheckpoint {
 	a.mu.RLock()
 	goal := strings.TrimSpace(a.currentGoal)
 	current := a.resume
+	paused := a.checklistPaused
 	a.mu.RUnlock()
 
 	if next == "" && !missionResumable {
@@ -75,6 +76,8 @@ func (a *Agent) buildResumeCheckpoint() *resumeCheckpoint {
 	}
 	if missionResumable {
 		goal = strings.TrimSpace(mission.Goal)
+	} else if paused && current != nil && strings.TrimSpace(current.Goal) != "" {
+		goal = strings.TrimSpace(current.Goal)
 	}
 	if goal == "" && a.sess != nil {
 		goal = strings.TrimSpace(extractPriorGoal(a.sess))

@@ -6,6 +6,12 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/session"
 )
 
+// IsContinuationPrompt reports whether user input is a short continuation
+// shorthand (e.g. "continue", "continua", "next").
+func IsContinuationPrompt(s string) bool {
+	return isContinuationMessage(s)
+}
+
 // isContinuationMessage matches short follow-ups where the user wants the agent
 // to keep going without restating the task (possibly after a failed or
 // truncated tool invocation).
@@ -82,11 +88,16 @@ func extractPriorGoal(sess *session.Session) string {
 // message is appended. Continuation shorthands reuse the prior substantive user
 // request when available.
 func resolveGoalForRun(sess *session.Session, userInput string) string {
-	if !isContinuationMessage(userInput) && !strings.HasPrefix(strings.TrimSpace(userInput), missionPromptPrefix) {
+	trimmed := strings.TrimSpace(userInput)
+	isMissionPrompt := strings.HasPrefix(trimmed, missionPromptPrefix)
+	if !isContinuationMessage(userInput) && !isMissionPrompt {
 		return userInput
 	}
 	if g := extractPriorGoal(sess); g != "" {
 		return g
+	}
+	if isMissionPrompt {
+		return ""
 	}
 	return userInput
 }

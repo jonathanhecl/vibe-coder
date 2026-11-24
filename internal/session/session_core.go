@@ -506,6 +506,77 @@ func (s *Session) firstUserMessageUnlocked() *Message {
 	return nil
 }
 
+// ConfirmedChoicesAnchorPrefix marks the compaction-preserved anchor carrying
+// answers the user already gave through AskUserQuestion.
+const ConfirmedChoicesAnchorPrefix = "[Confirmed user choices — do not re-ask]"
+
+// isContinuationShorthand matches short follow-ups where the user tells the
+// agent to keep going without restating or refining the task.
+func isContinuationShorthand(s string) bool {
+	t := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(s, ".")))
+	if t == "" {
+		return false
+	}
+	switch t {
+	case "continua", "continúa", "continuar",
+		"continue", "continued",
+		"sigue", "siguiente",
+		"go on", "carry on", "keep going",
+		"resume", "proceed", "next",
+		"retry", "try again":
+		return true
+	default:
+		return false
+	}
+}
+
+// isSubstantiveUserMessage reports whether m is a genuine user instruction or
+// preference rather than an injected runtime/retrieval/tool envelope or a bare
+// continuation shorthand.
+func isSubstantiveUserMessage(m Message, excludeAnchors bool) bool {
+	if m.Role != "user" {
+		return false
+	}
+	if excludeAnchors && m.Anchor {
+		return false
+	}
+	c := strings.TrimSpace(m.Content)
+	if c == "" {
+		return false
+	}
+	if strings.HasPrefix(c, "[tool_result") ||
+		strings.HasPrefix(c, "[mission]") ||
+		isSyntheticContextEnvelope(c) ||
+		isContinuationShorthand(c) {
+		return false
+	}
+	return true
+}
+
+func hasSubstantiveUserMessage(msgs []Message) bool {
+	for _, m := range msgs {
+		if isSubstantiveUserMessage(m, true) {
+			return true
+		}
+	}
+	return false
+}
+
+// lastSubstantiveUserMessageIndexBeforeLocked returns the index of the newest
+// substantive user message strictly before cut, or -1 if none exists. Caller
+// must hold s.mu.
+func (s *Session) lastSubstantiveUserMessageIndexBeforeLocked(cut int) int {
+	if cut > len(s.messages) {
+		cut = len(s.messages)
+	}
+	for i := cut - 1; i >= 0; i-- {
+		if isSubstantiveUserMessage(s.messages[i], false) {
+			return i
+		}
+	}
+	return -1
+}
+
 // isSyntheticContextEnvelope reports whether a message body is an injected
 // runtime or retrieval block rather than a substantive user turn.
 func isSyntheticContextEnvelope(content string) bool {
@@ -514,7 +585,8 @@ func isSyntheticContextEnvelope(content string) bool {
 		strings.HasPrefix(c, RuntimeReminderPrefix) ||
 		strings.HasPrefix(c, "[RAG Context]") ||
 		strings.HasPrefix(c, "[Session memory]") ||
-		strings.HasPrefix(c, "[System Note]")
+		strings.HasPrefix(c, "[System Note]") ||
+		strings.HasPrefix(c, ConfirmedChoicesAnchorPrefix)
 }
 
 // firstUserMessageIndexLocked returns the index of the first user-role

@@ -243,3 +243,58 @@ func TestClearSessionResetsTheIsolatedFile(t *testing.T) {
 		t.Error("expected the discarded transcript to be gone from the folder")
 	}
 }
+
+type fakeWorkLifecycleAgent struct {
+	fakePlanAgent
+	resetCalls    int
+	pauseCalls    int
+	restoreCalls  int
+	restoredBytes []byte
+	pendingTodos  int
+}
+
+func (f *fakeWorkLifecycleAgent) ResetWorkState()             { f.resetCalls++ }
+func (f *fakeWorkLifecycleAgent) PauseRestoredWork()          { f.pauseCalls++ }
+func (f *fakeWorkLifecycleAgent) RestoreWorkState(raw []byte) { f.restoreCalls++; f.restoredBytes = raw }
+func (f *fakeWorkLifecycleAgent) PendingTodoCount() int       { return f.pendingTodos }
+
+func TestNewAndClearSessionResetWorkStateAndResumePausesIt(t *testing.T) {
+	ctx, _, out := newContextTestCtx(t)
+	lc := &fakeWorkLifecycleAgent{pendingTodos: 2}
+	ctx.Agent = lc
+
+	ctx.Session.AddUser("saved prompt")
+	ctx.Session.SetWorkState([]byte(`{"version":2}`))
+	if err := ctx.Session.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if _, _, err := Dispatch(ctx, "/new"); err != nil {
+		t.Fatalf("/new: %v", err)
+	}
+	if lc.resetCalls != 1 {
+		t.Fatalf("/new resetCalls = %d, want 1", lc.resetCalls)
+	}
+
+	ctx.Session.AddUser("discarded")
+	if _, _, err := Dispatch(ctx, "/clear session"); err != nil {
+		t.Fatalf("/clear session: %v", err)
+	}
+	if lc.resetCalls != 2 {
+		t.Fatalf("/clear session resetCalls = %d, want 2", lc.resetCalls)
+	}
+
+	out.Reset()
+	if _, _, err := Dispatch(ctx, "/resume"); err != nil {
+		t.Fatalf("/resume: %v", err)
+	}
+	if lc.restoreCalls != 1 {
+		t.Fatalf("/resume restoreCalls = %d, want 1", lc.restoreCalls)
+	}
+	if lc.pauseCalls != 1 {
+		t.Fatalf("/resume pauseCalls = %d, want 1", lc.pauseCalls)
+	}
+	if !strings.Contains(out.String(), "paused; press Enter to continue") {
+		t.Fatalf("expected paused checklist note on resume, got %q", out.String())
+	}
+}

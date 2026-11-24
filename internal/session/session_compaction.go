@@ -91,6 +91,11 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	old := append([]Message(nil), s.messages[:cut]...)
 	recent := append([]Message(nil), s.messages[cut:]...)
 	firstUserIdx := s.firstUserMessageIndexLocked()
+	lastUserIdx := -1
+	if !hasSubstantiveUserMessage(recent) {
+		lastUserIdx = s.lastSubstantiveUserMessageIndexBeforeLocked(cut)
+	}
+	confirmedChoices := filterChoicesNotInRecent(extractConfirmedUserChoices(old), recent)
 	revision := s.revision
 	s.mu.RUnlock()
 
@@ -133,24 +138,40 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 		s.archive = append(s.archive, m)
 	}
 	// Build the compacted transcript: summary, then the original first user
-	// message preserved verbatim (so the agent never loses the task), then the
-	// kept tail with orphaned native tool results converted to user-role
-	// envelopes so the wire history stays valid (a role:"tool" message without
-	// a preceding assistant tool_calls is rejected by Ollama and confuses the
-	// model). The first user message is only prepended when it actually fell
-	// inside the compacted region — if it already sits inside the kept tail,
-	// adding it again would duplicate the request. The working-view copy is
-	// flagged Anchor so later compactions do not archive it a second time.
-	newMsgs := make([]Message, 0, len(recent)+3)
+	// message preserved verbatim (so the agent never loses the task), plus
+	// the latest substantive user message/preference when none remains in the
+	// kept tail and any confirmed AskUserQuestion answers from old turns, then
+	// the kept tail with orphaned native tool results converted to user-role
+	// envelopes so the wire history stays valid. Anchors stay flagged Anchor so
+	// later compactions do not archive them a second time.
+	now := time.Now().UTC()
+	newMsgs := make([]Message, 0, len(recent)+5)
 	newMsgs = append(newMsgs, Message{
 		Role:      "user",
 		Content:   "[Earlier conversation summary]\n" + summary,
-		Timestamp: time.Now().UTC(),
+		Timestamp: now,
 	})
+	var firstUserAnchor *Message
 	if firstUserIdx >= 0 && firstUserIdx < cut {
 		anchor := s.messages[firstUserIdx]
 		anchor.Anchor = true
 		newMsgs = append(newMsgs, anchor)
+		firstUserAnchor = &anchor
+	}
+	if lastUserIdx >= 0 && lastUserIdx < cut && lastUserIdx != firstUserIdx {
+		cand := s.messages[lastUserIdx]
+		if firstUserAnchor == nil || strings.TrimSpace(cand.Content) != strings.TrimSpace(firstUserAnchor.Content) {
+			cand.Anchor = true
+			newMsgs = append(newMsgs, cand)
+		}
+	}
+	if len(confirmedChoices) > 0 {
+		newMsgs = append(newMsgs, Message{
+			Role:      "user",
+			Content:   ConfirmedChoicesAnchorPrefix + "\n" + strings.Join(confirmedChoices, "\n"),
+			Timestamp: now,
+			Anchor:    true,
+		})
 	}
 	newMsgs = append(newMsgs, normalizeKeptMessages(recent)...)
 	s.messages = newMsgs
@@ -158,6 +179,98 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	s.revision++
 	s.generation++
 	return nil
+}
+
+const maxConfirmedChoiceAnchors = 12
+
+// extractConfirmedUserChoices collects user answers from prior AskUserQuestion
+// observations and previous choice anchors in chronological order.
+func extractConfirmedUserChoices(msgs []Message) []string {
+	var collected []string
+	seen := make(map[string]struct{})
+	addLine := func(line string) {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			return
+		}
+		if _, dup := seen[t]; dup {
+			return
+		}
+		seen[t] = struct{}{}
+		collected = append(collected, t)
+	}
+	for _, m := range msgs {
+		if m.Role == "user" && strings.HasPrefix(strings.TrimSpace(m.Content), ConfirmedChoicesAnchorPrefix) {
+			for _, line := range strings.Split(m.Content, "\n") {
+				t := strings.TrimSpace(line)
+				if strings.HasPrefix(t, "- ") {
+					addLine(t)
+				}
+			}
+			continue
+		}
+		var body string
+		switch {
+		case m.Role == "tool" && m.ToolName == "AskUserQuestion":
+			body = strings.TrimSpace(m.Content)
+		case m.Role == "user" && strings.HasPrefix(m.Content, "[tool_result name=AskUserQuestion]"):
+			_, parsed := parseToolObservationEnvelope(m.Content)
+			body = strings.TrimSpace(parsed)
+		default:
+			continue
+		}
+		if body == "" || strings.HasPrefix(body, "[elided]") || strings.HasPrefix(body, "Error:") {
+			continue
+		}
+		foundHint := false
+		if idx := strings.Index(body, "User confirmed choice (do not re-ask):"); idx >= 0 {
+			section := body[idx:]
+			if end := strings.Index(section, "[/assistant-hints]"); end >= 0 {
+				section = section[:end]
+			}
+			for _, line := range strings.Split(section, "\n") {
+				t := strings.TrimSpace(line)
+				if strings.HasPrefix(t, "- ") {
+					addLine(t)
+					foundHint = true
+				}
+			}
+		}
+		if !foundHint {
+			firstLine := body
+			if nl := strings.IndexByte(firstLine, '\n'); nl >= 0 {
+				firstLine = firstLine[:nl]
+			}
+			firstLine = strings.TrimSpace(firstLine)
+			if firstLine != "" && strings.HasPrefix(firstLine, "{") {
+				addLine("- Answer recorded: " + clipBytes(firstLine, 200))
+			}
+		}
+	}
+	if len(collected) > maxConfirmedChoiceAnchors {
+		collected = collected[len(collected)-maxConfirmedChoiceAnchors:]
+	}
+	return collected
+}
+
+func filterChoicesNotInRecent(choices []string, recent []Message) []string {
+	if len(choices) == 0 {
+		return nil
+	}
+	var out []string
+	for _, ch := range choices {
+		present := false
+		for _, m := range recent {
+			if strings.Contains(m.Content, ch) {
+				present = true
+				break
+			}
+		}
+		if !present {
+			out = append(out, ch)
+		}
+	}
+	return out
 }
 
 // compactionTarget is one model that may summarize the region being cut.

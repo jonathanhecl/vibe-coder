@@ -392,3 +392,57 @@ func TestRunPromptReportsIterationCapOutsideMission(t *testing.T) {
 		t.Errorf("the step cap does not say how to resume: %v", err)
 	}
 }
+
+func TestStartupAutoResumePausesRestoredMission(t *testing.T) {
+	srv, fake := newFakeOllama(t, "ok")
+	ag, ui, _ := newHTTPTestAgentWithSession(t, srv.URL)
+	ag.StartMission("old background goal")
+	ag.PersistWorkState()
+
+	// Startup auto-resume pauses leftover missions before handling a fresh question.
+	ag.PauseRestoredWork()
+	if ag.MissionActive() {
+		t.Fatal("expected restored mission to start paused")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := runPrompt(ctx, ag, ui, "what is 2+2?"); err != nil {
+		t.Fatalf("runPrompt failed: %v", err)
+	}
+	if calls := fake.calls.Load(); calls != 1 {
+		t.Fatalf("expected 1 chat call on new question while old mission stays paused, got %d", calls)
+	}
+	if !ag.CanResume() {
+		t.Fatal("expected paused mission to remain resumable via Enter")
+	}
+	if got := ag.MissionSnapshot().Goal; got != "old background goal" {
+		t.Fatalf("paused mission goal mutated to %q", got)
+	}
+}
+
+func TestGoalResumeWithContinuePreservesOriginalMissionGoal(t *testing.T) {
+	srv, _ := newFakeOllama(t, "ok")
+	ag, ui, sess := newHTTPTestAgentWithSession(t, srv.URL)
+	ag.StartMission("finish the migration")
+	ag.BlockActiveMission("Paused on session restore")
+
+	cfg := &config.Config{
+		Goal:   true,
+		Prompt: "continue",
+	}
+	shouldCont, err := runInitialPrompt(context.Background(), cfg, ag, sess, ui, true, nil)
+	if err != nil {
+		t.Fatalf("runInitialPrompt failed: %v", err)
+	}
+	if shouldCont {
+		t.Fatal("expected non-interactive one-shot continuation to stop after completion")
+	}
+	snap := ag.MissionSnapshot()
+	if snap.Goal != "finish the migration" {
+		t.Fatalf("mission goal overwritten by continue prompt: got %q", snap.Goal)
+	}
+	if snap.Status != tools.MissionStatusCompleted {
+		t.Fatalf("expected completed mission, got %q", snap.Status)
+	}
+}

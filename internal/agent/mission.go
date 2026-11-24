@@ -148,13 +148,29 @@ func (a *Agent) missionPromptBlock() string {
 func (a *Agent) MissionContinuationPrompt() string {
 	a.mission.IncrementTurns()
 	m := a.mission.Snapshot()
+	goal := strings.TrimSpace(m.Goal)
+	a.mu.RLock()
+	latest := strings.TrimSpace(a.currentGoal)
+	a.mu.RUnlock()
+	extra := ""
+	if latest != "" && latest != goal && !isContinuationMessage(latest) && !strings.HasPrefix(latest, missionPromptPrefix) {
+		extra = fmt.Sprintf("Latest user instruction/preference: %q. ", latest)
+	}
 	return fmt.Sprintf(
-		"%s Continue working on the goal: %q. "+
+		"%s Continue working on the goal: %q. %s"+
 			"Execute the next pending TODO step with concrete tool calls and mark it completed when done. "+
 			"Do not repeat finished work or re-read unchanged files. "+
 			"When the goal is finished, reply directly with a concise summary; if you need user input, call AskUserQuestion.",
-		missionPromptPrefix, strings.TrimSpace(m.Goal),
+		missionPromptPrefix, goal, extra,
 	)
+}
+
+// ResumeMission reactivates a blocked/paused mission.
+func (a *Agent) ResumeMission() {
+	if a == nil || a.mission == nil {
+		return
+	}
+	a.mission.Resume()
 }
 
 // StartMission activates an autonomous mission from the runtime or user command.

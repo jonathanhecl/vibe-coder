@@ -255,3 +255,14 @@ func (a *Agent) invalidateReadCache(filePath string) {
 		}
 	}
 }
+
+func (c *readCache) reset() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.gen = 0
+	c.entries = nil
+	c.full = nil
+	c.mu.Unlock()
+}

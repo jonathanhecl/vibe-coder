@@ -163,3 +163,35 @@ func TestAskUserQuestionTopLevelPromptAndOptions(t *testing.T) {
 		t.Fatalf("rendered output missing feedback: %s", rendered)
 	}
 }
+
+func TestAskUserQuestionSetsHintsForModel(t *testing.T) {
+	t.Parallel()
+
+	in := strings.NewReader("2\n")
+	var out strings.Builder
+	tool := NewAskUserQuestionToolWithIO(in, &out)
+
+	res := tool.Execute(context.Background(), map[string]any{
+		"prompt": "Which mirror should we download?",
+		"options": []any{
+			map[string]any{"label": "Primary mirror", "description": "Standard rate"},
+			map[string]any{"label": "EU CDN mirror", "description": "Fast ZIP archive"},
+		},
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Output)
+	}
+	if strings.TrimSpace(res.Output) != `{"q1":"2"}` {
+		t.Fatalf("Output must remain pure JSON, got %q", res.Output)
+	}
+	for _, want := range []string{
+		"User confirmed choice (do not re-ask):",
+		"Which mirror should we download?",
+		"[2] EU CDN mirror",
+		"Fast ZIP archive",
+	} {
+		if !strings.Contains(res.HintsForModel, want) {
+			t.Fatalf("HintsForModel missing %q: %q", want, res.HintsForModel)
+		}
+	}
+}

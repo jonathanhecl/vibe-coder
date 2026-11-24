@@ -74,12 +74,14 @@ func TestRepeatedReplyNoteNamesTheItemAndQuotesTheReply(t *testing.T) {
 func TestRepeatedReplyStopsTheTurn(t *testing.T) {
 	client := &alwaysReplyClient{reply: stallReplyOne}
 	ag, _, reg := newTurnAgent(t, client)
+	ag.sess.AddUser("genera la clave y arranca el server")
 	seedChecklist(t, reg, []tools.TodoItem{
 		{ID: "1", Content: "write the api key to disk", Status: tools.TodoStatusInProgress},
 		{ID: "2", Content: "restart the server", Status: tools.TodoStatusPending},
 	})
+	ag.PersistWorkState()
 
-	err := ag.Run(context.Background(), "genera la clave y arranca el server")
+	err := ag.RunContinuation(context.Background())
 	if !IsRepeatedReplyErr(err) {
 		t.Fatalf("expected the repeated-reply stop, got %v", err)
 	}
@@ -102,11 +104,13 @@ func TestDistinctRepliesKeepTheTurnGoing(t *testing.T) {
 		"Fourth: reporting the verified state back to the user.",
 	}}
 	ag, _, reg := newTurnAgent(t, client)
+	ag.sess.AddUser("configure it")
 	seedChecklist(t, reg, []tools.TodoItem{
 		{ID: "1", Content: "configure the provider", Status: tools.TodoStatusInProgress},
 	})
+	ag.PersistWorkState()
 
-	err := ag.Run(context.Background(), "configure it")
+	err := ag.RunContinuation(context.Background())
 	if IsRepeatedReplyErr(err) {
 		t.Fatalf("distinct answers were flagged as a repeated reply: %v", err)
 	}

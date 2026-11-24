@@ -68,8 +68,8 @@ type workStateAgent interface {
 }
 
 // restoreWorkState reloads the persisted TODO/task state into the agent after
-// a session Load, reporting how many steps remain. No-op when the agent does
-// not support it (tests) or the session has no state.
+// a session Load, pausing leftover items so new prompts are not hijacked, and
+// reporting how many steps remain. No-op when the agent does not support it.
 func restoreWorkState(c *Ctx) {
 	if c == nil || c.Session == nil || c.Agent == nil {
 		return
@@ -82,8 +82,22 @@ func restoreWorkState(c *Ctx) {
 	// Always restore, even with empty state: a session without persisted work
 	// state must still clear notes/checklist left over from a previous one.
 	wsa.RestoreWorkState(raw)
+	if pauser, ok := c.Agent.(interface{ PauseRestoredWork() }); ok {
+		pauser.PauseRestoredWork()
+	}
 	if pending := wsa.PendingTodoCount(); pending > 0 {
-		fmt.Fprintf(c.Out, "Restored checklist with %d pending step(s).\n", pending)
+		fmt.Fprintf(c.Out, "Restored checklist with %d pending step(s) (paused; press Enter to continue).\n", pending)
+	}
+}
+
+// resetWorkState clears all in-memory work tracking (checklist, mission, notes,
+// resume state) when starting or clearing a session via /new or /clear session.
+func resetWorkState(c *Ctx) {
+	if c == nil || c.Agent == nil {
+		return
+	}
+	if resetter, ok := c.Agent.(interface{ ResetWorkState() }); ok {
+		resetter.ResetWorkState()
 	}
 }
 

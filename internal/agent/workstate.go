@@ -57,22 +57,16 @@ func (a *Agent) captureWorkState() []byte {
 	return raw
 }
 
-// applyWorkState restores a persisted snapshot into the live stores. Notes are
-// always replaced first: an empty, corrupt, or legacy blob (one written before
-// notes existed) must not leave notes from a previous session behind. Other
-// stores keep their old tolerance — an empty or corrupt blob leaves them
-// untouched.
+// applyWorkState restores a persisted snapshot into the live stores. All stores
+// are cleared first so switching sessions (e.g. /resume or /session <id>) to
+// a session with empty, corrupt, or legacy work state never leaks stale TODOs,
+// missions, or notes from the previous session.
 func (a *Agent) applyWorkState(raw []byte) {
-	if a.notes != nil {
-		a.notes.Restore(nil)
-	}
-	a.mu.Lock()
-	a.resume = nil
-	a.mu.Unlock()
+	a.ResetWorkState()
 	if len(raw) > 0 {
 		var snap workStateSnapshot
 		if err := json.Unmarshal(raw, &snap); err == nil {
-			if tw := a.todoWriteTool(); tw != nil {
+			if tw := a.todoWriteTool(); tw != nil && len(snap.Todos) > 0 {
 				tw.Store().Replace(snap.Todos)
 			}
 			if snap.Mission != nil && a.mission != nil {
@@ -89,6 +83,53 @@ func (a *Agent) applyWorkState(raw []byte) {
 		a.mu.Lock()
 		a.notesSessionID = a.sess.ID()
 		a.mu.Unlock()
+	}
+}
+
+// ResetWorkState clears all in-memory work tracking (checklist, mission, notes,
+// resume checkpoint, currentGoal, and read cache) for a fresh session.
+func (a *Agent) ResetWorkState() {
+	if a == nil {
+		return
+	}
+	if tw := a.todoWriteTool(); tw != nil {
+		tw.Store().Reset()
+	}
+	if a.mission != nil {
+		a.mission.Restore(tools.Mission{})
+	}
+	if a.notes != nil {
+		a.notes.Restore(nil)
+	}
+	a.reads.reset()
+	a.mu.Lock()
+	a.resume = nil
+	a.currentGoal = ""
+	a.checklistPaused = false
+	if a.sess != nil {
+		a.notesSessionID = a.sess.ID()
+	}
+	a.mu.Unlock()
+	if a.perm != nil {
+		a.perm.SetUnattended(false)
+	}
+}
+
+// PauseRestoredWork pauses leftover pending TODOs and any active mission from a
+// restored session so typing a new question never silently resumes old work;
+// pressing Enter or sending an explicit continuation resumes it.
+func (a *Agent) PauseRestoredWork() {
+	if a == nil {
+		return
+	}
+	if a.hasPendingTodos() {
+		a.setChecklistPaused(true)
+	}
+	if a.MissionSnapshot().Status == tools.MissionStatusActive {
+		a.mission.Block("Paused on session restore; press Enter to continue or type a new request.")
+	}
+	if a.perm != nil {
+		a.perm.SetUnattended(false)
 	}
 }
 

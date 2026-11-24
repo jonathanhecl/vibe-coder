@@ -232,7 +232,11 @@ func transcriptUserAnchor(hist []session.Message) string {
 			strings.HasPrefix(c, session.RuntimeReminderPrefix) ||
 			strings.HasPrefix(c, "[Earlier conversation summary]") ||
 			strings.HasPrefix(c, "[RAG Context]") ||
-			strings.HasPrefix(c, "[Session memory]") {
+			strings.HasPrefix(c, "[Session memory]") ||
+			strings.HasPrefix(c, "[System Note]") ||
+			strings.HasPrefix(c, missionPromptPrefix) ||
+			strings.HasPrefix(c, "[Confirmed user choices") ||
+			isContinuationMessage(c) {
 			continue
 		}
 		return clipAnchor(c)

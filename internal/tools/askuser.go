@@ -127,6 +127,7 @@ func (t *AskUserQuestionTool) Execute(_ context.Context, params map[string]any) 
 	}
 	st := tui.NewStyle(out)
 	answers := map[string]any{}
+	var confirmed []string
 
 	// With an asker the interactive UI owns stdin and echoes the answer. Only
 	// the headless path reads stdin here.
@@ -159,6 +160,20 @@ func (t *AskUserQuestionTool) Execute(_ context.Context, params map[string]any) 
 			answers[q.id] = strconv.Itoa(chosenIdx)
 		}
 
+		qLabel := strings.TrimSpace(q.prompt)
+		if qLabel == "" {
+			qLabel = q.id
+		}
+		desc := strings.TrimSpace(sel.description)
+		if desc != "" {
+			if r := []rune(desc); len(r) > 120 {
+				desc = string(r[:120]) + "…"
+			}
+			confirmed = append(confirmed, fmt.Sprintf("- %s: [%d] %s (%s)", qLabel, chosenIdx, sel.label, desc))
+		} else {
+			confirmed = append(confirmed, fmt.Sprintf("- %s: [%d] %s", qLabel, chosenIdx, sel.label))
+		}
+
 		// Immediate visual feedback of the selected option
 		fmt.Fprintf(out, "  %s %s %s %s\n\n",
 			st.BoldBrightGreen("✓"),
@@ -169,7 +184,11 @@ func (t *AskUserQuestionTool) Execute(_ context.Context, params map[string]any) 
 	}
 
 	raw, _ := json.Marshal(answers)
-	return Result{Output: string(raw)}
+	hints := ""
+	if len(confirmed) > 0 {
+		hints = "User confirmed choice (do not re-ask):\n" + strings.Join(confirmed, "\n")
+	}
+	return Result{Output: string(raw), HintsForModel: hints}
 }
 
 // ask resolves one question through the interactive asker when one is wired up,

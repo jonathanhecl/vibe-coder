@@ -158,13 +158,13 @@ func (a *Agent) recallMemoryWanted() bool {
 }
 
 func (a *Agent) handleEmptyChatResponse(ctx context.Context, retries *int) (bool, error) {
-	if a.hasPendingTodos() && *retries < 1 {
+	if a.hasActivePendingTodos() && *retries < 1 {
 		*retries++
 		a.sess.AddRuntimeReminder("Model returned an empty response while TODO items remain. Retrying the next pending step.")
 		a.compactBestEffort(ctx)
 		return false, nil
 	}
-	if a.hasPendingTodos() {
+	if a.hasActivePendingTodos() {
 		a.sess.AddRuntimeReminder("Model returned repeated empty responses while TODO items remain; cannot complete the current run.")
 		a.compactBestEffort(ctx)
 		return true, fmt.Errorf("empty assistant response with pending todos")

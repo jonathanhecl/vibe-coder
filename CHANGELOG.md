@@ -18,6 +18,10 @@ Release archives and generated notes are available on the
 
 ### Fixed
 
+- **Stopped stale pending work from hijacking new prompts and preserved user decisions across long turns.**
+  - Leftover pending `TodoWrite` checklists and active missions restored on startup or `/resume` are now paused by default (`PauseRestoredWork`), so opening `vibe` and typing a new question answers that question directly instead of silently executing old tasks. Pressing bare Enter or typing an explicit continuation (`continue` / `continúa`) reactivates the paused work; `/new` and `/clear session` also reset in-memory checklist, mission, notes, and read-cache state.
+  - Preserved user choices and follow-up preferences across compaction, masking, and recall: `AskUserQuestion` now records readable confirmed-choice hints (`User confirmed choice (do not re-ask):`), is excluded from observation masking and sidecar condensation, and survives compaction alongside both the initial request and the newest substantive user preference when no user turn remains in the kept tail. `runtimeStateNote` now anchors follow-up preferences after active notes even when a `/goal` mission is running, and `Session memory` explicitly marks recalled fragments as archived background superseded by later user decisions.
+
 - **Stopped read/think agent loops caused by masking amnesia, prompt overload, and contradictory reminders.**
   - Observation masking (`maskToolResults`) no longer elides earlier tool outputs unconditionally after `KeepToolResults` turns when context pressure is low (<55% of transcript budget), excludes `TodoWrite` and `SessionNotes` bookkeeping turns from tool-turn aging, and never elides bookkeeping outputs. `ReadMany` is now exempt from sidecar condensation alongside `Read` and `SessionNotes`.
   - Added per-session unchanged-`Read` deduplication (`[already in context]`) so repeating a `Read` on an unmodified file still visible in the wire window avoids dumping the file again and short-circuits re-read loops.
