@@ -278,9 +278,14 @@ func (a *Agent) BuildEmptyResponseRetryInput(baseInput string, repeatedState boo
 	b.WriteString("\n\n[retry_context]\n")
 	b.WriteString("Previous attempt returned an empty assistant response. Continue from existing progress; do not restart solved steps.\n")
 
-	if note := a.todoProgressNote(); note != "" {
-		b.WriteString(note)
-		b.WriteString("\n")
+	// A stale pending checklist awaits an explicit review decision, so an
+	// unrelated retry must not inject its contents or push the model toward it.
+	stale := a.StaleChecklist(time.Now())
+	if !stale {
+		if note := a.todoProgressNote(); note != "" {
+			b.WriteString(note)
+			b.WriteString("\n")
+		}
 	}
 
 	if completed := a.recentCompletedFileRuntimeNotes(3); len(completed) > 0 {
@@ -292,7 +297,7 @@ func (a *Agent) BuildEmptyResponseRetryInput(baseInput string, repeatedState boo
 		}
 	}
 
-	if repeatedState {
+	if repeatedState && !stale {
 		b.WriteString("State appears unchanged across retries. Pick the next pending TODO and call one concrete tool now.\n")
 	}
 	b.WriteString("[/retry_context]")

@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
@@ -49,6 +50,9 @@ func (a *Agent) PendingWorkSummary() string {
 			return ""
 		}
 	}
+	if a.StaleChecklist(time.Now()) {
+		return strings.Join(parts, "; ") + " — Checklist needs review; press Enter to choose whether to continue or discard."
+	}
 	return strings.Join(parts, "; ") + " — Press Enter to continue; type a correction instead."
 }
 
@@ -65,8 +69,8 @@ func (a *Agent) openTodoItems() (inProgress, pending []string) {
 		switch it.Status {
 		case tools.TodoStatusInProgress:
 			inProgress = append(inProgress, it.Content)
-		case tools.TodoStatusCompleted:
-			// Finished: nothing to report.
+		case tools.TodoStatusCompleted, tools.TodoStatusCancelled:
+			// Finished or dropped: nothing to report.
 		default:
 			pending = append(pending, it.Content)
 		}

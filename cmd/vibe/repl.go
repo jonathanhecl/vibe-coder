@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
@@ -24,6 +25,11 @@ func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Age
 	// can always see which model/session/host served the answer.
 	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout), offlineModels))
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
+	// One-shot continuations and goal runs never approve stale work: they
+	// surface ErrStaleChecklist so the user opens an interactive session.
+	if cfg != nil && (agent.IsContinuationPrompt(cfg.Prompt) || cfg.Goal) && ag.StaleChecklist(time.Now()) {
+		return false, agent.ErrStaleChecklist
+	}
 	if cfg != nil && cfg.Goal && !ag.MissionActive() && strings.TrimSpace(cfg.Prompt) != "" {
 		if ag.MissionSnapshot().Status == tools.MissionStatusBlocked && agent.IsContinuationPrompt(cfg.Prompt) {
 			ag.ResumeMission()
@@ -70,8 +76,43 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 	}
 	slashCtx.OnUIChange = makeUISwitcher(cfg, ag, sess, reg, uiBox, slashCtx)
 
+	resume := func(ui tui.UI) {
+		if !ag.CanResume() {
+			return
+		}
+		st := tui.NewStyle(os.Stdout)
+		fmt.Fprintln(os.Stdout, st.Yellow("↩ Continuing from checkpoint..."))
+		ui.SetPlanMode(ag.InPlanMode())
+		printTurnOutcome(ag, runContinuationPrompt(rootCtx, ag, ui))
+		_ = sess.Save()
+	}
+	review := func(ui tui.UI) {
+		asker, ok := ui.(tui.OptionAsker)
+		if !ok || !stdioIsTTY() {
+			fmt.Fprintln(os.Stderr, agent.ErrStaleChecklist)
+			return
+		}
+		approved, err := reviewStaleChecklist(ag, sess, asker, time.Now)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return
+		}
+		if approved {
+			resume(ui)
+		}
+	}
+	var lastSessionID string
+
 	for {
 		ui := uiBox.Get()
+		// A session switch (/resume, /session) can land a stale checklist:
+		// ask once per entry so Later does not reprompt every turn.
+		if id := sess.ID(); id != lastSessionID {
+			lastSessionID = id
+			if now := time.Now(); stdioIsTTY() && ag.StaleChecklist(now) {
+				review(ui)
+			}
+		}
 		ui.SetPlanMode(ag.InPlanMode())
 		syncUIStatus(ui, cfg, ag, sess)
 		line, err := ui.GetInput("> ")
@@ -87,15 +128,18 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 			return
 		}
 		line = strings.TrimSpace(line)
-		if line == "" {
-			if !ag.CanResume() {
+		if line == "" || agent.IsContinuationPrompt(line) {
+			if now := time.Now(); ag.StaleChecklist(now) {
+				review(ui)
 				continue
 			}
-			st := tui.NewStyle(os.Stdout)
-			fmt.Fprintln(os.Stdout, st.Yellow("↩ Continuing from checkpoint..."))
-			ui.SetPlanMode(ag.InPlanMode())
-			printTurnOutcome(ag, runContinuationPrompt(rootCtx, ag, ui))
-			_ = sess.Save()
+			if line == "" {
+				resume(ui)
+				continue
+			}
+		}
+		if _, startsGoal := slash.GoalTaskFromSlash(line); startsGoal && ag.StaleChecklist(time.Now()) {
+			fmt.Fprintln(os.Stderr, "Review the pending checklist before starting a new goal. Press Enter to continue or discard it.")
 			continue
 		}
 		if shouldExit := handleInputLine(rootCtx, slashCtx, ag, ui, line); shouldExit {

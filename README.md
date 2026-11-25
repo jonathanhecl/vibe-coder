@@ -109,6 +109,12 @@ instruction not to restate the plan or repeat completed work. Type a message
 instead when you want to correct or replace the work; a typed `continue` still
 works as before. A bare Enter with nothing resumable is a no-op.
 
+An unfinished TODO checklist needs confirmation after five hours without
+changes. In an interactive session you can continue it, discard it without
+deleting the conversation, or leave it paused. Older checklists without a
+saved timestamp also need confirmation. Noninteractive runs never approve
+stale work.
+
 ### Tools (exposed to the model)
 
 - **File ops**: `Read`, `ReadMany`, `Write`, `Edit` (with inline unified-diff preview in the TUI).

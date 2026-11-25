@@ -2,21 +2,27 @@ package agent
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
 // workStateVersion is bumped when the persisted work-state shape changes.
-const workStateVersion = 2
+const workStateVersion = 3
 
 // workStateSnapshot is the task-agnostic durable state of an autonomous run:
 // the TODO checklist the model maintains plus any explicit tasks. Keeping it
 // generic means it works for any long process (image batches, migrations,
 // audits), not just one domain.
 type workStateSnapshot struct {
-	Version int                 `json:"version"`
-	Todos   []tools.TodoItem    `json:"todos,omitempty"`
-	Notes   []tools.SessionNote `json:"notes,omitempty"`
+	Version int              `json:"version"`
+	Todos   []tools.TodoItem `json:"todos,omitempty"`
+	// TodosUpdatedAt is when the checklist last meaningfully changed. It is
+	// what lets a restored pending list ask for review once it is old enough;
+	// snapshots written before it existed leave it unset and are treated as
+	// needing one review.
+	TodosUpdatedAt *time.Time          `json:"todos_updated_at,omitempty"`
+	Notes          []tools.SessionNote `json:"notes,omitempty"`
 	// Mission is the agent-declared long-running goal, when one exists. It is
 	// what lets an interrupted autonomous run resume and keep going.
 	Mission *tools.Mission `json:"mission,omitempty"`
@@ -33,7 +39,11 @@ func (a *Agent) captureWorkState() []byte {
 		Version: workStateVersion,
 	}
 	if tw := a.todoWriteTool(); tw != nil {
-		snap.Todos = tw.Store().Snapshot()
+		items, updatedAt := tw.Store().SnapshotState()
+		snap.Todos = items
+		if len(items) != 0 && !updatedAt.IsZero() {
+			snap.TodosUpdatedAt = &updatedAt
+		}
 	}
 	if a.mission != nil {
 		if m := a.mission.Snapshot(); m.Status != "" {
@@ -66,8 +76,12 @@ func (a *Agent) applyWorkState(raw []byte) {
 	if len(raw) > 0 {
 		var snap workStateSnapshot
 		if err := json.Unmarshal(raw, &snap); err == nil {
+			var updatedAt time.Time
+			if snap.TodosUpdatedAt != nil {
+				updatedAt = *snap.TodosUpdatedAt
+			}
 			if tw := a.todoWriteTool(); tw != nil && len(snap.Todos) > 0 {
-				tw.Store().Replace(snap.Todos)
+				tw.Store().Restore(snap.Todos, updatedAt)
 			}
 			if snap.Mission != nil && a.mission != nil {
 				a.mission.Restore(*snap.Mission)

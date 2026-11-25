@@ -316,7 +316,10 @@ func main() {
 		// Restore durable TODO/mission/notes state, but pause leftover work on
 		// startup unless this invocation explicitly continues via -p.
 		ag.RestoreWorkState(sess.WorkState())
-		if !(strings.TrimSpace(cfg.Prompt) != "" && agent.IsContinuationPrompt(cfg.Prompt)) {
+		// A stale pending checklist is paused even for `-p continue`: the
+		// one-shot path then fails with ErrStaleChecklist instead of resuming
+		// work the user has not reviewed.
+		if ag.StaleChecklist(time.Now()) || !(strings.TrimSpace(cfg.Prompt) != "" && agent.IsContinuationPrompt(cfg.Prompt)) {
 			ag.PauseRestoredWork()
 		}
 		// An isolated session keeps no history file: Up/Down recall is

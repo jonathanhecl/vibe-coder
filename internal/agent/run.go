@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/terminal"
@@ -51,6 +52,12 @@ func (a *Agent) Run(rootCtx context.Context, userInput string) error {
 // and deliberately adds no user message, so bare Enter cannot steer the model
 // with empty or boilerplate input.
 func (a *Agent) run(rootCtx context.Context, userInput string, continuation bool) (err error) {
+	// A stale pending checklist never auto-resumes: continuations and typed
+	// "continue" shorthands must pass the interactive review first. Ordinary
+	// requests are unaffected.
+	if (continuation || isContinuationMessage(userInput)) && a.StaleChecklist(time.Now()) {
+		return ErrStaleChecklist
+	}
 	if continuation && !a.CanResume() {
 		return ErrNothingToResume
 	}

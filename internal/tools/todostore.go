@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Todo statuses recognised by the renderer. Anything else is normalised to
@@ -33,15 +35,25 @@ type TodoItem struct {
 type TodoStore struct {
 	mu    sync.RWMutex
 	items []TodoItem
+	// updatedAt is the last time the checklist contents actually changed (or
+	// was explicitly approved/restored). It drives the stale-checklist review:
+	// a pending list untouched for hours asks before it resumes.
+	updatedAt time.Time
 }
 
 // Snapshot returns a deep copy of the current TODO list. Safe to mutate.
 func (s *TodoStore) Snapshot() []TodoItem {
+	items, _ := s.SnapshotState()
+	return items
+}
+
+// SnapshotState returns a deep copy of the current TODO list plus the
+// timestamp of its last meaningful change. A zero timestamp means the list
+// was never stamped (e.g. restored from a legacy snapshot).
+func (s *TodoStore) SnapshotState() ([]TodoItem, time.Time) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]TodoItem, len(s.items))
-	copy(out, s.items)
-	return out
+	return slices.Clone(s.items), s.updatedAt
 }
 
 // Reset clears the store. Used by tests and slash-commands; the agent
@@ -50,6 +62,26 @@ func (s *TodoStore) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.items = nil
+	s.updatedAt = time.Time{}
+}
+
+// Restore swaps the store contents and timestamp in one critical section.
+// Used when reloading a persisted checklist so its original edit time — not
+// the restore time — decides whether it needs review.
+func (s *TodoStore) Restore(items []TodoItem, updatedAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = normaliseAll(items)
+	s.updatedAt = updatedAt
+}
+
+// Touch stamps the checklist as freshly approved without changing its items.
+// An explicit "continue" on a stale checklist uses this so the TTL restarts
+// from the user's decision rather than the last edit.
+func (s *TodoStore) Touch(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updatedAt = now.UTC()
 }
 
 // Replace swaps the store contents with the given items in one critical
@@ -70,6 +102,12 @@ func (s *TodoStore) Replace(items []TodoItem) {
 func (s *TodoStore) apply(merge bool, incoming []TodoItem) []TodoItem {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	before := slices.Clone(s.items)
+	defer func() {
+		if !slices.Equal(before, s.items) {
+			s.updatedAt = time.Now().UTC()
+		}
+	}()
 	if !merge || len(s.items) == 0 {
 		s.items = normaliseAll(incoming)
 		out := make([]TodoItem, len(s.items))

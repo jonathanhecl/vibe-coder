@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
 )
@@ -84,6 +85,11 @@ func restoreWorkState(c *Ctx) {
 	wsa.RestoreWorkState(raw)
 	if pauser, ok := c.Agent.(interface{ PauseRestoredWork() }); ok {
 		pauser.PauseRestoredWork()
+	}
+	// A stale checklist must not advertise "press Enter to continue": the
+	// interactive loop asks for an explicit decision before any resume.
+	if stale, ok := c.Agent.(interface{ StaleChecklist(time.Time) bool }); ok && stale.StaleChecklist(time.Now()) {
+		return
 	}
 	if pending := wsa.PendingTodoCount(); pending > 0 {
 		fmt.Fprintf(c.Out, "Restored checklist with %d pending step(s) (paused; press Enter to continue).\n", pending)
