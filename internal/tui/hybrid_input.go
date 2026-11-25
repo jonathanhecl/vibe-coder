@@ -12,20 +12,22 @@ import (
 const maxSlashSuggestions = 6
 
 type hybridInputModel struct {
-	prompt    string
-	status    StatusInfo
-	buf       []rune
-	cursor    int
-	width     int
-	history   []string
-	histIdx   int
-	draft     string
-	slashCmds []SlashCommand
-	suggIdx   int
-	notice    string
-	submitted bool
-	eof       bool
-	quitting  bool
+	prompt          string
+	status          StatusInfo
+	buf             []rune
+	cursor          int
+	width           int
+	history         []string
+	histIdx         int
+	draft           string
+	slashCmds       []SlashCommand
+	suggIdx         int
+	notice          string
+	hasThinking     bool
+	inspectThinking bool
+	submitted       bool
+	eof             bool
+	quitting        bool
 }
 
 func newHybridInputModel(prompt string, status StatusInfo, history []string, cmds []SlashCommand, width int) hybridInputModel {
@@ -40,6 +42,26 @@ func newHybridInputModel(prompt string, status StatusInfo, history []string, cmd
 		histIdx:   len(history),
 		slashCmds: append([]SlashCommand(nil), cmds...),
 	}
+}
+
+func (m hybridInputModel) withThinkingAvailable(ok bool) hybridInputModel {
+	m.hasThinking = ok
+	return m
+}
+
+func (m hybridInputModel) withDraft(buf []rune, cursor int) hybridInputModel {
+	if len(buf) == 0 {
+		return m
+	}
+	m.buf = append([]rune(nil), buf...)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(m.buf) {
+		cursor = len(m.buf)
+	}
+	m.cursor = cursor
+	return m
 }
 
 func (m hybridInputModel) Init() tea.Cmd { return nil }
@@ -95,6 +117,15 @@ func (m hybridInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.buf = append(m.buf[:m.cursor], m.buf[m.cursor+1:]...)
 				m.clampSuggIdx()
 			}
+			return m, nil
+
+		case tea.KeyCtrlT:
+			if m.hasThinking {
+				m.inspectThinking = true
+				m.quitting = true
+				return m, tea.Quit
+			}
+			m.notice = "No thinking trace recorded yet."
 			return m, nil
 
 		case tea.KeyEnter:
@@ -384,8 +415,15 @@ func (m hybridInputModel) View() string {
 	} else {
 		helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 		helpText := "Enter send · Alt+Enter newline · Tab complete · /ui cli to switch back · Ctrl+D exit"
-		if len([]rune(helpText)) > boxWidth {
-			helpText = "Enter send · Alt+Enter newline · /ui cli · Ctrl+D exit"
+		if m.hasThinking {
+			helpText = "Enter send · Alt+Enter newline · Tab complete · Ctrl+T think · /ui cli · Ctrl+D exit"
+		}
+		if displayWidth(helpText) > boxWidth {
+			if m.hasThinking {
+				helpText = "Enter send · Ctrl+T think · /ui cli · Ctrl+D exit"
+			} else {
+				helpText = "Enter send · Alt+Enter newline · /ui cli · Ctrl+D exit"
+			}
 		}
 		out.WriteString("  " + helpStyle.Render(helpText))
 	}

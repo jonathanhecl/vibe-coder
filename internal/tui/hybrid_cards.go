@@ -425,3 +425,201 @@ func (m hybridAskModel) View() string {
 		Width(boxWidth - 2).
 		Render(b.String())
 }
+
+type hybridThinkingViewerModel struct {
+	raw        string
+	lines      []string
+	offset     int
+	viewHeight int
+	width      int
+	quitting   bool
+}
+
+func newHybridThinkingViewerModel(rawThinking string, width, termHeight int) hybridThinkingViewerModel {
+	if width <= 0 {
+		width = 80
+	}
+	m := hybridThinkingViewerModel{
+		raw:        strings.TrimRight(strings.ReplaceAll(strings.ReplaceAll(rawThinking, "\r\n", "\n"), "\r", "\n"), "\n"),
+		width:      width,
+		viewHeight: computeThinkingViewerHeight(termHeight),
+	}
+	m.rewrap()
+	return m
+}
+
+func computeThinkingViewerHeight(termHeight int) int {
+	if termHeight <= 0 {
+		return 12
+	}
+	avail := termHeight - 6
+	if avail < 6 {
+		return 6
+	}
+	if avail > 18 {
+		return 18
+	}
+	return avail
+}
+
+func (m hybridThinkingViewerModel) boxWidth() int {
+	w := m.width - 2
+	if w < 36 {
+		return 36
+	}
+	return w
+}
+
+func (m *hybridThinkingViewerModel) rewrap() {
+	innerWidth := m.boxWidth() - 4
+	if innerWidth < 16 {
+		innerWidth = 16
+	}
+	if strings.TrimSpace(m.raw) == "" {
+		m.lines = []string{"(empty)"}
+	} else {
+		m.lines = wrapThinkingLines(m.raw, innerWidth)
+	}
+	m.clampOffset()
+}
+
+func (m hybridThinkingViewerModel) maxOffset() int {
+	maxOff := len(m.lines) - m.viewHeight
+	if maxOff < 0 {
+		return 0
+	}
+	return maxOff
+}
+
+func (m *hybridThinkingViewerModel) clampOffset() {
+	if m.offset < 0 {
+		m.offset = 0
+	}
+	if maxOff := m.maxOffset(); m.offset > maxOff {
+		m.offset = maxOff
+	}
+}
+
+func (m *hybridThinkingViewerModel) scrollBy(delta int) {
+	m.offset += delta
+	m.clampOffset()
+}
+
+func (m hybridThinkingViewerModel) Init() tea.Cmd { return nil }
+
+func (m hybridThinkingViewerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		if msg.Width > 0 {
+			m.width = msg.Width
+		}
+		if msg.Height > 0 {
+			m.viewHeight = computeThinkingViewerHeight(msg.Height)
+		}
+		m.rewrap()
+		return m, nil
+
+	case tea.KeyMsg:
+		halfPage := m.viewHeight / 2
+		if halfPage < 1 {
+			halfPage = 1
+		}
+		switch msg.Type {
+		case tea.KeyEsc, tea.KeyCtrlC, tea.KeyCtrlT, tea.KeyEnter:
+			m.quitting = true
+			return m, tea.Quit
+		case tea.KeyUp:
+			m.scrollBy(-1)
+			return m, nil
+		case tea.KeyDown:
+			m.scrollBy(1)
+			return m, nil
+		case tea.KeyPgUp, tea.KeyCtrlU:
+			m.scrollBy(-halfPage)
+			return m, nil
+		case tea.KeyPgDown, tea.KeyCtrlD:
+			m.scrollBy(halfPage)
+			return m, nil
+		case tea.KeyHome:
+			m.offset = 0
+			return m, nil
+		case tea.KeyEnd:
+			m.offset = m.maxOffset()
+			return m, nil
+		case tea.KeySpace:
+			m.scrollBy(halfPage)
+			return m, nil
+		case tea.KeyRunes:
+			switch strings.ToLower(string(msg.Runes)) {
+			case "q":
+				m.quitting = true
+				return m, tea.Quit
+			case "j":
+				m.scrollBy(1)
+			case "k":
+				m.scrollBy(-1)
+			case "b":
+				m.scrollBy(-halfPage)
+			case "f":
+				m.scrollBy(halfPage)
+			case "g":
+				if string(msg.Runes) == "G" {
+					m.offset = m.maxOffset()
+				} else {
+					m.offset = 0
+				}
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m hybridThinkingViewerModel) View() string {
+	if m.quitting {
+		return ""
+	}
+	boxWidth := m.boxWidth()
+	innerWidth := boxWidth - 4
+	if innerWidth < 16 {
+		innerWidth = 16
+		boxWidth = innerWidth + 4
+	}
+
+	total := len(m.lines)
+	end := m.offset + m.viewHeight
+	if end > total {
+		end = total
+	}
+	visible := m.lines[m.offset:end]
+
+	title := fmt.Sprintf(" 💭 Thinking (lines %d-%d of %d) ", m.offset+1, end, total)
+	if total == 0 {
+		title = " 💭 Thinking "
+	}
+
+	var b strings.Builder
+	b.WriteString(renderThinkingTopBorder(title, boxWidth))
+	b.WriteByte('\n')
+
+	leftRail := hybridThinkBorderStyle.Render("│")
+	rightRail := hybridThinkBorderStyle.Render("│")
+	for _, line := range visible {
+		w := displayWidth(line)
+		if w > innerWidth {
+			line = truncateDisplayWidth(line, innerWidth)
+			w = displayWidth(line)
+		}
+		pad := strings.Repeat(" ", innerWidth-w)
+		b.WriteString(leftRail)
+		b.WriteByte(' ')
+		b.WriteString(hybridThinkTextStyle.Render(line + pad))
+		b.WriteByte(' ')
+		b.WriteString(rightRail)
+		b.WriteByte('\n')
+	}
+
+	help := "↑/↓ scroll · PgUp/PgDn page · Home/End · Esc close"
+	b.WriteString(renderThinkingBottomBorder(help, boxWidth))
+	return b.String()
+}

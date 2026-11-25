@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+const hybridThinkMaxLines = 6
 
 var (
 	hybridThinkBorderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
@@ -22,16 +25,14 @@ var (
 	hybridUserPlanStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
 )
 
-func (h *HybridUI) hybridWidth() int {
-	w := terminalColumns(h.plain.out)
-	if w <= 0 {
-		return 80
+func (h *HybridUI) hybridBoxWidth() int {
+	cols := terminalColumns(h.plain.out)
+	if cols <= 0 {
+		cols = 80
 	}
-	if w < 40 {
-		return 40
-	}
-	if w > 100 {
-		return 100
+	w := cols - 2
+	if w < 36 {
+		w = 36
 	}
 	return w
 }
@@ -40,18 +41,10 @@ func (h *HybridUI) openThinkingBlockLocked() {
 	if h.thinkActive {
 		return
 	}
-	w := h.hybridWidth()
-	title := "╭─ 💭 Thinking "
-	fillLen := w - displayWidth(title)
-	if fillLen < 4 {
-		fillLen = 4
-	}
-	header := hybridThinkBorderStyle.Render(title + strings.Repeat("─", fillLen))
-	_, _ = fmt.Fprintf(h.plain.out, "\n%s\n", header)
 	h.thinkActive = true
 	h.thinkStart = time.Now()
-	h.thinkAtLineStart = true
-	h.thinkCol = 0
+	h.thinkBuf.Reset()
+	h.thinkRenderedRows = 0
 }
 
 func (h *HybridUI) writeHybridThinkingLocked(text string) {
@@ -64,62 +57,254 @@ func (h *HybridUI) writeHybridThinkingLocked(text string) {
 	if !h.thinkActive {
 		h.openThinkingBlockLocked()
 	}
-	contentWidth := h.hybridWidth() - 3
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-	norm := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
-	rail := hybridThinkBorderStyle.Render("│") + " "
-
-	for _, r := range norm {
-		if r == '\n' {
-			_, _ = fmt.Fprint(h.plain.out, "\n")
-			h.thinkAtLineStart = true
-			h.thinkCol = 0
-			continue
-		}
-		rw := runeCellWidth(r)
-		if rw <= 0 {
-			rw = 1
-		}
-		if h.thinkAtLineStart {
-			_, _ = fmt.Fprint(h.plain.out, rail)
-			h.thinkAtLineStart = false
-			h.thinkCol = 0
-		} else if h.thinkCol+rw > contentWidth {
-			_, _ = fmt.Fprint(h.plain.out, "\n"+rail)
-			h.thinkCol = 0
-		}
-		_, _ = fmt.Fprint(h.plain.out, hybridThinkTextStyle.Render(string(r)))
-		h.thinkCol += rw
-	}
+	h.thinkBuf.WriteString(text)
+	h.repaintThinkingBoxLocked(false, false)
 }
 
 func (h *HybridUI) closeHybridThinkingLocked(withElapsed bool) {
 	if !h.thinkActive {
 		return
 	}
-	if !h.thinkAtLineStart {
-		_, _ = fmt.Fprint(h.plain.out, "\n")
+	if raw := strings.TrimSpace(h.thinkBuf.String()); raw != "" {
+		h.mu.Lock()
+		h.lastThinking = h.thinkBuf.String()
+		h.mu.Unlock()
 	}
-	w := h.hybridWidth()
-	if withElapsed {
-		label := "thought for " + formatElapsed(time.Since(h.thinkStart))
-		prefix := "╰─ "
-		fillLen := w - displayWidth(prefix) - displayWidth(label) - 1
-		if fillLen < 3 {
-			fillLen = 3
-		}
-		line := hybridThinkBorderStyle.Render(prefix) +
-			hybridThinkMetaStyle.Render(label) + " " +
-			hybridThinkBorderStyle.Render(strings.Repeat("─", fillLen))
-		_, _ = fmt.Fprintf(h.plain.out, "%s\n", line)
-	} else {
-		_, _ = fmt.Fprintf(h.plain.out, "%s\n", hybridThinkBorderStyle.Render("╰"+strings.Repeat("─", w-1)))
-	}
+	h.repaintThinkingBoxLocked(true, withElapsed)
 	h.thinkActive = false
-	h.thinkAtLineStart = true
-	h.thinkCol = 0
+	h.thinkBuf.Reset()
+	h.thinkRenderedRows = 0
+}
+
+func (h *HybridUI) repaintThinkingBoxLocked(settled, withElapsed bool) {
+	box, rows := h.renderThinkingBoxLocked(settled, withElapsed)
+	if rows == 0 {
+		return
+	}
+	if h.thinkRenderedRows == 0 {
+		_, _ = fmt.Fprintf(h.plain.out, "\n%s\n", box)
+	} else {
+		_, _ = fmt.Fprintf(h.plain.out, "\x1b[%dA\r\x1b[J%s\n", h.thinkRenderedRows, box)
+	}
+	h.thinkRenderedRows = rows
+}
+
+func (h *HybridUI) renderThinkingBoxLocked(settled, withElapsed bool) (string, int) {
+	boxWidth := h.hybridBoxWidth()
+	innerWidth := boxWidth - 4 // "│ " + content + " │"
+	if innerWidth < 16 {
+		innerWidth = 16
+		boxWidth = innerWidth + 4
+	}
+
+	raw := strings.ReplaceAll(strings.ReplaceAll(h.thinkBuf.String(), "\r\n", "\n"), "\r", "\n")
+	raw = strings.ReplaceAll(raw, "\t", "  ")
+	if settled {
+		raw = strings.TrimRight(raw, "\n")
+	}
+
+	allLines := wrapThinkingLines(raw, innerWidth)
+	totalLines := len(allLines)
+	start := 0
+	if totalLines > hybridThinkMaxLines {
+		start = totalLines - hybridThinkMaxLines
+	}
+	visible := allLines[start:]
+
+	headerTitle := " 💭 Thinking "
+	if totalLines > hybridThinkMaxLines {
+		headerTitle = fmt.Sprintf(" 💭 Thinking (lines %d-%d of %d) ", start+1, totalLines, totalLines)
+	}
+	topBorder := renderThinkingTopBorder(headerTitle, boxWidth)
+
+	var b strings.Builder
+	b.WriteString(topBorder)
+	b.WriteByte('\n')
+
+	leftRail := hybridThinkBorderStyle.Render("│")
+	rightRail := hybridThinkBorderStyle.Render("│")
+	for _, line := range visible {
+		w := displayWidth(line)
+		if w > innerWidth {
+			line = truncateDisplayWidth(line, innerWidth)
+			w = displayWidth(line)
+		}
+		pad := strings.Repeat(" ", innerWidth-w)
+		b.WriteString(leftRail)
+		b.WriteByte(' ')
+		b.WriteString(hybridThinkTextStyle.Render(line + pad))
+		b.WriteByte(' ')
+		b.WriteString(rightRail)
+		b.WriteByte('\n')
+	}
+
+	meta := ""
+	if withElapsed {
+		meta = "thought for " + formatElapsed(time.Since(h.thinkStart))
+	}
+	if start > 0 {
+		if meta != "" {
+			meta = fmt.Sprintf("%s · +%d lines (Ctrl+T to scroll)", meta, start)
+		} else {
+			meta = fmt.Sprintf("+%d lines (Ctrl+T to scroll)", start)
+		}
+	}
+	b.WriteString(renderThinkingBottomBorder(meta, boxWidth))
+
+	rows := len(visible) + 2
+	return b.String(), rows
+}
+
+func renderThinkingTopBorder(title string, boxWidth int) string {
+	maxTitle := boxWidth - 5 // "╭─" + title + min 2 "─" + "╮"
+	if maxTitle < 1 {
+		maxTitle = 1
+	}
+	if displayWidth(title) > maxTitle {
+		title = truncateDisplayWidth(title, maxTitle)
+	}
+	fill := boxWidth - 2 - displayWidth(title) - 1
+	if fill < 1 {
+		fill = 1
+	}
+	return hybridThinkBorderStyle.Render("╭─" + title + strings.Repeat("─", fill) + "╮")
+}
+
+func renderThinkingBottomBorder(meta string, boxWidth int) string {
+	if meta == "" {
+		fill := boxWidth - 2
+		if fill < 2 {
+			fill = 2
+		}
+		return hybridThinkBorderStyle.Render("╰" + strings.Repeat("─", fill) + "╯")
+	}
+	maxMeta := boxWidth - 6 // "╰─ " + meta + " " + min 1 "─" + "╯"
+	if maxMeta < 1 {
+		maxMeta = 1
+	}
+	if displayWidth(meta) > maxMeta {
+		meta = truncateDisplayWidth(meta, maxMeta)
+	}
+	fill := boxWidth - 3 - displayWidth(meta) - 2
+	if fill < 1 {
+		fill = 1
+	}
+	return hybridThinkBorderStyle.Render("╰─ ") +
+		hybridThinkMetaStyle.Render(meta) + " " +
+		hybridThinkBorderStyle.Render(strings.Repeat("─", fill)+"╯")
+}
+
+func wrapThinkingLines(text string, width int) []string {
+	if width < 8 {
+		width = 8
+	}
+	if text == "" {
+		return []string{""}
+	}
+	norm := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	norm = strings.ReplaceAll(norm, "\t", "  ")
+	paragraphs := strings.Split(norm, "\n")
+	var out []string
+	for _, p := range paragraphs {
+		out = append(out, wrapThinkingParagraph(p, width)...)
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+func wrapThinkingParagraph(line string, width int) []string {
+	if line == "" {
+		return []string{""}
+	}
+	var out []string
+	var cur strings.Builder
+	curWidth := 0
+
+	flush := func() {
+		out = append(out, cur.String())
+		cur.Reset()
+		curWidth = 0
+	}
+
+	runes := []rune(line)
+	for i := 0; i < len(runes); {
+		if unicode.IsSpace(runes[i]) {
+			spaceStart := i
+			for i < len(runes) && unicode.IsSpace(runes[i]) {
+				i++
+			}
+			// Drop leading whitespace after an automatic soft wrap.
+			if curWidth == 0 && len(out) > 0 {
+				continue
+			}
+			spaces := string(runes[spaceStart:i])
+			sw := displayWidth(spaces)
+			if curWidth+sw <= width {
+				cur.WriteString(spaces)
+				curWidth += sw
+			} else if curWidth > 0 {
+				flush()
+			}
+			continue
+		}
+
+		wordStart := i
+		for i < len(runes) && !unicode.IsSpace(runes[i]) {
+			i++
+		}
+		word := runes[wordStart:i]
+		ww := displayWidth(string(word))
+		if curWidth > 0 && curWidth+ww > width {
+			out = append(out, strings.TrimRight(cur.String(), " \t"))
+			cur.Reset()
+			curWidth = 0
+		}
+		if ww <= width {
+			cur.WriteString(string(word))
+			curWidth += ww
+			continue
+		}
+		for _, r := range word {
+			rw := runeCellWidth(r)
+			if rw <= 0 {
+				rw = 1
+			}
+			if curWidth+rw > width && curWidth > 0 {
+				flush()
+			}
+			cur.WriteRune(r)
+			curWidth += rw
+		}
+	}
+	if cur.Len() > 0 || len(out) == 0 {
+		out = append(out, strings.TrimRight(cur.String(), " \t"))
+	}
+	return out
+}
+
+func truncateDisplayWidth(s string, maxCols int) string {
+	if maxCols <= 0 {
+		return ""
+	}
+	if displayWidth(s) <= maxCols {
+		return s
+	}
+	var b strings.Builder
+	w := 0
+	for _, r := range s {
+		rw := runeCellWidth(r)
+		if rw <= 0 {
+			rw = 1
+		}
+		if w+rw > maxCols {
+			break
+		}
+		b.WriteRune(r)
+		w += rw
+	}
+	return b.String()
 }
 
 func (h *HybridUI) streamThinking(text string) {
@@ -467,7 +652,7 @@ func (h *HybridUI) showTodos(items []TodoItem) {
 		fmt.Fprintf(&b, " %s  %s\n", color(glyph), body)
 	}
 
-	boxWidth := h.hybridWidth() - 4
+	boxWidth := h.hybridBoxWidth() - 2
 	if boxWidth < 36 {
 		boxWidth = 36
 	}

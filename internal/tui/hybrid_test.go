@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -255,23 +256,120 @@ func TestHybridThinkingBlockStreamingAndWrap(t *testing.T) {
 	var out bytes.Buffer
 	h := newStyledHybridForTest(&out)
 
-	h.StreamThinking("First line of thought.\n")
-	h.StreamThinking(strings.Repeat("a", 95))
+	// Stream a line that previously would split mid-word ("i\nn kind"), plus >6 lines
+	// to verify bounded live scrolling and right-border alignment.
+	h.StreamThinking("The user said \"hola,\" which is Spanish for \"hello.\" This is a simple greeting. I should respond in kind, matching their language.\n")
+	h.StreamThinking("Line 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9")
 	h.EndThinking()
 
 	got := out.String()
-	if !strings.Contains(got, "╭─ 💭 Thinking") {
-		t.Fatalf("expected thinking block header, got:\n%s", got)
+	// Extract the final settled frame after the last clear-screen sequence.
+	finalFrame := got
+	if idx := strings.LastIndex(got, "\x1b[J"); idx >= 0 {
+		finalFrame = got[idx+len("\x1b[J"):]
 	}
-	if !strings.Contains(got, "│") {
-		t.Fatalf("expected continuous left rail in thinking block, got:\n%s", got)
+
+	if !strings.Contains(finalFrame, "╭─ 💭 Thinking (lines ") {
+		t.Fatalf("expected thinking block header with line window, got:\n%s", finalFrame)
 	}
-	if !strings.Contains(got, "╰─") || !strings.Contains(got, "thought for") {
-		t.Fatalf("expected thinking block footer with duration, got:\n%s", got)
+	if !strings.Contains(finalFrame, "╰─") || !strings.Contains(finalFrame, "thought for") || !strings.Contains(finalFrame, "Ctrl+T to scroll") {
+		t.Fatalf("expected thinking block footer with duration and scroll hint, got:\n%s", finalFrame)
 	}
-	// Wrapped 95-char line should produce at least 3 rail-prefixed lines (1 header text + 2 wrapped).
-	if count := strings.Count(got, "│"); count < 3 {
-		t.Fatalf("expected wrapped thinking lines with rail, got %d rails:\n%s", count, got)
+	if strings.Contains(finalFrame, "Line 3") {
+		t.Fatalf("expected older lines to scroll out of the 6-line window, got:\n%s", finalFrame)
+	}
+	if !strings.Contains(finalFrame, "Line 9") {
+		t.Fatalf("expected latest line to stay visible inside the 6-line window, got:\n%s", finalFrame)
+	}
+
+	// Verify closed rounded borders and uniform exact display width on every row.
+	rows := strings.Split(strings.Trim(finalFrame, "\n"), "\n")
+	if len(rows) != hybridThinkMaxLines+2 {
+		t.Fatalf("expected %d rows (%d content + 2 borders), got %d:\n%s", hybridThinkMaxLines+2, hybridThinkMaxLines, len(rows), finalFrame)
+	}
+	expectedWidth := displayWidth(rows[0])
+	if !strings.HasSuffix(rows[0], "╮") || !strings.HasSuffix(rows[len(rows)-1], "╯") {
+		t.Fatalf("expected closed right corners ╮ and ╯, got:\n%s", finalFrame)
+	}
+	for i, row := range rows {
+		if w := displayWidth(row); w != expectedWidth {
+			t.Fatalf("row %d width mismatch: got %d, want %d\nrow=%q", i, w, expectedWidth, row)
+		}
+	}
+
+	// Verify word wrapping never splits "in kind" across lines.
+	wrapped := wrapThinkingLines("The user said \"hola,\" which is Spanish for \"hello.\" I should respond in kind, matching their language.", 74)
+	if len(wrapped) < 2 {
+		t.Fatalf("expected wrapped paragraph, got %v", wrapped)
+	}
+	if !strings.Contains(strings.Join(wrapped, " "), "in kind") {
+		t.Fatalf("unexpected wrapped output: %v", wrapped)
+	}
+	for _, wl := range wrapped {
+		if strings.HasSuffix(wl, " i") || strings.HasPrefix(wl, "n ") {
+			t.Fatalf("word 'in' split across wrap boundary: %v", wrapped)
+		}
+	}
+}
+
+func TestHybridThinkingViewerScrolling(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 12; i++ {
+		lines = append(lines, fmt.Sprintf("Thought step %02d", i))
+	}
+	raw := strings.Join(lines, "\n")
+
+	m := newHybridThinkingViewerModel(raw, 80, 14) // viewHeight = 8
+	v0 := m.View()
+	if !strings.Contains(v0, "lines 1-8 of 12") || !strings.Contains(v0, "Thought step 01") || strings.Contains(v0, "Thought step 09") {
+		t.Fatalf("unexpected initial viewer render:\n%s", v0)
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(hybridThinkingViewerModel)
+	v1 := m.View()
+	if !strings.Contains(v1, "lines 2-9 of 12") || !strings.Contains(v1, "Thought step 09") {
+		t.Fatalf("expected KeyDown to scroll to lines 2-9, got:\n%s", v1)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	m = next.(hybridThinkingViewerModel)
+	vEnd := m.View()
+	if !strings.Contains(vEnd, "lines 5-12 of 12") || !strings.Contains(vEnd, "Thought step 12") {
+		t.Fatalf("expected KeyEnd to scroll to bottom, got:\n%s", vEnd)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyHome})
+	m = next.(hybridThinkingViewerModel)
+	if m.offset != 0 {
+		t.Fatalf("expected KeyHome to return offset to 0, got %d", m.offset)
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(hybridThinkingViewerModel)
+	if !m.quitting || cmd == nil {
+		t.Fatalf("expected KeyEsc to quit viewer")
+	}
+
+	// Verify Ctrl+T in composer sets inspectThinking only when thinking is available
+	// and preserves the typed draft.
+	inNoThink := newHybridInputModel("> ", StatusInfo{ContextPct: -1}, nil, nil, 80)
+	nextIn, _ := inNoThink.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	inNoThink = nextIn.(hybridInputModel)
+	if inNoThink.inspectThinking || inNoThink.notice == "" {
+		t.Fatalf("expected Ctrl+T without thinking to show notice and stay active, got %+v", inNoThink)
+	}
+
+	inWithThink := newHybridInputModel("> ", StatusInfo{ContextPct: -1}, nil, nil, 80).
+		withThinkingAvailable(true).
+		withDraft([]rune("draft prompt"), 5)
+	if !strings.Contains(inWithThink.View(), "Ctrl+T think") {
+		t.Fatalf("expected help bar to advertise Ctrl+T think, got:\n%s", inWithThink.View())
+	}
+	nextIn, cmd = inWithThink.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	inWithThink = nextIn.(hybridInputModel)
+	if !inWithThink.inspectThinking || !inWithThink.quitting || cmd == nil || string(inWithThink.buf) != "draft prompt" || inWithThink.cursor != 5 {
+		t.Fatalf("expected Ctrl+T with thinking to quit for viewer while keeping draft, got %+v", inWithThink)
 	}
 }
 

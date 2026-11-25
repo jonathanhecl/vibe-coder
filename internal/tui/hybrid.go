@@ -55,10 +55,13 @@ type HybridUI struct {
 	slashCmds []SlashCommand
 
 	// Thinking-block streaming state (guarded by plain.mu).
-	thinkActive      bool
-	thinkStart       time.Time
-	thinkAtLineStart bool
-	thinkCol         int
+	thinkActive       bool
+	thinkStart        time.Time
+	thinkBuf          strings.Builder
+	thinkRenderedRows int
+
+	// Latest completed or interrupted thinking text (guarded by h.mu).
+	lastThinking string
 }
 
 // NewHybrid constructs a HybridUI bound to standard streams.
@@ -172,33 +175,69 @@ func (h *HybridUI) GetInput(prompt string) (string, error) {
 	cmds := append([]SlashCommand(nil), h.slashCmds...)
 	h.mu.Unlock()
 
-	width := terminalColumns(h.plain.out)
-	if width <= 0 {
-		width = 80
-	}
-	model := newHybridInputModel(prompt, status, h.plain.history.snapshot(), cmds, width)
-	p := tea.NewProgram(model, tea.WithInput(h.plain.in), tea.WithOutput(h.plain.out))
-	finalModel, err := p.Run()
-	if err != nil {
-		return "", err
-	}
-	res, ok := finalModel.(hybridInputModel)
-	if !ok {
-		return "", io.EOF
-	}
-	if res.eof {
-		return "", io.EOF
-	}
-	val := cleanBracketedPasteMarkers(res.value())
-	if strings.TrimSpace(val) != "" {
-		h.plain.history.add(val)
-	}
+	var draftBuf []rune
+	draftCursor := 0
+	for {
+		width, height := terminalDimensions(h.plain.out)
+		hasThinking := strings.TrimSpace(h.lastThinkingText()) != ""
+		model := newHybridInputModel(prompt, status, h.plain.history.snapshot(), cmds, width).
+			withThinkingAvailable(hasThinking).
+			withDraft(draftBuf, draftCursor)
+		p := tea.NewProgram(model, tea.WithInput(h.plain.in), tea.WithOutput(h.plain.out))
+		finalModel, err := p.Run()
+		if err != nil {
+			return "", err
+		}
+		res, ok := finalModel.(hybridInputModel)
+		if !ok {
+			return "", io.EOF
+		}
+		if res.inspectThinking {
+			draftBuf = append([]rune(nil), res.buf...)
+			draftCursor = res.cursor
+			if raw := h.lastThinkingText(); strings.TrimSpace(raw) != "" {
+				viewer := newHybridThinkingViewerModel(raw, width, height)
+				vp := tea.NewProgram(viewer, tea.WithInput(h.plain.in), tea.WithOutput(h.plain.out))
+				if _, verr := vp.Run(); verr != nil {
+					return "", verr
+				}
+			}
+			continue
+		}
+		if res.eof {
+			return "", io.EOF
+		}
+		val := cleanBracketedPasteMarkers(res.value())
+		if strings.TrimSpace(val) != "" {
+			h.plain.history.add(val)
+		}
 
-	h.plain.mu.Lock()
-	echo := h.renderUserEcho(prompt, val)
-	_, _ = fmt.Fprintln(h.plain.out, echo)
-	h.plain.mu.Unlock()
-	return val, nil
+		h.plain.mu.Lock()
+		echo := h.renderUserEcho(prompt, val)
+		_, _ = fmt.Fprintln(h.plain.out, echo)
+		h.plain.mu.Unlock()
+		return val, nil
+	}
+}
+
+func (h *HybridUI) lastThinkingText() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.lastThinking
+}
+
+func terminalDimensions(w io.Writer) (int, int) {
+	cols := terminalColumns(w)
+	if cols <= 0 {
+		cols = 80
+	}
+	height := 24
+	if f, ok := w.(*os.File); ok {
+		if _, th, err := term.GetSize(int(f.Fd())); err == nil && th > 0 {
+			height = th
+		}
+	}
+	return cols, height
 }
 
 func formatScrollbackEcho(val string) string {
