@@ -609,7 +609,14 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 		a.ui.EndAssistant(a.turnUsage())
 	}
 	flushTailAfterTool := func(full string) {
-		if tail := assistantTextAfterFirstClosedTool(full); strings.TrimSpace(tail) != "" {
+		tail := assistantTextAfterFirstClosedTool(full)
+		for strings.HasPrefix(strings.ToLower(tail), pipeInvokePrefix) {
+			tail = assistantTextAfterFirstClosedTool(tail)
+		}
+		if next := indexFold(tail, pipeInvokePrefix); next >= 0 {
+			tail = tail[:next]
+		}
+		if strings.TrimSpace(tail) != "" {
 			a.ui.StreamAssistant(tail)
 		}
 	}

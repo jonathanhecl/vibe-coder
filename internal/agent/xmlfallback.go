@@ -8,8 +8,11 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tools"
 )
 
+// pipeInvokePrefix is an alternate opening emitted as assistant text by some models.
+const pipeInvokePrefix = "<|tool_call>invoke"
+
 var (
-	openInvokeRe   = regexp.MustCompile(`(?is)<invoke[^>]*name=["']([A-Za-z0-9_:-]+)["'][^>]*>`)
+	openInvokeRe   = regexp.MustCompile(`(?is)(?:<invoke|` + regexp.QuoteMeta(pipeInvokePrefix) + `\b)[^>]*name=["']([A-Za-z0-9_:-]+)["'][^>]*>`)
 	openToolCallRe = regexp.MustCompile(`(?is)<tool_call[^>]*name=["']([A-Za-z0-9_:-]+)["'][^>]*>`)
 	toolTagOpenRe  = regexp.MustCompile(`(?s)<([A-Z][A-Z0-9_]*)>`)
 )
@@ -21,11 +24,14 @@ type ToolCall struct {
 }
 
 // parseXMLFallback recovers the first tool call from a raw model reply.
-// It accepts the same three envelopes as parseXMLFallbackAll:
+// It accepts the same envelopes as parseXMLFallbackAll:
 //
 //	<invoke name="ToolName">{...}</invoke>
 //	<tool_call name="ToolName">{...}</tool_call>
 //	<TOOLNAME>{...}</TOOLNAME>
+//
+// Some models emit <|tool_call>invoke name="ToolName">{...}</invoke> as plain
+// assistant text; it parses through the same invoke grammar and close tag.
 //
 // The JSON body is extracted with a brace-balanced, string-aware scanner so it
 // survives nested braces inside string values (e.g. glob patterns like
@@ -43,7 +49,7 @@ func parseXMLFallback(text string) (string, map[string]any, bool) {
 }
 
 // parseXMLFallbackAll recovers every tool call in reply order, capped by
-// maxXMLFallbackCalls. It accepts the same three envelopes as parseXMLFallback;
+// maxXMLFallbackCalls. It accepts the same envelopes as parseXMLFallback;
 // named <invoke> / <tool_call> blocks whose body fails JSON decoding are
 // surfaced with ParseErrorKey/RawArgsKey so the agent can repair or report
 // them instead of silently dropping the call.
@@ -243,7 +249,7 @@ func extractEnvelopeInnerBeforeClose(s string, start int, closeTag string) (stri
 		return "", false
 	}
 	inner := s[start : start+rel]
-	if containsFold(inner, "<invoke") || containsFold(inner, "<tool_call") {
+	if containsFold(inner, "<invoke") || containsFold(inner, "<tool_call") || containsFold(inner, pipeInvokePrefix) {
 		return "", false
 	}
 	return inner, true

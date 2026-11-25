@@ -189,6 +189,53 @@ func TestRunStoresAssistantToolRequestBeforeObservation(t *testing.T) {
 	}
 }
 
+func TestRunExecutesPipeInvokeToolCall(t *testing.T) {
+	tmp := t.TempDir()
+	filePath := filepath.ToSlash(filepath.Join(tmp, "auto.py"))
+	if err := os.WriteFile(filePath, []byte("print('hello')\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	cfg := &config.Config{
+		Model:         "test-model",
+		ContextWindow: 32768,
+		MaxTokens:     128,
+		Temperature:   0.2,
+		Cwd:           tmp,
+		SessionsDir:   filepath.Join(tmp, "sessions"),
+	}
+	sess := session.New(cfg)
+	reg := tools.NewRegistry()
+	reg.RegisterDefaults()
+	perm := permissions.NewManager(&config.Config{YesMode: true})
+	ui := &fakeUI{}
+	client := &sequenceClient{replies: []string{
+		`<|tool_call>invoke name="Read">{"file_path":"` + filePath + `"}</invoke>`,
+		"The file prints hello.",
+	}}
+	ag := New(cfg, client, reg, perm, sess, ui)
+
+	if err := ag.Run(context.Background(), "analyze auto.py"); err != nil {
+		t.Fatalf("run agent: %v", err)
+	}
+	if ui.calls != 1 {
+		t.Fatalf("expected one tool call, got %d", ui.calls)
+	}
+	if client.calls != 2 {
+		t.Fatalf("expected two client calls, got %d", client.calls)
+	}
+	msgs := sess.Messages()
+	if len(msgs) != 4 {
+		t.Fatalf("expected user, assistant tool request, tool result, assistant final; got %d messages: %#v", len(msgs), msgs)
+	}
+	if msgs[2].Role != "user" || !strings.Contains(msgs[2].Content, "[tool_result name=Read]") || !strings.Contains(msgs[2].Content, "print('hello')") {
+		t.Fatalf("expected Read observation at message 3, got %#v", msgs[2])
+	}
+	if msgs[3].Role != "assistant" || msgs[3].Content != "The file prints hello." {
+		t.Fatalf("expected final assistant response at message 4, got %#v", msgs[3])
+	}
+}
+
 func TestRunExecutesMultipleToolsPerReply(t *testing.T) {
 	tmp := t.TempDir()
 	aPath := filepath.Join(tmp, "a.txt")

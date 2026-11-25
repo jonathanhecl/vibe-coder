@@ -46,3 +46,31 @@ func TestStreamAssistantPreservesWhitespaceDeltas(t *testing.T) {
 		t.Fatalf("streamed text lost whitespace:\n want %q\n  got %q", wantStreamed, got)
 	}
 }
+
+func TestStreamAssistantHidesPipeInvokeToolCalls(t *testing.T) {
+	ui := &recordingUI{}
+	cfg := &config.Config{Cwd: t.TempDir(), Model: "m"}
+	ag := New(cfg, nil, tools.NewRegistry(), permissions.NewManager(cfg), session.New(cfg), ui)
+	first := `<|tool_call>invoke name="WebFetch">{"url":"https://example.com/"}</invoke>`
+	second := `<|tool_call>invoke name="Glob">{"pattern":"*.go"}</invoke>`
+	fullReply := first + "\n" + second + "\nWorking on it."
+	ch := make(chan ollama.Chunk, len(fullReply)+1)
+	for _, r := range fullReply {
+		ch <- ollama.Chunk{Delta: string(r)}
+	}
+	ch <- ollama.Chunk{Done: true}
+	close(ch)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	full, native, err := ag.streamAssistantResponse(ctx, cancel, ch)
+	if err != nil || len(native) != 0 || full != fullReply {
+		t.Fatalf("unexpected stream response: %q, %v, %v", full, native, err)
+	}
+	if got := ui.streamed.String(); got != "Working on it." {
+		t.Fatalf("visible stream = %q", got)
+	}
+	calls := parseXMLFallbackAll(full, MaxToolsPerReply)
+	if len(calls) != 2 || calls[0].Name != "WebFetch" || calls[0].Params["url"] != "https://example.com/" || calls[1].Name != "Glob" || calls[1].Params["pattern"] != "*.go" {
+		t.Fatalf("parsed calls = %#v", calls)
+	}
+}

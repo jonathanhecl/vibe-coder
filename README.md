@@ -51,7 +51,7 @@
 - **One-shot prompts** (`-p`) and **interactive REPL** with streaming output.
 - **Multi-turn agent loop** (up to 50 iterations, 2 retries on transient failures) with tool observation feedback.
 - **Native tool calling** — registry schemas are sent as Ollama `tools`; capability is detected from `/api/tags`, with a `/api/show` probe when tag metadata is missing (`Tools: native|xml|auto` in `/status`), plus per-session 400 fallback and caching. Streamed calls are accumulated across chunks, and native turns replay structured history (`assistant.tool_calls` + role `tool` results) instead of text envelopes. Mis-cased or namespaced call names (`read`, `todo_write`, `functions.Read`) resolve to the canonical tool; a name that still does not exist gets an error result listing the available tools while the rest of the batch runs, and a model that only invents names is stopped after a few rounds instead of churning to the step cap.
-- **Batched tool calls** — up to 5 sequential calls per turn (native or `<invoke>` XML fallback) for independent calls.
+- **Batched tool calls** — up to 5 sequential calls per turn (native or `<invoke>` XML fallback) for independent calls. The fallback also accepts the `<|tool_call>invoke` opening emitted as text by some models.
 - **Empty-response recovery** — retries with escalating guidance when the model returns an empty reply.
 - **XML fallback parser** — kept for models without native function calling; native calls always win when present.
 - **Verify-after-write** — after every `Write`/`Edit`, the agent Reads the edited region and runs the relevant check before moving on.

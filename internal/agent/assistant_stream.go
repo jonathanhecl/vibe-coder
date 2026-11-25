@@ -12,7 +12,8 @@ import (
 const toolEnvelopeScanOverlap = 32
 
 // toolEnvelopeByteIndex returns the byte index where tool XML starts, or -1 if none yet.
-// Matches <invoke, <tool_call, and <ToolName> (leading uppercase ASCII letter after '<').
+// Matches <invoke, the <|tool_call>invoke alternate opening, <tool_call, and
+// <ToolName> (leading uppercase ASCII letter after '<').
 func toolEnvelopeByteIndex(s string) int {
 	best := -1
 	n := len(s)
@@ -22,6 +23,13 @@ func toolEnvelopeByteIndex(s string) int {
 		}
 		// <invoke (case-insensitive)
 		if i+7 <= n && asciiPrefixFold(s[i+1:], "invoke") {
+			if best < 0 || i < best {
+				best = i
+			}
+			continue
+		}
+		// <|tool_call>invoke alternate opening (case-insensitive)
+		if asciiPrefixFold(s[i:], pipeInvokePrefix) {
 			if best < 0 || i < best {
 				best = i
 			}
@@ -48,7 +56,8 @@ func toolEnvelopeByteIndex(s string) int {
 }
 
 // HasPotentialToolStart returns the byte index of the last '<' if it starts
-// a sequence that matches a prefix of "<invoke" or "<tool_call" (case-insensitive).
+// a sequence that matches a prefix of "<invoke", "<tool_call" or the
+// "<|tool_call>invoke" alternate opening (case-insensitive).
 func HasPotentialToolStart(s string) (int, bool) {
 	idx := strings.LastIndexByte(s, '<')
 	if idx < 0 {
@@ -56,7 +65,7 @@ func HasPotentialToolStart(s string) (int, bool) {
 	}
 	suffix := s[idx:]
 	low := strings.ToLower(suffix)
-	if strings.HasPrefix("<invoke", low) || strings.HasPrefix("<tool_call", low) {
+	if strings.HasPrefix("<invoke", low) || strings.HasPrefix("<tool_call", low) || strings.HasPrefix(pipeInvokePrefix, low) {
 		return idx, true
 	}
 	return -1, false
@@ -85,7 +94,11 @@ func asciiPrefixFold(p, prefixLower string) bool {
 func assistantTextAfterFirstClosedTool(s string) string {
 	t := s
 	low := strings.ToLower(t)
-	if idx := strings.Index(low, "<invoke"); idx >= 0 {
+	idx := strings.Index(low, "<invoke")
+	if alternate := strings.Index(low, pipeInvokePrefix); alternate >= 0 && (idx < 0 || alternate < idx) {
+		idx = alternate
+	}
+	if idx >= 0 {
 		rel := strings.Index(low[idx:], "</invoke>")
 		if rel < 0 {
 			return ""
