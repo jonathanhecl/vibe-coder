@@ -149,7 +149,7 @@ func main() {
 	sess := session.New(cfg)
 	sess.SetClient(client)
 	sess.SetSidecarClient(sideClient)
-	resolveVisionSupport(cfg, client, sideClient)
+	modelChecks := resolveVisionSupport(cfg, client, sideClient)
 	ctxStore := contextfiles.NewStore()
 	preloadSessionContexts(cfg, ctxStore)
 	ui, err := tui.NewFromMode(cfg)
@@ -189,10 +189,12 @@ func main() {
 	// under them run prompt-free; writes still prompt.
 	perm.SetReadOnlyRoots(skills.ReadOnlyDirs(cfg))
 	var decider decision.Decider
+	var decisionCheckErr error
 	if decisionClient := decision.FromConfig(cfg); decisionClient != nil {
 		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		info, checkErr := decisionClient.Check(checkCtx)
 		checkCancel()
+		decisionCheckErr = checkErr
 		if checkErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: decision model check failed: %v\n", checkErr)
 			logger.Infof("decision model check failed: %v", checkErr)
@@ -324,11 +326,12 @@ func main() {
 		}
 	}
 	sess.SetPinnedContexts(ctxStore.Paths())
+	offlineModels := startupOfflineModels(rootCtx, cfg, client, sideClient, modelChecks, decisionCheckErr)
 
 	bannerPrinted := false
 	if cfg.Prompt != "" {
 		logger.Infof("Running one-shot prompt flow: %q", cfg.Prompt)
-		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui, resumed, mcpMgr)
+		shouldContinue, err := runInitialPrompt(rootCtx, cfg, ag, sess, ui, resumed, mcpMgr, offlineModels)
 		if err != nil {
 			exitWithError(err)
 		}
@@ -341,7 +344,7 @@ func main() {
 	}
 
 	if !bannerPrinted {
-		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
+		fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout), offlineModels))
 	}
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	if resumed {
@@ -606,10 +609,21 @@ func rabbitClientFor(cfg *config.Config, client, sideClient ollama.Client) ollam
 
 // resolveVisionSupport detects once, at startup, whether the active model
 // advertises vision capability. It is best-effort: on any failure the agent
-// runs with VisionKnown=false and stays honest about trying.
-func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients ...ollama.Client) {
+// runs with VisionKnown=false and stays honest about trying. It also returns
+// the per-client Tags outcome so the startup banner can mark unreachable
+// providers without issuing a second request for the same client.
+func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients ...ollama.Client) map[ollama.Client]error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	results := make(map[ollama.Client]error)
+	tags := func(c ollama.Client) ([]ollama.Model, error) {
+		active := ctx.Err() == nil
+		models, err := c.Tags(ctx)
+		if active {
+			results[c] = err
+		}
+		return models, err
+	}
 	if cfg.VisionByModel == nil {
 		cfg.VisionByModel = make(map[string]bool)
 	}
@@ -619,7 +633,7 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients
 	if cfg.ToolsByModel == nil {
 		cfg.ToolsByModel = make(map[string]bool)
 	}
-	models, err := client.Tags(ctx)
+	models, err := tags(client)
 	if err != nil {
 		logger.Infof("Vision detection skipped for main client (tags failed): %v", err)
 	} else {
@@ -640,7 +654,7 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients
 		if extra == nil || extra == client || strings.TrimSpace(cfg.SidecarModel) == "" {
 			continue
 		}
-		if extraModels, err := extra.Tags(ctx); err == nil {
+		if extraModels, err := tags(extra); err == nil {
 			for _, m := range extraModels {
 				name := strings.ToLower(strings.TrimSpace(m.Name))
 				if name == "" || !m.CapabilitiesKnown {
@@ -658,6 +672,7 @@ func resolveVisionSupport(cfg *config.Config, client ollama.Client, extraClients
 	applyVisionForModel(cfg)
 	applyThinkingForModel(cfg)
 	applyToolsForModel(cfg)
+	return results
 }
 
 // probeModelCapabilities resolves "unknown" capability state for the active

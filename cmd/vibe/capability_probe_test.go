@@ -37,7 +37,7 @@ func (c probingClient) Show(context.Context, string) (ollama.Model, error) {
 
 func TestCapabilityProbeKeepsUnknownAsUnknown(t *testing.T) {
 	cfg := &config.Config{Model: "probe:latest"}
-	resolveVisionSupport(cfg, probingClient{})
+	resolveVisionSupport(cfg, &probingClient{})
 	if cfg.ToolsKnown || cfg.ToolsSupported {
 		t.Fatalf("absent capability metadata must stay unknown, got known=%t supported=%t", cfg.ToolsKnown, cfg.ToolsSupported)
 	}
@@ -48,7 +48,7 @@ func TestCapabilityProbeKeepsUnknownAsUnknown(t *testing.T) {
 
 func TestCapabilityProbeUsesShowForActiveModel(t *testing.T) {
 	cfg := &config.Config{Model: "probe:latest", SidecarModel: "probe:latest"}
-	resolveVisionSupport(cfg, probingClient{showCaps: []string{"completion", "tools", "vision"}})
+	resolveVisionSupport(cfg, &probingClient{showCaps: []string{"completion", "tools", "vision"}})
 	if !cfg.ToolsKnown || !cfg.ToolsSupported {
 		t.Fatalf("expected tools support from /api/show, got known=%t supported=%t", cfg.ToolsKnown, cfg.ToolsSupported)
 	}
@@ -63,7 +63,7 @@ func TestCapabilityProbeUsesShowForActiveModel(t *testing.T) {
 func TestCapabilityProbeRespectsTagsWhenKnown(t *testing.T) {
 	// Tags say completion-only (known); Show must not wrongly re-enable tools.
 	cfg := &config.Config{Model: "probe:latest"}
-	resolveVisionSupport(cfg, probingClient{tagCaps: []string{"completion"}, showCaps: []string{"tools"}})
+	resolveVisionSupport(cfg, &probingClient{tagCaps: []string{"completion"}, showCaps: []string{"tools"}})
 	if !cfg.ToolsKnown || cfg.ToolsSupported {
 		t.Fatalf("tags-known model must not be reported as tool-capable: known=%t supported=%t", cfg.ToolsKnown, cfg.ToolsSupported)
 	}

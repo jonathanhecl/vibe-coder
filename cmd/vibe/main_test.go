@@ -161,7 +161,7 @@ func TestStartupBanner(t *testing.T) {
 		SidecarModel: "",
 		OllamaHost:   "http://localhost:11434",
 	}
-	out := startupBanner(cfg, "session-123", false, tui.Style{})
+	out := startupBanner(cfg, "session-123", false, tui.Style{}, nil)
 	if !strings.Contains(out, "vibe") {
 		t.Fatalf("missing app name banner: %q", out)
 	}
@@ -190,13 +190,13 @@ func TestStartupBannerResumed(t *testing.T) {
 		OllamaHost: "http://localhost:11434",
 	}
 	// Plain/unstyled output
-	out := startupBanner(cfg, "session-123", true, tui.Style{})
+	out := startupBanner(cfg, "session-123", true, tui.Style{}, nil)
 	if !strings.Contains(out, "Session started: session-123 (resumed)") {
 		t.Fatalf("expected (resumed) in session line, got %q", out)
 	}
 
 	// Styled output: (resumed) should be colored in cyan/celeste (\x1b[36m)
-	styled := startupBanner(cfg, "session-123", true, tui.NewStyleForTest(true))
+	styled := startupBanner(cfg, "session-123", true, tui.NewStyleForTest(true), nil)
 	if !strings.Contains(styled, "\x1b[36m(resumed)\x1b[0m") {
 		t.Fatalf("expected cyan (resumed) in styled banner, got %q", styled)
 	}
@@ -420,12 +420,12 @@ func TestStartupBannerTemporal(t *testing.T) {
 		Temporal:   true,
 	}
 	// With ANSI (color terminal)
-	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true), nil)
 	if !strings.Contains(banner, "\x1b[31m(temporal)\x1b[0m") {
 		t.Fatalf("expected banner to contain red '(temporal)', got:\n%s", banner)
 	}
 	// Without ANSI (plain terminal)
-	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{})
+	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{}, nil)
 	if !strings.Contains(bannerPlain, "(temporal)") {
 		t.Fatalf("expected plain banner to contain '(temporal)', got:\n%s", bannerPlain)
 	}
@@ -440,12 +440,12 @@ func TestStartupBannerIsolated(t *testing.T) {
 		Isolated:   true,
 	}
 	// With ANSI (color terminal)
-	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	banner := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true), nil)
 	if !strings.Contains(banner, "\x1b[33m(isolated)\x1b[0m") {
 		t.Fatalf("expected banner to contain yellow '(isolated)', got:\n%s", banner)
 	}
 	// Without ANSI (plain terminal)
-	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{})
+	bannerPlain := startupBanner(cfg, "session-123", false, tui.Style{}, nil)
 	if !strings.Contains(bannerPlain, "(isolated)") {
 		t.Fatalf("expected plain banner to contain '(isolated)', got:\n%s", bannerPlain)
 	}

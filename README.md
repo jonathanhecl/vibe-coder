@@ -853,6 +853,8 @@ Model validation uses the model's capability tag for Ollama models. For other pr
 
 **One client per provider:** when `main` and `sidecar` share a provider, a single client is reused instead of one per role.
 
+**Startup offline marking:** at startup, configured model roles whose provider cannot be reached are shown in red with an `(offline)` label (also visible without color). This is a connection check, not a model-load test.
+
 These settings persist as `PROVIDER_<NAME>_KIND`, `PROVIDER_<NAME>_ENDPOINT`, `PROVIDER_<NAME>_API_KEY`, `ROLE_<ROLE>_PROVIDER` and `ROLE_<ROLE>_MODEL`. Legacy keys (`MODEL`, `SIDECAR_MODEL`, `MODEL_ENDPOINT`, `MODEL_PROVIDER`, `SIDECAR_ENDPOINT`, `SIDECAR_PROVIDER`, `DECISION_MODEL`, `DECISION_ENDPOINT`, `OLLAMA_HOST`) are read on load and migrated; on save they are replaced by the new keys, so an older binary will no longer find them.
 
 ### Model

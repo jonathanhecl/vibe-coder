@@ -19,10 +19,10 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
-func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Agent, sess *session.Session, ui tui.UI, resumed bool, mcpMgr *mcp.Manager) (bool, error) {
+func runInitialPrompt(rootCtx context.Context, cfg *config.Config, ag *agent.Agent, sess *session.Session, ui tui.UI, resumed bool, mcpMgr *mcp.Manager, offlineModels map[config.Role]bool) (bool, error) {
 	// Keep one-shot output aligned with interactive startup context so users
 	// can always see which model/session/host served the answer.
-	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout)))
+	fmt.Fprint(os.Stdout, startupBanner(cfg, sess.ID(), resumed, tui.NewStyle(os.Stdout), offlineModels))
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	if cfg != nil && cfg.Goal && !ag.MissionActive() && strings.TrimSpace(cfg.Prompt) != "" {
 		if ag.MissionSnapshot().Status == tools.MissionStatusBlocked && agent.IsContinuationPrompt(cfg.Prompt) {

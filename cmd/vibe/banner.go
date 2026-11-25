@@ -102,9 +102,23 @@ func printMCPBlock(out io.Writer, st tui.Style, mgr *mcp.Manager) {
 
 // startupBanner renders the startup header. The plain path keeps a line-based
 // "Label: value" form for logs and pipes; the styled path draws the wordmark and
-// an aligned, colored layout. Both share tui.WriteRows with /status.
-func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style) string {
+// an aligned, colored layout. Both share tui.WriteRows with /status. Roles
+// whose provider could not be reached at startup are marked "(offline)" in red.
+func startupBanner(cfg *config.Config, sessionID string, resumed bool, style tui.Style, offlineModels map[config.Role]bool) string {
 	rows := bannerRows(cfg, sessionID, resumed)
+	for role, offline := range offlineModels {
+		if !offline {
+			continue
+		}
+		for i := range rows {
+			if rows[i].Section == tui.RoleSection && rows[i].Label == config.RoleTitle(role) {
+				value := rows[i].Plain + " (offline)"
+				rows[i].Plain = value
+				rows[i].Render = func(st tui.Style) string { return st.Red(value) }
+				break
+			}
+		}
+	}
 	var b strings.Builder
 	if !style.Enabled() {
 		fmt.Fprintf(&b, "vibe %s\n", version.Value)

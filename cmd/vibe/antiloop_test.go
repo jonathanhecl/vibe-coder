@@ -431,7 +431,7 @@ func TestGoalResumeWithContinuePreservesOriginalMissionGoal(t *testing.T) {
 		Goal:   true,
 		Prompt: "continue",
 	}
-	shouldCont, err := runInitialPrompt(context.Background(), cfg, ag, sess, ui, true, nil)
+	shouldCont, err := runInitialPrompt(context.Background(), cfg, ag, sess, ui, true, nil, nil)
 	if err != nil {
 		t.Fatalf("runInitialPrompt failed: %v", err)
 	}

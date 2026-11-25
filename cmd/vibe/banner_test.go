@@ -162,11 +162,11 @@ func TestBannerRowsDecisionEndpoint(t *testing.T) {
 		t.Fatalf("expected the decision endpoint in the banner row, got %q", got)
 	}
 
-	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true), nil)
 	if !strings.Contains(styled, "http://mac-mini.local:8765") {
 		t.Fatalf("expected the decision endpoint in the styled banner, got:\n%s", styled)
 	}
-	plain := startupBanner(cfg, "session-123", false, tui.Style{})
+	plain := startupBanner(cfg, "session-123", false, tui.Style{}, nil)
 	if !strings.Contains(plain, "http://mac-mini.local:8765") {
 		t.Fatalf("expected the decision endpoint in the plain banner, got:\n%s", plain)
 	}
@@ -203,11 +203,11 @@ func TestBannerRowsOffline(t *testing.T) {
 		t.Fatalf("offline row = %q", got)
 	}
 
-	plain := startupBanner(cfg, "session-off", false, tui.Style{})
+	plain := startupBanner(cfg, "session-off", false, tui.Style{}, nil)
 	if !strings.Contains(plain, "Offline: enabled (network blocked)") {
 		t.Fatalf("expected offline in plain banner, got:\n%s", plain)
 	}
-	styled := startupBanner(cfg, "session-off", false, tui.NewStyleForTest(true))
+	styled := startupBanner(cfg, "session-off", false, tui.NewStyleForTest(true), nil)
 	if !strings.Contains(styled, "enabled (network blocked)") {
 		t.Fatalf("expected offline in styled banner, got:\n%s", styled)
 	}
@@ -239,7 +239,7 @@ func TestBannerRowsVisionTag(t *testing.T) {
 		t.Fatal("did not expect a vision row while the sidecar already sees")
 	}
 
-	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true), nil)
 	if !strings.Contains(styled, "\x1b[38;5;45mvision\x1b[0m") {
 		t.Fatalf("expected the cyan vision tag in the styled banner, got:\n%s", styled)
 	}
@@ -301,7 +301,7 @@ func TestStartupBannerDecisionAssisted(t *testing.T) {
 	}
 
 	// Styled banner: (assisted enabled) in green (\x1b[32m)
-	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true), nil)
 	if !strings.Contains(styled, "\x1b[32m(assisted enabled)\x1b[0m") {
 		t.Fatalf("expected green '(assisted enabled)' in styled banner, got:\n%s", styled)
 	}
@@ -310,7 +310,7 @@ func TestStartupBannerDecisionAssisted(t *testing.T) {
 	}
 
 	// Plain/unstyled banner
-	plain := startupBanner(cfg, "session-123", false, tui.Style{})
+	plain := startupBanner(cfg, "session-123", false, tui.Style{}, nil)
 	if !strings.Contains(plain, "(assisted enabled)") {
 		t.Fatalf("expected '(assisted enabled)' in plain banner, got:\n%s", plain)
 	}
@@ -326,7 +326,7 @@ func TestStartupBannerDecisionWithoutAssisted(t *testing.T) {
 		OllamaHost:    "http://localhost:11434",
 	}
 
-	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true), nil)
 	if strings.Contains(styled, "(assisted enabled)") {
 		t.Fatalf("did not expect '(assisted enabled)' in styled banner when AssistedYes is false, got:\n%s", styled)
 	}
@@ -334,12 +334,52 @@ func TestStartupBannerDecisionWithoutAssisted(t *testing.T) {
 		t.Fatalf("expected white '(run '/yes assisted' to enable)' in styled banner, got:\n%s", styled)
 	}
 
-	plain := startupBanner(cfg, "session-123", false, tui.Style{})
+	plain := startupBanner(cfg, "session-123", false, tui.Style{}, nil)
 	if strings.Contains(plain, "(assisted enabled)") {
 		t.Fatalf("did not expect '(assisted enabled)' in plain banner when AssistedYes is false, got:\n%s", plain)
 	}
 	if !strings.Contains(plain, "(run '/yes assisted' to enable)") {
 		t.Fatalf("expected '(run '/yes assisted' to enable)' in plain banner, got:\n%s", plain)
+	}
+}
+
+func TestStartupBannerOfflineModels(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Model:            "main-model",
+		SidecarModel:     "helper",
+		DecisionEndpoint: "http://decision.local",
+		AssistedYes:      true,
+	}
+	offline := map[config.Role]bool{
+		config.RoleMain:     true,
+		config.RoleDecision: true,
+	}
+	style := tui.NewStyleForTest(true)
+	styled := startupBanner(cfg, "session-offline", false, style, offline)
+
+	if !strings.Contains(styled, style.Red("[ollama] main-model (offline)")) {
+		t.Fatalf("expected the main model in red with an (offline) suffix, got:\n%s", styled)
+	}
+	// The offline marker wraps the whole value, so the assisted hint baked
+	// into the decision row's plain text stays inside the red span.
+	if !strings.Contains(styled, style.Red("http://decision.local (assisted enabled) (offline)")) {
+		t.Fatalf("expected the decision endpoint in red with an (offline) suffix, got:\n%s", styled)
+	}
+	if strings.Contains(styled, style.Red("[ollama] helper")) {
+		t.Fatalf("did not expect the sidecar to be marked offline, got:\n%s", styled)
+	}
+
+	plain := startupBanner(cfg, "session-offline", false, tui.Style{}, offline)
+	if !strings.Contains(plain, "- Main: [ollama] main-model (offline)\n") {
+		t.Fatalf("expected (offline) on the main row without color, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "- Decision: http://decision.local (assisted enabled) (offline)\n") {
+		t.Fatalf("expected (offline) on the decision row without color, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "- Sidecar: [ollama] helper\n") {
+		t.Fatalf("expected the sidecar row to stay unchanged, got:\n%s", plain)
 	}
 }
 
@@ -351,7 +391,7 @@ func TestStartupBannerStylesRoleValues(t *testing.T) {
 		SidecarModel: "qwen3.5:4b",
 		OllamaHost:   "http://localhost:11434",
 	}
-	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true))
+	styled := startupBanner(cfg, "session-123", false, tui.NewStyleForTest(true), nil)
 
 	// Provider stays gray while the model stays bright white.
 	if !strings.Contains(styled, "\x1b[90m[ollama]\x1b[0m \x1b[97mllama3.2:3b\x1b[0m") {
