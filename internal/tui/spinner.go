@@ -100,9 +100,13 @@ func (u *PlainUI) runSpinner(sp *spinner) {
 	frame := 0
 	paintFrame := func() {
 		elapsed := formatElapsed(time.Since(sp.started))
+		label := strings.ReplaceAll(sp.label, "\r\n", " ")
+		label = strings.ReplaceAll(label, "\n", " ")
+		label = strings.ReplaceAll(label, "\r", " ")
+		label = strings.ReplaceAll(label, "\t", "  ")
 		text := fmt.Sprintf("%s %s %s",
 			u.style.BrightBlue(spinnerFrames[frame%len(spinnerFrames)]),
-			sp.label,
+			label,
 			u.style.Dim("("+elapsed+")"),
 		)
 		u.mu.Lock()

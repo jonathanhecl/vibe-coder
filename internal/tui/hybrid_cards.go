@@ -137,9 +137,10 @@ func (m hybridPermissionModel) View() string {
 	if m.quitting {
 		return ""
 	}
-	boxWidth := m.width - 2
-	if boxWidth < 36 {
-		boxWidth = 36
+	boxWidth := fitBoxWidth(m.width)
+	innerWidth := boxWidth - 4
+	if innerWidth < 2 {
+		innerWidth = 2
 	}
 
 	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
@@ -150,58 +151,57 @@ func (m hybridPermissionModel) View() string {
 	numStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("? PERMISSION REQUIRED"))
+	var lines []string
+	head := titleStyle.Render("? PERMISSION REQUIRED")
 	if !m.deadline.IsZero() {
 		if badge := askBadge(m.deadline.Sub(m.now)); badge != "" {
-			b.WriteString("  ")
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(badge))
+			head += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(badge)
 		}
 	}
-	b.WriteString("\n\n")
+	lines = append(lines, head, "")
+
 	for _, raw := range m.payload {
 		line := fitGateLine(raw, permissionDisplayMaxRunes)
 		switch {
 		case strings.HasPrefix(line, "+ "):
-			b.WriteString("  " + addStyle.Render(line))
+			lines = append(lines, "  "+addStyle.Render(line))
 		case strings.HasPrefix(line, "- "):
-			b.WriteString("  " + delStyle.Render(line))
+			lines = append(lines, "  "+delStyle.Render(line))
 		case strings.HasPrefix(line, "WARNING:") || strings.HasPrefix(line, "GRAVITY"):
-			b.WriteString("  " + titleStyle.Render(line))
+			lines = append(lines, "  "+titleStyle.Render(line))
 		default:
-			b.WriteString("  " + payloadStyle.Render(line))
+			lines = append(lines, "  "+payloadStyle.Render(line))
 		}
-		b.WriteByte('\n')
 	}
-	b.WriteByte('\n')
+	lines = append(lines, "")
+
+	sepWidth := innerWidth - 2
+	if sepWidth > 29 {
+		sepWidth = 29
+	}
+	if sepWidth < 4 {
+		sepWidth = 4
+	}
+	sepLine := descStyle.Render("  " + strings.Repeat("─", sepWidth))
 
 	for i, opt := range hybridPermissionOptions {
 		if i == 3 {
-			b.WriteString(descStyle.Render("  ─────────────────────────────") + "\n")
+			lines = append(lines, sepLine)
 		}
+		var optLine string
 		if i == m.cursor {
-			b.WriteString("▸ ")
-			b.WriteString(selectedStyle.Render(fmt.Sprintf(" [%s] %s ", opt.key, opt.label)))
+			optLine = "▸ " + selectedStyle.Render(fmt.Sprintf(" [%s] %s ", opt.key, opt.label))
 		} else {
-			b.WriteString("  ")
-			b.WriteString(numStyle.Render("[" + opt.key + "] "))
-			b.WriteString(payloadStyle.Render(opt.label))
+			optLine = "  " + numStyle.Render("["+opt.key+"] ") + payloadStyle.Render(opt.label)
 		}
 		if opt.desc != "" {
-			b.WriteString("  ")
-			b.WriteString(descStyle.Render(opt.desc))
+			optLine += "  " + descStyle.Render(opt.desc)
 		}
-		b.WriteByte('\n')
+		lines = append(lines, optLine)
 	}
-	b.WriteByte('\n')
-	b.WriteString(descStyle.Render("↑/↓ + Enter or press 1-7 · Esc denies once"))
+	lines = append(lines, "", descStyle.Render("↑/↓ + Enter or press 1-7 · Esc denies once"))
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("220")).
-		Padding(0, 1).
-		Width(boxWidth - 2).
-		Render(b.String())
+	return renderRoundedBox(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("220")), boxWidth)
 }
 
 type hybridAskModel struct {
@@ -354,10 +354,7 @@ func (m hybridAskModel) View() string {
 	if m.quitting {
 		return ""
 	}
-	boxWidth := m.width - 2
-	if boxWidth < 36 {
-		boxWidth = 36
-	}
+	boxWidth := fitBoxWidth(m.width)
 
 	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
 	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("255")).Bold(true)
@@ -366,64 +363,57 @@ func (m hybridAskModel) View() string {
 	numStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
-	var b strings.Builder
+	var lines []string
 	title := strings.TrimSpace(m.card.Title)
 	prompt := strings.TrimSpace(m.card.Prompt)
+	head := titleStyle.Render("? QUESTION")
 	if title != "" {
-		b.WriteString(titleStyle.Render("? " + title))
-	} else {
-		b.WriteString(titleStyle.Render("? QUESTION"))
+		head = titleStyle.Render("? " + title)
 	}
 	if !m.deadline.IsZero() {
 		if badge := askBadge(m.deadline.Sub(m.now)); badge != "" {
-			b.WriteString("  ")
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(badge))
+			head += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(badge)
 		}
 	}
-	b.WriteByte('\n')
+	lines = append(lines, head)
 	if m.card.Note != "" {
-		b.WriteString("  " + noteStyle.Render(m.card.Note) + "\n")
+		lines = append(lines, "  "+noteStyle.Render(m.card.Note))
 	}
 	if prompt != "" {
-		b.WriteString("  " + promptStyle.Render(prompt) + "\n")
+		lines = append(lines, "  "+promptStyle.Render(prompt))
 	}
-	b.WriteByte('\n')
+	lines = append(lines, "")
 
 	for i, opt := range m.card.Options {
+		var optLine string
 		if i == m.cursor && !m.customMode {
-			b.WriteString("▸ ")
-			b.WriteString(selectedStyle.Render(fmt.Sprintf(" [%d] %s ", i+1, opt.Label)))
+			optLine = "▸ " + selectedStyle.Render(fmt.Sprintf(" [%d] %s ", i+1, opt.Label))
 		} else {
-			b.WriteString("  ")
-			b.WriteString(numStyle.Render(fmt.Sprintf("[%d] ", i+1)))
-			b.WriteString(opt.Label)
+			optLine = "  " + numStyle.Render(fmt.Sprintf("[%d] ", i+1)) + opt.Label
 		}
 		if opt.Description != "" {
-			b.WriteString("  ")
-			b.WriteString(descStyle.Render(opt.Description))
+			optLine += "  " + descStyle.Render(opt.Description)
 		}
-		b.WriteByte('\n')
+		lines = append(lines, optLine)
 	}
 
 	if m.customMode {
 		cursor := lipgloss.NewStyle().Reverse(true).Render(" ")
-		b.WriteString(fmt.Sprintf("▸ %s %s%s\n", numStyle.Render("Custom:"), string(m.customBuf), cursor))
-		b.WriteString("\n" + descStyle.Render("Enter submit · Esc back to options"))
+		lines = append(lines,
+			fmt.Sprintf("▸ %s %s%s", numStyle.Render("Custom:"), string(m.customBuf), cursor),
+			"",
+			descStyle.Render("Enter submit · Esc back to options"),
+		)
 	} else {
 		if m.cursor == len(m.card.Options) {
-			b.WriteString("▸ " + selectedStyle.Render(" [c] Type custom answer… ") + "\n")
+			lines = append(lines, "▸ "+selectedStyle.Render(" [c] Type custom answer… "))
 		} else {
-			b.WriteString("  " + numStyle.Render("[c] ") + descStyle.Render("Type custom answer…") + "\n")
+			lines = append(lines, "  "+numStyle.Render("[c] ")+descStyle.Render("Type custom answer…"))
 		}
-		b.WriteString("\n" + descStyle.Render("↑/↓ + Enter or press 1-9 · Esc uses default [1]"))
+		lines = append(lines, "", descStyle.Render("↑/↓ + Enter or press 1-9 · Esc uses default [1]"))
 	}
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("81")).
-		Padding(0, 1).
-		Width(boxWidth - 2).
-		Render(b.String())
+	return renderRoundedBox(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("81")), boxWidth)
 }
 
 type hybridThinkingViewerModel struct {
@@ -463,17 +453,13 @@ func computeThinkingViewerHeight(termHeight int) int {
 }
 
 func (m hybridThinkingViewerModel) boxWidth() int {
-	w := m.width - 2
-	if w < 36 {
-		return 36
-	}
-	return w
+	return fitBoxWidth(m.width)
 }
 
 func (m *hybridThinkingViewerModel) rewrap() {
 	innerWidth := m.boxWidth() - 4
-	if innerWidth < 16 {
-		innerWidth = 16
+	if innerWidth < 2 {
+		innerWidth = 2
 	}
 	if strings.TrimSpace(m.raw) == "" {
 		m.lines = []string{"(empty)"}
@@ -581,9 +567,9 @@ func (m hybridThinkingViewerModel) View() string {
 	}
 	boxWidth := m.boxWidth()
 	innerWidth := boxWidth - 4
-	if innerWidth < 16 {
-		innerWidth = 16
-		boxWidth = innerWidth + 4
+	if innerWidth < 2 {
+		innerWidth = 2
+		boxWidth = 6
 	}
 
 	total := len(m.lines)

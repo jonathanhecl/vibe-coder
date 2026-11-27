@@ -389,13 +389,14 @@ func (m hybridInputModel) View() string {
 	if m.quitting {
 		return ""
 	}
-	boxWidth := m.width - 2
-	if boxWidth < 32 {
-		boxWidth = 32
+	maxCols := m.width
+	if maxCols <= 0 {
+		maxCols = 80
 	}
+	boxWidth := fitBoxWidth(maxCols)
 	innerWidth := boxWidth - 4
-	if innerWidth < 20 {
-		innerWidth = 20
+	if innerWidth < 2 {
+		innerWidth = 2
 	}
 
 	var out strings.Builder
@@ -409,23 +410,27 @@ func (m hybridInputModel) View() string {
 	}
 
 	out.WriteString("\n")
+	footerMax := maxCols - 2
+	if footerMax < 4 {
+		footerMax = 4
+	}
 	if m.notice != "" {
 		noticeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-		out.WriteString("  " + noticeStyle.Render(m.notice))
+		out.WriteString("  " + truncateANSIWidth(noticeStyle.Render(m.notice), footerMax))
 	} else {
 		helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 		helpText := "Enter send · Alt+Enter newline · Tab complete · /ui cli to switch back · Ctrl+D exit"
 		if m.hasThinking {
 			helpText = "Enter send · Alt+Enter newline · Tab complete · Ctrl+T think · /ui cli · Ctrl+D exit"
 		}
-		if displayWidth(helpText) > boxWidth {
+		if displayWidth(helpText) > footerMax {
 			if m.hasThinking {
 				helpText = "Enter send · Ctrl+T think · /ui cli · Ctrl+D exit"
 			} else {
 				helpText = "Enter send · Alt+Enter newline · /ui cli · Ctrl+D exit"
 			}
 		}
-		out.WriteString("  " + helpStyle.Render(helpText))
+		out.WriteString("  " + truncateANSIWidth(helpStyle.Render(helpText), footerMax))
 	}
 	return out.String()
 }
@@ -480,7 +485,7 @@ func (m hybridInputModel) renderStatusBar(maxWidth int) string {
 	}
 
 	joined := strings.Join(parts, dimStyle.Render(" · "))
-	return lipgloss.NewStyle().MaxWidth(maxWidth).Render(joined)
+	return truncateANSIWidth(joined, maxWidth)
 }
 
 func (m hybridInputModel) renderEditorBox(boxWidth, innerWidth int) string {
@@ -492,12 +497,8 @@ func (m hybridInputModel) renderEditorBox(boxWidth, innerWidth int) string {
 	}
 
 	body := m.renderBufferWithCursor(innerWidth, promptColor)
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(0, 1).
-		Width(boxWidth - 2)
-	return box.Render(body)
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+	return renderRoundedBox(strings.Split(body, "\n"), borderStyle, boxWidth)
 }
 
 func (m hybridInputModel) renderBufferWithCursor(innerWidth int, promptColor lipgloss.Color) string {
@@ -506,17 +507,23 @@ func (m hybridInputModel) renderBufferWithCursor(innerWidth int, promptColor lip
 		promptText = ">"
 	}
 	prefix := lipgloss.NewStyle().Foreground(promptColor).Bold(true).Render(promptText) + " "
-	contPrefix := "  "
-	contentWidth := innerWidth - 2
-	if contentWidth < 12 {
-		contentWidth = 12
+	prefixWidth := displayWidth(promptText) + 1
+	contPrefix := strings.Repeat(" ", prefixWidth)
+	contentWidth := innerWidth - prefixWidth
+	if contentWidth < 4 {
+		contentWidth = 4
 	}
 
 	cursorStyle := lipgloss.NewStyle().Reverse(true)
 	placeholderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 
 	if len(m.buf) == 0 {
-		return prefix + cursorStyle.Render(" ") + placeholderStyle.Render(" Ask anything or type /help…")
+		avail := innerWidth - prefixWidth - 1
+		if avail >= 6 {
+			ph := truncateANSIWidth(" Ask anything or type /help…", avail)
+			return prefix + cursorStyle.Render(" ") + placeholderStyle.Render(ph)
+		}
+		return prefix + cursorStyle.Render(" ")
 	}
 
 	type seg struct {
@@ -536,6 +543,9 @@ func (m hybridInputModel) renderBufferWithCursor(innerWidth int, promptColor lip
 		atCursor := i == m.cursor
 		if i == len(m.buf) {
 			if atCursor {
+				if col+1 > contentWidth && col > 0 {
+					flushLine()
+				}
 				current = append(current, seg{text: " ", isCursor: true})
 			}
 			break
@@ -543,6 +553,9 @@ func (m hybridInputModel) renderBufferWithCursor(innerWidth int, promptColor lip
 		r := m.buf[i]
 		if r == '\n' {
 			if atCursor {
+				if col+1 > contentWidth && col > 0 {
+					flushLine()
+				}
 				current = append(current, seg{text: " ", isCursor: true})
 			}
 			flushLine()
@@ -586,23 +599,22 @@ func (m hybridInputModel) renderSuggestions(suggs []SlashCommand, maxWidth int) 
 	cmdStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
-	var b strings.Builder
+	lines := make([]string, 0, len(suggs))
 	for i, s := range suggs {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
+		var line strings.Builder
 		name := s.Name
 		if i == m.suggIdx {
-			b.WriteString("  ▸ ")
-			b.WriteString(activeStyle.Render(" " + name + " "))
+			line.WriteString("  ▸ ")
+			line.WriteString(activeStyle.Render(" " + name + " "))
 		} else {
-			b.WriteString("    ")
-			b.WriteString(cmdStyle.Render(name))
+			line.WriteString("    ")
+			line.WriteString(cmdStyle.Render(name))
 		}
 		if s.Description != "" {
-			b.WriteString("  ")
-			b.WriteString(descStyle.Render(s.Description))
+			line.WriteString("  ")
+			line.WriteString(descStyle.Render(s.Description))
 		}
+		lines = append(lines, truncateANSIWidth(line.String(), maxWidth))
 	}
-	return lipgloss.NewStyle().MaxWidth(maxWidth).Render(b.String())
+	return strings.Join(lines, "\n")
 }

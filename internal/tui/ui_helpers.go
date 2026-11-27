@@ -5,6 +5,7 @@ import "strings"
 func truncateInline(s string, max int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
 	// Runes, not bytes: a byte slice cuts a multi-byte character in half and
 	// leaves a fragment on screen.
 	runes := []rune(s)

@@ -26,15 +26,7 @@ var (
 )
 
 func (h *HybridUI) hybridBoxWidth() int {
-	cols := terminalColumns(h.plain.out)
-	if cols <= 0 {
-		cols = 80
-	}
-	w := cols - 2
-	if w < 36 {
-		w = 36
-	}
-	return w
+	return fitBoxWidth(h.terminalCols())
 }
 
 func (h *HybridUI) openThinkingBlockLocked() {
@@ -92,9 +84,9 @@ func (h *HybridUI) repaintThinkingBoxLocked(settled, withElapsed bool) {
 func (h *HybridUI) renderThinkingBoxLocked(settled, withElapsed bool) (string, int) {
 	boxWidth := h.hybridBoxWidth()
 	innerWidth := boxWidth - 4 // "│ " + content + " │"
-	if innerWidth < 16 {
-		innerWidth = 16
-		boxWidth = innerWidth + 4
+	if innerWidth < 2 {
+		innerWidth = 2
+		boxWidth = 6
 	}
 
 	raw := strings.ReplaceAll(strings.ReplaceAll(h.thinkBuf.String(), "\r\n", "\n"), "\r", "\n")
@@ -509,7 +501,8 @@ func (h *HybridUI) showToolResult(name, output string, isError bool, toolParams 
 	}
 
 	if !isError && name == "Bash" && h.plain.outIsTTY && strings.TrimSpace(output) != "" {
-		lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+		normOut := strings.ReplaceAll(strings.TrimRight(output, "\r\n"), "\r\n", "\n")
+		lines := strings.Split(normOut, "\n")
 		if len(lines) >= 2 {
 			if len(lines) > bashOutputTailLines {
 				lines = lines[len(lines)-bashOutputTailLines:]
@@ -523,24 +516,24 @@ func (h *HybridUI) showToolResult(name, output string, isError bool, toolParams 
 
 	if isError && name == "Bash" && toolParams != nil {
 		if cmd, ok := toolParams["command"].(string); ok && bashCommandTruncated(cmd) {
+			normCmd := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(cmd), "\r\n", "\n"), "\r", " ")
 			body.WriteByte('\n')
-			body.WriteString(h.plain.style.Dim("$ " + strings.TrimSpace(cmd)))
+			body.WriteString(h.plain.style.Dim("$ " + normCmd))
 		}
 	}
 
 	if isError && strings.TrimSpace(output) != "" {
-		for _, ln := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		normErr := strings.ReplaceAll(strings.TrimRight(output, "\r\n"), "\r\n", "\n")
+		for _, ln := range strings.Split(normErr, "\n") {
+			if i := strings.LastIndexByte(ln, '\r'); i >= 0 {
+				ln = ln[i+1:]
+			}
 			body.WriteByte('\n')
 			body.WriteString(h.plain.style.Red(ln))
 		}
 	}
 
-	card := lipgloss.NewStyle().
-		Border(lipgloss.ThickBorder(), false, false, false, true).
-		BorderForeground(borderColor).
-		PaddingLeft(1).
-		MarginLeft(1).
-		Render(body.String())
+	card := renderLeftRailBlock(body.String(), borderColor, 1, h.terminalCols())
 
 	_, _ = fmt.Fprintln(h.plain.out, card)
 
@@ -552,7 +545,9 @@ func (h *HybridUI) showToolResult(name, output string, isError bool, toolParams 
 
 func buildHybridDiffLines(st Style, params map[string]any) []string {
 	if diff, ok := params["_diff"].(string); ok && diff != "" {
-		raw := strings.Split(strings.TrimRight(diff, "\n"), "\n")
+		normDiff := strings.ReplaceAll(strings.TrimRight(diff, "\r\n"), "\r\n", "\n")
+		normDiff = strings.ReplaceAll(normDiff, "\r", "")
+		raw := strings.Split(normDiff, "\n")
 		truncated := false
 		if len(raw) > 50 {
 			raw = raw[:50]
@@ -638,8 +633,8 @@ func (h *HybridUI) showTodos(items []TodoItem) {
 	title := lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true).Render("To-dos")
 	countBadge := lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Render(fmt.Sprintf("%d/%d", done, total))
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s  %s  %s\n", title, countBadge, bar)
+	var lines []string
+	lines = append(lines, fmt.Sprintf("%s  %s  %s", title, countBadge, bar))
 	for _, it := range items {
 		glyph, color := todoGlyph(h.plain.style, it.Status)
 		body := it.Content
@@ -649,19 +644,11 @@ func (h *HybridUI) showTodos(items []TodoItem) {
 		if it.Status == todoStatusCompleted {
 			body = h.plain.style.Dim(body)
 		}
-		fmt.Fprintf(&b, " %s  %s\n", color(glyph), body)
+		lines = append(lines, fmt.Sprintf(" %s  %s", color(glyph), body))
 	}
 
-	boxWidth := h.hybridBoxWidth() - 2
-	if boxWidth < 36 {
-		boxWidth = 36
-	}
-	panel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63")).
-		Padding(0, 1).
-		Width(boxWidth).
-		Render(strings.TrimRight(b.String(), "\n"))
+	boxWidth := h.hybridBoxWidth()
+	panel := renderRoundedBox(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("63")), boxWidth)
 
 	_, _ = fmt.Fprintf(h.plain.out, "\n%s\n", panel)
 }
@@ -677,9 +664,5 @@ func (h *HybridUI) renderUserEcho(prompt, val string) string {
 		labelStyle = hybridUserPlanStyle
 	}
 	body := labelStyle.Render("you") + " " + formatScrollbackEcho(val)
-	return lipgloss.NewStyle().
-		Border(lipgloss.ThickBorder(), false, false, false, true).
-		BorderForeground(borderColor).
-		PaddingLeft(1).
-		Render(body)
+	return renderLeftRailBlock(body, borderColor, 0, h.terminalCols())
 }

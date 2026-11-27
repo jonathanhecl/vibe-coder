@@ -62,6 +62,9 @@ type HybridUI struct {
 
 	// Latest completed or interrupted thinking text (guarded by h.mu).
 	lastThinking string
+
+	// Optional terminal width override for deterministic tests.
+	termColsOverride int
 }
 
 // NewHybrid constructs a HybridUI bound to standard streams.
@@ -91,6 +94,20 @@ func compactHybridModel(name string) string {
 		s = s[idx+1:]
 	}
 	return s
+}
+
+func (h *HybridUI) terminalCols() int {
+	if h != nil && h.termColsOverride > 0 {
+		return h.termColsOverride
+	}
+	var out io.Writer
+	if h != nil && h.plain != nil {
+		out = h.plain.out
+	}
+	if cols := terminalColumns(out); cols > 0 {
+		return cols
+	}
+	return 80
 }
 
 func (h *HybridUI) isInteractiveTTY() bool {

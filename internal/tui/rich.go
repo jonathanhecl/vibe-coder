@@ -228,6 +228,9 @@ func (r *RichUI) paintStatusLine(line string) {
 	if !ok || f == nil {
 		return
 	}
+	if cols := terminalColumns(f); cols > 0 {
+		line = truncateANSIWidth(line, cols)
+	}
 	r.plain.mu.Lock()
 	defer r.plain.mu.Unlock()
 	_, _ = fmt.Fprintf(f, "\x1b7\x1b[999;1H\x1b[2K%s\x1b8", line)
