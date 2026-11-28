@@ -389,16 +389,19 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 
 		accumulator := newStreamAccumulator()
 		var usage *ollama.Usage
+		stopReason := ""
 		doneEmitted := false
-		emitDone := func() {
+		emitDone := func(interrupted bool) {
 			if doneEmitted {
 				return
 			}
 			doneEmitted = true
 			ch <- ollama.Chunk{
-				ToolCalls: accumulator.buildToolCalls(),
-				Done:      true,
-				Usage:     usage,
+				ToolCalls:   accumulator.buildToolCalls(),
+				Done:        true,
+				Usage:       usage,
+				StopReason:  stopReason,
+				Interrupted: interrupted,
 			}
 		}
 
@@ -441,7 +444,9 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 						}
 						return
 					}
-					emitDone()
+					// No [DONE] and no finish reason: the connection closed
+					// mid-turn, so the accumulated tool calls are partial.
+					emitDone(stopReason == "")
 					return
 				}
 
@@ -458,7 +463,7 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 
 				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 				if data == "[DONE]" {
-					emitDone()
+					emitDone(false)
 					return
 				}
 
@@ -491,6 +496,9 @@ func (c *Client) streamChatResponse(ctx context.Context, body io.ReadCloser) <-c
 				}
 
 				choice := chunk.Choices[0]
+				if r := strings.TrimSpace(choice.FinishReason); r != "" {
+					stopReason = r
+				}
 				delta := choice.Delta
 				accumulator.accumulate(delta)
 

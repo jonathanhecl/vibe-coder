@@ -134,3 +134,60 @@ func TestChatStalledStreamSurfacesError(t *testing.T) {
 		t.Fatalf("expected stall error, got %v", err)
 	}
 }
+
+// Ollama reports done_reason "length" when num_predict cut the reply. The done
+// chunk must carry it so a tool call cut mid-JSON is reported as truncation.
+func TestChatStreamCarriesDoneReason(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"content":"partial"},"done":false}` + "\n"))
+		_, _ = w.Write([]byte(`{"message":{"content":""},"done":true,"done_reason":"length"}` + "\n"))
+	}))
+	defer srv.Close()
+
+	stream, err := NewHTTP(srv.URL).Chat(context.Background(), ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}, Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var done Chunk
+	for chunk := range stream {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected error: %v", chunk.Err)
+		}
+		if chunk.Done {
+			done = chunk
+		}
+	}
+	if done.StopReason != StopReasonLength || !done.Truncated() {
+		t.Fatalf("done chunk = %+v, want stop reason %q", done, StopReasonLength)
+	}
+}
+
+// A body that closes with no done line was cut mid-generation: the consumer
+// must be told the content is incomplete instead of seeing a clean close.
+func TestChatStreamMarksMissingDoneAsInterrupted(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"content":"{\"file_path\":"},"done":false}` + "\n"))
+	}))
+	defer srv.Close()
+
+	stream, err := NewHTTP(srv.URL).Chat(context.Background(), ChatRequest{Model: "m", Messages: []Message{{Role: "user", Content: "hi"}}, Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var done Chunk
+	for chunk := range stream {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected error: %v", chunk.Err)
+		}
+		if chunk.Done {
+			done = chunk
+		}
+	}
+	if !done.Interrupted {
+		t.Fatalf("expected an interrupted done chunk, got %+v", done)
+	}
+}

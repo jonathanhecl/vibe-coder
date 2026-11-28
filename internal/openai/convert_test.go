@@ -264,3 +264,33 @@ func TestClientResponseFormatFallbackOn400(t *testing.T) {
 		t.Fatalf("unexpected response_format downgrade sequence: %v", seenTypes)
 	}
 }
+
+// Zero is the default and means "no cap": max_tokens must stay off the wire so
+// the provider's own limit applies, instead of cutting a large Write call at
+// 8192 tokens. A positive value still travels verbatim.
+func TestBuildChatRequestMaxTokensCap(t *testing.T) {
+	messages := []ollama.Message{{Role: "user", Content: "hi"}}
+
+	uncapped, err := buildChatRequest(ollama.ChatRequest{Model: "m", Messages: messages})
+	if err != nil {
+		t.Fatalf("buildChatRequest failed: %v", err)
+	}
+	if uncapped.MaxTokens != nil {
+		t.Fatalf("max_tokens = %d, want omitted when uncapped", *uncapped.MaxTokens)
+	}
+	payload, err := json.Marshal(uncapped)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if strings.Contains(string(payload), "max_tokens") {
+		t.Fatalf("uncapped request must not carry max_tokens: %s", payload)
+	}
+
+	capped, err := buildChatRequest(ollama.ChatRequest{Model: "m", Messages: messages, Options: ollama.ChatOptions{NumPredict: 16384}})
+	if err != nil {
+		t.Fatalf("buildChatRequest failed: %v", err)
+	}
+	if capped.MaxTokens == nil || *capped.MaxTokens != 16384 {
+		t.Fatalf("max_tokens = %v, want 16384", capped.MaxTokens)
+	}
+}

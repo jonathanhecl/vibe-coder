@@ -106,7 +106,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.modelProvider, "model-provider", "main model provider (alias)")
 	fs.Var(&opts.sidecarEndpoint, "sidecar-endpoint", "sidecar model endpoint URL")
 	fs.Var(&opts.sidecarProvider, "sidecar-provider", "sidecar model provider: ollama|openai")
-	fs.Var(&opts.maxTokens, "max-tokens", "max tokens")
+	fs.Var(&opts.maxTokens, "max-tokens", "cap on one generated reply in tokens (0 = the provider's own limit)")
 	fs.Var(&opts.temperature, "temperature", "temperature")
 	fs.Var(&opts.contextWindow, "context-window", "context window")
 	fs.Var(&opts.keepAliveMain, "keep-alive-main", "seconds to keep the main model loaded (-1 pins forever, 0 uses the provider default)")

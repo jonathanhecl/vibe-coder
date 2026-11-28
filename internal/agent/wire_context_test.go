@@ -37,6 +37,8 @@ func addNativeToolTurn(sess *session.Session, output string) {
 	sess.AddToolResult("Read", output)
 }
 
+// With no explicit output cap (the default) the reserve follows the window, so
+// a reply big enough to hold a large file still fits.
 func TestComputeBudgetMath(t *testing.T) {
 	t.Parallel()
 	ag, _ := newWireTestAgent(t, 32768, 6)
@@ -44,8 +46,8 @@ func TestComputeBudgetMath(t *testing.T) {
 	if b.Window != 32768 {
 		t.Fatalf("Window=%d", b.Window)
 	}
-	if b.OutputReserve != 4096 {
-		t.Fatalf("OutputReserve=%d, want default 4096", b.OutputReserve)
+	if b.OutputReserve != 32768/4 {
+		t.Fatalf("OutputReserve=%d, want window/4 %d", b.OutputReserve, 32768/4)
 	}
 	if b.SystemTokens != session.EstimateTokens("SYS") {
 		t.Fatalf("SystemTokens=%d", b.SystemTokens)
@@ -53,7 +55,7 @@ func TestComputeBudgetMath(t *testing.T) {
 	if b.SchemaTokens <= 0 {
 		t.Fatal("SchemaTokens should price the native tool schema")
 	}
-	want := 32768 - 4096 - b.SystemTokens - b.SchemaTokens - 32768*5/100
+	want := 32768 - 32768/4 - b.SystemTokens - b.SchemaTokens - 32768*5/100
 	if b.Transcript != want {
 		t.Fatalf("Transcript=%d, want %d", b.Transcript, want)
 	}

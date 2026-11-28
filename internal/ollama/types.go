@@ -334,6 +334,10 @@ type Usage struct {
 	TotalDuration      time.Duration
 }
 
+// StopReasonLength is the stop reason a provider reports when a reply was cut
+// by the output token budget instead of ending on its own.
+const StopReasonLength = "length"
+
 type Chunk struct {
 	Delta     string
 	Thinking  string
@@ -342,6 +346,21 @@ type Chunk struct {
 	Err       error
 	// Usage is set on the done chunk when the server reports token metrics.
 	Usage *Usage
+	// StopReason is why the provider ended the turn ("stop", "length",
+	// "tool_calls", …). It is set on the done chunk; an empty value means the
+	// provider never said, which is how a stream cut mid-generation looks.
+	StopReason string
+	// Interrupted marks a stream that closed before the provider reported a
+	// stop reason or a terminal event. Content and tool calls collected so
+	// far are incomplete, not final.
+	Interrupted bool
+}
+
+// Truncated reports a reply the provider cut at its output limit. Arguments of
+// a tool call in such a turn end mid-JSON, which is easy to misreport as a
+// malformed call.
+func (c Chunk) Truncated() bool {
+	return strings.EqualFold(strings.TrimSpace(c.StopReason), StopReasonLength)
 }
 
 type ChatResponse struct {
@@ -392,6 +411,9 @@ type chatResponseLine struct {
 	} `json:"message"`
 	Done  bool   `json:"done"`
 	Error string `json:"error"`
+	// DoneReason is "stop" on a normal finish and "length" when num_predict
+	// cut the reply. Older Ollama versions omit it.
+	DoneReason string `json:"done_reason"`
 
 	PromptEvalCount    int   `json:"prompt_eval_count"`
 	EvalCount          int   `json:"eval_count"`

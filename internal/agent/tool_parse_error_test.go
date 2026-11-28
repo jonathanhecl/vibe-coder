@@ -153,3 +153,61 @@ func TestExecuteToolConstrainedRepairRejectsMissingRequiredAndOversized(t *testi
 		t.Fatalf("expected oversized payload to skip repair, calls=%d prev=%d err=%v", client.syncCalls, prevCalls, err)
 	}
 }
+
+// A reply the provider cut at its output limit has the same parse failure as a
+// malformed call, so the message must name the cause and the fix that works.
+func TestExecuteToolParseErrorNamesOutputLimitTruncation(t *testing.T) {
+	t.Parallel()
+	ag := newCoverageAgent(t, &coverageClient{}, tui.DecisionDeny, false)
+	ag.cfg.MaxTokens = 8192
+	ag.lastStop = turnStop{Reason: ollama.StopReasonLength}
+	params := map[string]any{
+		tools.ParseErrorKey: "unexpected end of JSON input",
+		tools.RawArgsKey:    `{"file_path":"/tmp/x","contents":"` + strings.Repeat("a", 30000),
+	}
+
+	result, _, err := ag.executeTool(context.Background(), tools.NewWriteTool(), "Write", params, toolExecutionMode{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result")
+	}
+	for _, want := range []string{"max_tokens budget (8192)", "truncation, not a malformed call"} {
+		if !strings.Contains(result.Output, want) {
+			t.Fatalf("output missing %q: %q", want, result.Output)
+		}
+	}
+	for _, want := range []string{"truncated at the output limit", "append=true"} {
+		if !strings.Contains(result.HintsForModel, want) {
+			t.Fatalf("hint missing %q: %q", want, result.HintsForModel)
+		}
+	}
+}
+
+// An interrupted stream is reported as a cut connection, and with no explicit
+// cap the note does not invent a max_tokens number.
+func TestExecuteToolParseErrorNamesInterruptedStream(t *testing.T) {
+	t.Parallel()
+	ag := newCoverageAgent(t, &coverageClient{}, tui.DecisionDeny, false)
+	ag.cfg.MaxTokens = 0
+	ag.lastStop = turnStop{Interrupted: true}
+	params := map[string]any{
+		tools.ParseErrorKey: "unexpected end of JSON input",
+		tools.RawArgsKey:    `{"file_path":"/tmp/x","contents":"` + strings.Repeat("a", 30000),
+	}
+
+	result, _, err := ag.executeTool(context.Background(), tools.NewWriteTool(), "Write", params, toolExecutionMode{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.Output, "response stream ended before the provider finished") {
+		t.Fatalf("expected an interrupted-stream note, got %q", result.Output)
+	}
+	if strings.Contains(result.Output, "max_tokens") {
+		t.Fatalf("an interrupted stream must not be blamed on max_tokens: %q", result.Output)
+	}
+	if !strings.Contains(result.HintsForModel, "interrupted response stream") {
+		t.Fatalf("expected an interrupted-stream hint, got %q", result.HintsForModel)
+	}
+}

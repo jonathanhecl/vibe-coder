@@ -50,8 +50,12 @@ func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, toolName strin
 	if rawErr, ok := toolParams[tools.ParseErrorKey].(string); ok && strings.TrimSpace(rawErr) != "" {
 		raw, _ := toolParams[tools.RawArgsKey].(string)
 		if !a.tryRepairToolParams(ctx, tool, toolParams, raw, rawErr) {
-			msg := fmt.Sprintf("tool arguments are not valid JSON: %s\nraw arguments (%d bytes): %s", strings.TrimSpace(rawErr), len(raw), tools.TruncateRawArgs(raw))
-			result := tools.Result{Output: msg, IsError: true, HintsForModel: "The previous tool call had malformed JSON arguments (likely truncated output). Retry with smaller arguments or split the work; for large files write in chunks with append=true."}
+			note, hint := a.truncationNote(len(raw))
+			msg := fmt.Sprintf("tool arguments are not valid JSON: %s%s\nraw arguments (%d bytes): %s", strings.TrimSpace(rawErr), note, len(raw), tools.TruncateRawArgs(raw))
+			if hint == "" {
+				hint = "The previous tool call had malformed JSON arguments (likely truncated output). Retry with smaller arguments or split the work; for large files write in chunks with append=true."
+			}
+			result := tools.Result{Output: msg, IsError: true, HintsForModel: hint}
 			a.paths.RememberToolResult(toolName, toolParams, result.Output, true)
 			if toolName != "TodoWrite" {
 				a.ui.ShowToolResult(toolName, result.Output, true, toolParams)
@@ -619,6 +623,29 @@ func (a *Agent) recordToolObservation(ctx context.Context, toolName, output, hin
 }
 
 const maxConstrainedRepairBytes = 8192
+
+// truncationNote explains a tool-argument parse failure the provider caused by
+// cutting the reply, and returns the retry hint that goes with it. Both are
+// empty when the turn ended normally: then the arguments really were
+// malformed. The note never claims a cause it cannot see.
+func (a *Agent) truncationNote(rawBytes int) (note, hint string) {
+	if a == nil {
+		return "", ""
+	}
+	if a.lastStop.truncated() {
+		limit := "the provider's output limit"
+		if a.cfg != nil && a.cfg.MaxTokens > 0 {
+			limit = fmt.Sprintf("the max_tokens budget (%d)", a.cfg.MaxTokens)
+		}
+		return fmt.Sprintf("\nthe reply was cut at %s in the middle of this call, so %d bytes of arguments arrived and the JSON never closed: this is truncation, not a malformed call", limit, rawBytes),
+			"The previous tool call was truncated at the output limit, not malformed. Retry it split into smaller calls: for a large file write, use several Write calls with append=true, or build the file with a Bash heredoc in chunks."
+	}
+	if a.lastStop.Interrupted {
+		return fmt.Sprintf("\nthe response stream ended before the provider finished this call (%d bytes of arguments arrived): the connection was cut, so the JSON never closed", rawBytes),
+			"The previous tool call was cut by an interrupted response stream, not malformed. Repeat the same call; if it keeps happening, check the provider connection."
+	}
+	return "", ""
+}
 
 // tryRepairToolParams attempts a one-shot schema-constrained repair via
 // Format / response_format json_schema when a small tool-call JSON payload

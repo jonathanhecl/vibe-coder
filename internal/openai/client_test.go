@@ -662,3 +662,93 @@ func TestChatSyncRetriesWithoutReasoningEffort(t *testing.T) {
 		t.Errorf("retry still carries reasoning_effort %q", bodies[1].ReasoningEffort)
 	}
 }
+
+// A reply cut by the provider's token budget ends with finish_reason "length"
+// and a tool call whose arguments never close. The terminal chunk has to say
+// so, or the agent can only report malformed JSON.
+func TestChatStreamingReportsLengthStop(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatalf("expected flusher")
+		}
+		send := func(chunk string) {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+			flusher.Flush()
+		}
+		send(`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"Write","arguments":"{\"file_path\":\"/tmp/x\",\"contents\":\"aaaa"}}]}}]}`)
+		send(`{"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`)
+		send(`[DONE]`)
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, WithHTTPClient(srv.Client()))
+	ch, err := client.Chat(context.Background(), ollama.ChatRequest{
+		Model:    "m",
+		Messages: []ollama.Message{{Role: "user", Content: "write"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	var done ollama.Chunk
+	for chunk := range ch {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected chunk error: %v", chunk.Err)
+		}
+		if chunk.Done {
+			done = chunk
+		}
+	}
+	if done.StopReason != ollama.StopReasonLength {
+		t.Fatalf("StopReason=%q, want %q", done.StopReason, ollama.StopReasonLength)
+	}
+	if !done.Truncated() {
+		t.Fatal("expected the truncated reply to report Truncated()")
+	}
+	if done.Interrupted {
+		t.Fatal("a length finish is a provider stop, not a cut connection")
+	}
+}
+
+// A stream that closes without [DONE] and without a finish reason was cut: the
+// content and tool calls collected are partial, not final.
+func TestChatStreamingReportsInterruptedStream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatalf("expected flusher")
+		}
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"Write","arguments":"{\"file_path\":"}}]}}]}`)
+		flusher.Flush()
+		// Close the body with no finish_reason and no [DONE].
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, WithHTTPClient(srv.Client()))
+	ch, err := client.Chat(context.Background(), ollama.ChatRequest{
+		Model:    "m",
+		Messages: []ollama.Message{{Role: "user", Content: "write"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	var done ollama.Chunk
+	for chunk := range ch {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected chunk error: %v", chunk.Err)
+		}
+		if chunk.Done {
+			done = chunk
+		}
+	}
+	if !done.Interrupted {
+		t.Fatalf("expected Interrupted, got %+v", done)
+	}
+	if done.StopReason != "" {
+		t.Fatalf("StopReason=%q, want empty for a cut stream", done.StopReason)
+	}
+}

@@ -160,7 +160,7 @@ func decodeSingleChatResponse(body io.ReadCloser) (<-chan Chunk, error) {
 		return nil, fmt.Errorf("decode chat response: %w", err)
 	}
 	ch := make(chan Chunk, 1)
-	ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: true, Usage: parsed.usage()}
+	ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: true, Usage: parsed.usage(), StopReason: parsed.DoneReason}
 	close(ch)
 	return ch, nil
 }
@@ -235,7 +235,10 @@ func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 						logger.Errorf("Ollama chat stream scanner failed: %v", err)
 						ch <- Chunk{Err: fmt.Errorf("read chat stream: %w", err), Done: true}
 					} else {
-						logger.Infof("Ollama chat stream closed cleanly: chunk_count=%d", chunkCount)
+						// The body closed without a done line: the turn was cut
+						// mid-generation, so whatever arrived is incomplete.
+						logger.Errorf("Ollama chat stream ended without a done event: chunk_count=%d", chunkCount)
+						ch <- Chunk{Done: true, Interrupted: true}
 					}
 					return
 				}
@@ -259,7 +262,7 @@ func streamChatResponse(ctx context.Context, body io.ReadCloser) <-chan Chunk {
 				// Ollama streams content deltas per line and delivers the complete
 				// tool_calls list on the final (done) message. Forward them as-is;
 				// the consumer keeps the last non-empty set.
-				ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done, Usage: parsed.usage()}
+				ch <- Chunk{Delta: parsed.Message.Content, Thinking: parsed.Message.Thinking, ToolCalls: parsed.Message.ToolCalls, Done: parsed.Done, Usage: parsed.usage(), StopReason: parsed.DoneReason}
 				if parsed.Done {
 					logger.Infof("Ollama chat stream done: chunk_count=%d", chunkCount)
 					return
@@ -301,10 +304,16 @@ func (c *HTTPClient) ChatSync(ctx context.Context, req ChatRequest) (ChatRespons
 	return ChatResponse{Content: out, Thinking: strings.TrimSpace(thinking.String()), ToolCalls: toolCalls}, nil
 }
 
+// ErrStreamInterrupted reports a chat stream that closed before the provider
+// said the turn was over: the content and tool calls collected so far are cut
+// off, not final.
+var ErrStreamInterrupted = errors.New("chat stream ended before the provider finished the turn")
+
 // drainStream collects a chat channel, stopping at the first error or Done.
 // Tool calls can arrive split across several chunks, so they are
 // accumulated (with duplicate suppression) instead of last-write-wins.
 func drainStream(stream <-chan Chunk) (content, thinking strings.Builder, toolCalls []MessageToolCall, err error) {
+	interrupted := false
 	for chunk := range stream {
 		if chunk.Err != nil {
 			return content, thinking, toolCalls, chunk.Err
@@ -312,9 +321,15 @@ func drainStream(stream <-chan Chunk) (content, thinking strings.Builder, toolCa
 		content.WriteString(chunk.Delta)
 		thinking.WriteString(chunk.Thinking)
 		toolCalls = MergeToolCalls(toolCalls, chunk.ToolCalls)
+		if chunk.Interrupted {
+			interrupted = true
+		}
 		if chunk.Done {
 			break
 		}
+	}
+	if interrupted {
+		return content, thinking, toolCalls, ErrStreamInterrupted
 	}
 	return content, thinking, toolCalls, nil
 }

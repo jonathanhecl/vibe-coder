@@ -29,6 +29,19 @@ const (
 	MaxToolsPerReply = 5
 )
 
+// turnStop is how the provider ended one streamed reply: its stop reason and
+// whether the stream was cut before the provider finished. It distinguishes a
+// tool call truncated mid-JSON from one the model genuinely malformed.
+type turnStop struct {
+	Reason      string
+	Interrupted bool
+}
+
+// truncated reports a reply the provider cut at its output limit.
+func (t turnStop) truncated() bool {
+	return strings.EqualFold(strings.TrimSpace(t.Reason), ollama.StopReasonLength)
+}
+
 type Agent struct {
 	cfg    *config.Config
 	client ollama.Client
@@ -96,6 +109,10 @@ type Agent struct {
 	// lastUsage holds the provider-reported token usage of the most recent
 	// chat stream (nil until the first done chunk with usage arrives).
 	lastUsage *ollama.Usage
+	// lastStop records how the provider ended the reply that just streamed,
+	// so a tool call whose arguments end mid-JSON is reported as truncation
+	// instead of a malformed call.
+	lastStop turnStop
 	// wire tracks the send-time transcript window: the session generation it
 	// was computed for, the masking frontier, and the sticky window start.
 	wireMu sync.Mutex

@@ -13,8 +13,11 @@ import (
 )
 
 const (
-	defaultOllamaHost    = "http://localhost:11434"
-	defaultMaxTokens     = 8192
+	defaultOllamaHost = "http://localhost:11434"
+	// defaultMaxTokens is 0: no output cap is sent, so the provider's limit
+	// (or, for Ollama, num_ctx) bounds the reply instead of cutting a large
+	// tool call at 8192 tokens and leaving its JSON unterminated.
+	defaultMaxTokens     = 0
 	defaultTemperature   = 0.7
 	defaultContextWindow = 32768
 	maxConfigFileSize    = 64 * 1024
@@ -56,9 +59,13 @@ type Config struct {
 	SidecarDisabled bool
 	// SidecarSkipSession skips the sidecar for this process only (--no-sidecar, /sidecar off); not persisted.
 	SidecarSkipSession bool
-	MaxTokens          int
-	Temperature        float64
-	ContextWindow      int
+	// MaxTokens caps one generated reply (num_predict / max_tokens). Zero, the
+	// default, sends no cap at all so the provider's own limit applies: a
+	// model can then write a large file in one call instead of being cut at
+	// 8192 tokens mid-JSON. A positive value is sent verbatim.
+	MaxTokens     int
+	Temperature   float64
+	ContextWindow int
 	// KeepAliveMain is the Ollama keep_alive (idle seconds, may be -1) for the
 	// main role: -1 pins the model forever, 0 omits the field so the provider
 	// applies its own default, N > 0 unloads it after N idle seconds.

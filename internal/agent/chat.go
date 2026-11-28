@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
 	"github.com/jonathanhecl/vibe-coder/internal/prompt"
 	"github.com/jonathanhecl/vibe-coder/internal/session"
@@ -567,6 +568,9 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 	inBandThinking := false
 	var thinkingTimer *time.Timer
 	lastShown := 0 // bytes of assistant text already streamed to the terminal (hides tool XML)
+	// Each stream is a fresh reply: the previous turn's stop reason must not
+	// label this turn's tool calls.
+	a.lastStop = turnStop{}
 
 	stopThinkingTimer := func() {
 		if thinkingTimer != nil {
@@ -720,6 +724,12 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			if chunk.Usage != nil {
 				a.lastUsage = chunk.Usage
 			}
+			if chunk.StopReason != "" {
+				a.lastStop.Reason = chunk.StopReason
+			}
+			if chunk.Interrupted {
+				a.lastStop.Interrupted = true
+			}
 			if chunk.Thinking != "" {
 				thinkingSeen = true
 				thinkingBuf.WriteString(chunk.Thinking)
@@ -798,6 +808,11 @@ func (a *Agent) streamAssistantResponse(rootCtx context.Context, cancel context.
 			}
 			if chunk.Done {
 				full := string(buf)
+				if a.lastStop.truncated() {
+					logger.Infof("chat reply truncated at the output limit (stop_reason=%q): a tool call in it may be incomplete", a.lastStop.Reason)
+				} else if a.lastStop.Interrupted {
+					logger.Errorf("chat reply interrupted before the provider finished: content and tool calls may be incomplete")
+				}
 				flushUnprinted(full)
 				flushTailAfterTool(full)
 				finishAssistant()

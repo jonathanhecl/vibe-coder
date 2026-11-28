@@ -27,8 +27,14 @@ func (a *Agent) computeBudget(systemPrompt string) contextBudget {
 		b.Window = a.cfg.ContextWindow
 	}
 	b.OutputReserve = 4096
-	if a.cfg != nil && a.cfg.MaxTokens > 0 {
-		b.OutputReserve = a.cfg.MaxTokens
+	if a.cfg != nil {
+		if a.cfg.MaxTokens > 0 {
+			b.OutputReserve = a.cfg.MaxTokens
+		} else if a.cfg.ContextWindow > 0 {
+			// No explicit cap: a single reply may carry a whole large file, so
+			// the reserve follows the window instead of a fixed 4096.
+			b.OutputReserve = a.cfg.ContextWindow / 4
+		}
 	}
 	if b.Window > 0 && b.OutputReserve > b.Window/4 {
 		b.OutputReserve = b.Window / 4
