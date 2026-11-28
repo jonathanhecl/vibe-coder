@@ -177,6 +177,13 @@ func (h *HybridUI) NotifyAssisted(notice AssistedNotice) { h.plain.NotifyAssiste
 
 func (h *HybridUI) Stop() { h.plain.Stop() }
 
+// HoldQueuedPrompts makes the next prompt review the queue instead of running
+// it automatically (used after a cancellation).
+func (h *HybridUI) HoldQueuedPrompts() { h.plain.HoldQueuedPrompts() }
+
+// QueuedPrompts reports how many prompts typed during the last turn wait to run.
+func (h *HybridUI) QueuedPrompts() int { return h.plain.QueuedPrompts() }
+
 func (h *HybridUI) GetInput(prompt string) (string, error) {
 	if !h.isInteractiveTTY() {
 		return h.plain.GetInput(prompt)
@@ -193,9 +200,25 @@ func (h *HybridUI) GetInput(prompt string) (string, error) {
 	cmds := append([]SlashCommand(nil), h.slashCmds...)
 	h.mu.Unlock()
 
-	// What was typed while the last turn ran becomes the starting draft, and any
-	// prompts queued with Enter are listed under the composer.
-	runDraft, queued := h.plain.takeRunInput()
+	// A prompt queued while the last turn ran is a "do this next" instruction: it
+	// runs immediately instead of waiting for another Enter. A cancelled turn
+	// holds the queue once, so Ctrl+C is respected and the composer lists it.
+	if !h.plain.TakeQueuedPromptsHold() {
+		if next, ok := h.plain.DequeuePrompt(); ok {
+			if strings.TrimSpace(next) != "" {
+				h.plain.history.add(next)
+			}
+			h.plain.mu.Lock()
+			echo := h.renderUserEcho(prompt, next)
+			_, _ = fmt.Fprintln(h.plain.out, echo)
+			h.plain.mu.Unlock()
+			return next, nil
+		}
+	}
+	// What was typed while the last turn ran becomes the starting draft; any
+	// prompt that is still queued is listed under the composer.
+	runDraft := h.plain.takeRunDraft()
+	queued := h.plain.PromptQueue()
 	var draftBuf []rune
 	draftCursor := 0
 	if runDraft != "" {

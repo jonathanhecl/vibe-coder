@@ -205,3 +205,64 @@ func TestCaptureShowsPromptLineOnEnable(t *testing.T) {
 		t.Fatalf("no prompt line after enabling capture: %q", raw.String())
 	}
 }
+
+// Queued prompts are a pipeline: the next one runs when the turn ends, without
+// another Enter, in the order they were typed.
+func TestCaptureDequeuesInOrder(t *testing.T) {
+	t.Parallel()
+	var raw bytes.Buffer
+	c := newTestCapture(&raw)
+
+	c.handle([]byte("primero\r"))
+	c.handle([]byte("segundo\r"))
+	if got := c.pendingQueue(); got != 2 {
+		t.Fatalf("queued=%d, want 2", got)
+	}
+
+	for _, want := range []string{"primero", "segundo"} {
+		got, ok := c.dequeue()
+		if !ok || got != want {
+			t.Fatalf("dequeue = (%q, %t), want %q", got, ok, want)
+		}
+	}
+	if _, ok := c.dequeue(); ok {
+		t.Fatal("an empty queue must not dequeue")
+	}
+}
+
+// The unfinished draft is handed to the composer without touching the queue.
+func TestCaptureTakeDraftLeavesQueue(t *testing.T) {
+	t.Parallel()
+	var raw bytes.Buffer
+	c := newTestCapture(&raw)
+
+	c.handle([]byte("en cola\r"))
+	c.handle([]byte("a medio escribir"))
+
+	draft := c.takeDraft()
+	if draft != "a medio escribir" {
+		t.Fatalf("draft=%q", draft)
+	}
+	if got := c.pendingQueue(); got != 1 {
+		t.Fatalf("takeDraft must not consume the queue, got %d", got)
+	}
+}
+
+// A cancellation holds the queue for one prompt: Ctrl+C must not run what was
+// queued on the way out, but the next prompt reviews it instead of losing it.
+func TestCaptureQueueHoldIsOneShot(t *testing.T) {
+	t.Parallel()
+	var raw bytes.Buffer
+	c := newTestCapture(&raw)
+
+	if c.takeHold() {
+		t.Fatal("nothing holds the queue yet")
+	}
+	c.holdNext()
+	if !c.takeHold() {
+		t.Fatal("holdNext must hold the next prompt")
+	}
+	if c.takeHold() {
+		t.Fatal("the hold must be consumed once")
+	}
+}

@@ -214,8 +214,13 @@ func printTurnError(err error) {
 // reportPendingWork prints one line about the checklist and mission state the
 // finished turn left behind, so the user always knows whether something is
 // still open before typing the next prompt.
-func reportPendingWork(ag *agent.Agent) {
+func reportPendingWork(ag *agent.Agent, ui tui.UI) {
 	if ag == nil {
+		return
+	}
+	// A queued prompt runs by itself as soon as this function returns; telling
+	// the user to press Enter would be wrong.
+	if q, ok := ui.(interface{ QueuedPrompts() int }); ok && q.QueuedPrompts() > 0 {
 		return
 	}
 	summary := ag.PendingWorkSummary()
@@ -338,6 +343,12 @@ func finishTurn(rootCtx context.Context, cfg *config.Config, sess *session.Sessi
 // exercise the loop limits without a model.
 func finishTurnWith(rootCtx context.Context, cfg *config.Config, sess *session.Session, ag *agent.Agent, ui tui.UI, err error, run func() error) error {
 	printTurnError(err)
+	if agent.IsTurnCancelledErr(err) {
+		// Ctrl+C stops the work; it must not trigger the queue on the way out.
+		if holder, ok := ui.(interface{ HoldQueuedPrompts() }); ok {
+			holder.HoldQueuedPrompts()
+		}
+	}
 	st := tui.NewStyle(os.Stdout)
 	eligible := autoContinueEligible(ag, err)
 	if cfg == nil || !cfg.AutoContinue || !eligible {
@@ -351,7 +362,7 @@ func finishTurnWith(rootCtx context.Context, cfg *config.Config, sess *session.S
 				err, ag.CanResume(), ag.PendingTodoCount(), ag.InPlanMode(), ag.InReviewMode(),
 				ag.StaleChecklist(time.Now()), ag.LastStopReason())
 		}
-		reportPendingWork(ag)
+		reportPendingWork(ag, ui)
 		return err
 	}
 	turns, idle, stalls := 0, 0, 0
@@ -396,7 +407,7 @@ func finishTurnWith(rootCtx context.Context, cfg *config.Config, sess *session.S
 			break
 		}
 	}
-	reportPendingWork(ag)
+	reportPendingWork(ag, ui)
 	return err
 }
 

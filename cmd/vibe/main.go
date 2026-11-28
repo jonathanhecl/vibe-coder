@@ -351,7 +351,7 @@ func main() {
 	}
 	printMCPBlock(os.Stdout, tui.NewStyle(os.Stdout), mcpMgr)
 	if resumed {
-		reportPendingWork(ag)
+		reportPendingWork(ag, uiBox.Get())
 	}
 	logger.Infof("Entering interactive REPL loop.")
 	runInteractiveREPL(rootCtx, cfg, client, ag, sess, perm, reg, uiBox, ctxStore, mcpMgr, lspMgr)

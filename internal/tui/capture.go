@@ -33,6 +33,10 @@ type promptCapture struct {
 
 	draft []rune
 	queue []string
+	// holdOnce makes the next GetInput show the queue instead of running it.
+	// Used after a cancellation: Ctrl+C stops the work, it does not mean "run
+	// what I queued anyway".
+	holdOnce bool
 
 	// parser state across reads: the monitor gets bytes in arbitrary chunks, so
 	// an escape sequence or a multi-byte rune can arrive split.
@@ -300,6 +304,52 @@ func (c *promptCapture) take() (string, []string) {
 	c.queue = nil
 	c.clearPaintedLocked()
 	return draft, queue
+}
+
+// takeDraft removes the unfinished draft and leaves the queue untouched.
+func (c *promptCapture) takeDraft() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	draft := strings.TrimSpace(string(c.draft))
+	c.draft = c.draft[:0]
+	c.clearPaintedLocked()
+	return draft
+}
+
+// dequeue pops the oldest queued prompt. Prompts enqueued with Enter are a
+// pipeline: they run when the turn ends, not when the user presses Enter again.
+func (c *promptCapture) dequeue() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.queue) == 0 {
+		return "", false
+	}
+	next := c.queue[0]
+	c.queue = c.queue[1:]
+	return next, true
+}
+
+// snapshotQueue copies the pending prompts.
+func (c *promptCapture) snapshotQueue() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.queue...)
+}
+
+// holdNext makes the next GetInput review the queue instead of running it.
+func (c *promptCapture) holdNext() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.holdOnce = true
+}
+
+// takeHold consumes the one-shot hold.
+func (c *promptCapture) takeHold() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	held := c.holdOnce
+	c.holdOnce = false
+	return held
 }
 
 // setQueue stores the prompts the composer left pending, so the next prompt

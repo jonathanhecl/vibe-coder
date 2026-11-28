@@ -220,10 +220,26 @@ func (u *PlainUI) rawWriter() io.Writer {
 	return u.out
 }
 
-// takeRunInput hands the composer what was typed while the last turn ran.
-func (u *PlainUI) takeRunInput() (string, []string) {
-	return u.capture.take()
-}
+// takeRunDraft hands the composer the unfinished draft and leaves queued prompts
+// where the run loop can dequeue them.
+func (u *PlainUI) takeRunDraft() string { return u.capture.takeDraft() }
+
+// DequeuePrompt pops the next queued prompt. The hybrid composer calls it before
+// opening so a prompt typed during the last turn runs without another Enter.
+func (u *PlainUI) DequeuePrompt() (string, bool) { return u.capture.dequeue() }
+
+// PromptQueue returns a copy of the prompts still queued.
+func (u *PlainUI) PromptQueue() []string { return u.capture.snapshotQueue() }
+
+// QueuedPrompts reports how many prompts wait for the next turn.
+func (u *PlainUI) QueuedPrompts() int { return u.capture.pendingQueue() }
+
+// HoldQueuedPrompts makes the next prompt review the queue instead of running
+// it automatically. A cancelled turn uses it so Ctrl+C is not overridden.
+func (u *PlainUI) HoldQueuedPrompts() { u.capture.holdNext() }
+
+// TakeQueuedPromptsHold consumes the one-shot hold.
+func (u *PlainUI) TakeQueuedPromptsHold() bool { return u.capture.takeHold() }
 
 // setPromptQueue keeps the prompts the composer did not send.
 func (u *PlainUI) setPromptQueue(queue []string) {
