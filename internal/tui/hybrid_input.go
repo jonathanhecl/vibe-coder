@@ -28,6 +28,10 @@ type hybridInputModel struct {
 	submitted       bool
 	eof             bool
 	quitting        bool
+	// queue holds prompts typed while the previous turn ran. They stay visible
+	// here so they can be reviewed, edited or discarded before one is sent.
+	queue    []string
+	queueIdx int
 }
 
 func newHybridInputModel(prompt string, status StatusInfo, history []string, cmds []SlashCommand, width int) hybridInputModel {
@@ -46,6 +50,13 @@ func newHybridInputModel(prompt string, status StatusInfo, history []string, cmd
 
 func (m hybridInputModel) withThinkingAvailable(ok bool) hybridInputModel {
 	m.hasThinking = ok
+	return m
+}
+
+// withQueue hands the composer the prompts captured during the last turn.
+func (m hybridInputModel) withQueue(queue []string) hybridInputModel {
+	m.queue = append([]string(nil), queue...)
+	m.queueIdx = 0
 	return m
 }
 
@@ -128,7 +139,29 @@ func (m hybridInputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = "No thinking trace recorded yet."
 			return m, nil
 
+		case tea.KeyCtrlX:
+			m.discardQueued()
+			return m, nil
+
+		case tea.KeyCtrlO:
+			m.editQueued()
+			return m, nil
+
+		case tea.KeyCtrlP:
+			m.moveQueue(-1)
+			return m, nil
+
+		case tea.KeyCtrlN:
+			m.moveQueue(1)
+			return m, nil
+
 		case tea.KeyEnter:
+			// An empty line in front of a queue means "run the selected prompt":
+			// the REPL's empty-Enter checkpoint continuation applies only when
+			// nothing is queued.
+			if len(m.buf) == 0 && len(m.queue) > 0 {
+				m.takeQueued()
+			}
 			m.submitted = true
 			m.quitting = true
 			return m, tea.Quit
@@ -378,6 +411,58 @@ func (m *hybridInputModel) clampSuggIdx() {
 	}
 }
 
+// discardQueued removes the selected queued prompt.
+func (m *hybridInputModel) discardQueued() {
+	if len(m.queue) == 0 {
+		return
+	}
+	m.queue = append(m.queue[:m.queueIdx], m.queue[m.queueIdx+1:]...)
+	if m.queueIdx >= len(m.queue) {
+		m.queueIdx = len(m.queue) - 1
+	}
+	if m.queueIdx < 0 {
+		m.queueIdx = 0
+	}
+	m.notice = "Queued prompt discarded."
+}
+
+// takeQueued removes the selected prompt and loads it as the buffer, so Enter
+// can run it and Ctrl+E can edit it first.
+func (m *hybridInputModel) takeQueued() {
+	if len(m.queue) == 0 {
+		return
+	}
+	m.buf = []rune(m.queue[m.queueIdx])
+	m.cursor = len(m.buf)
+	m.queue = append(m.queue[:m.queueIdx], m.queue[m.queueIdx+1:]...)
+	if m.queueIdx >= len(m.queue) {
+		m.queueIdx = len(m.queue) - 1
+	}
+	if m.queueIdx < 0 {
+		m.queueIdx = 0
+	}
+	m.suggIdx = 0
+}
+
+// editQueued loads the selected prompt for editing; it leaves the queue now so
+// submitting it cannot send it twice.
+func (m *hybridInputModel) editQueued() {
+	if len(m.queue) == 0 {
+		return
+	}
+	m.takeQueued()
+	m.notice = "Editing a queued prompt."
+}
+
+// moveQueue selects the previous (-1) or next (+1) queued prompt.
+func (m *hybridInputModel) moveQueue(delta int) {
+	if len(m.queue) == 0 {
+		return
+	}
+	n := len(m.queue)
+	m.queueIdx = ((m.queueIdx+delta)%n + n) % n
+}
+
 func (m *hybridInputModel) applySuggestion(cmd SlashCommand) {
 	completed := cmd.Name + " "
 	m.buf = []rune(completed)
@@ -404,6 +489,11 @@ func (m hybridInputModel) View() string {
 	out.WriteString("\n")
 	out.WriteString(m.renderEditorBox(boxWidth, innerWidth))
 
+	if len(m.queue) > 0 {
+		out.WriteString("\n")
+		out.WriteString(m.renderQueue(boxWidth))
+	}
+
 	if suggs := m.matchingSlashCommands(); len(suggs) > 0 {
 		out.WriteString("\n")
 		out.WriteString(m.renderSuggestions(suggs, boxWidth))
@@ -420,11 +510,15 @@ func (m hybridInputModel) View() string {
 	} else {
 		helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 		helpText := "Enter send · Alt+Enter newline · Tab complete · /ui cli to switch back · Ctrl+D exit"
-		if m.hasThinking {
+		if len(m.queue) > 0 {
+			helpText = "Enter run · Ctrl+P/N pick · Ctrl+O edit · Ctrl+X discard · Ctrl+D exit"
+		} else if m.hasThinking {
 			helpText = "Enter send · Alt+Enter newline · Tab complete · Ctrl+T think · /ui cli · Ctrl+D exit"
 		}
 		if displayWidth(helpText) > footerMax {
-			if m.hasThinking {
+			if len(m.queue) > 0 {
+				helpText = "Enter run · Ctrl+P/N queue · Ctrl+X discard"
+			} else if m.hasThinking {
 				helpText = "Enter send · Ctrl+T think · /ui cli · Ctrl+D exit"
 			} else {
 				helpText = "Enter send · Alt+Enter newline · /ui cli · Ctrl+D exit"
@@ -433,6 +527,52 @@ func (m hybridInputModel) View() string {
 		out.WriteString("  " + truncateANSIWidth(helpStyle.Render(helpText), footerMax))
 	}
 	return out.String()
+}
+
+// maxQueueVisible bounds how many queued prompts are listed at once: the queue
+// is a review surface, not a second transcript.
+const maxQueueVisible = 3
+
+// renderQueue lists the prompts captured while the agent worked: the selected
+// one is what Enter runs, Ctrl+O edits and Ctrl+X discards.
+func (m hybridInputModel) renderQueue(maxWidth int) string {
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color("74")).Bold(true)
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
+	selected := lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Bold(true)
+
+	header := fmt.Sprintf("%d/%d · Enter run · Ctrl+O edit · Ctrl+X discard", m.queueIdx+1, len(m.queue))
+	lines := []string{accent.Render("queued") + " " + dim.Render(header)}
+
+	start := 0
+	if len(m.queue) > maxQueueVisible {
+		start = m.queueIdx - maxQueueVisible/2
+		if start < 0 {
+			start = 0
+		}
+		if start > len(m.queue)-maxQueueVisible {
+			start = len(m.queue) - maxQueueVisible
+		}
+	}
+	end := start + maxQueueVisible
+	if end > len(m.queue) {
+		end = len(m.queue)
+	}
+	textWidth := maxWidth - 6
+	if textWidth < 8 {
+		textWidth = 8
+	}
+	for i := start; i < end; i++ {
+		label := truncateANSIWidth(strings.Join(strings.Fields(m.queue[i]), " "), textWidth)
+		if i == m.queueIdx {
+			lines = append(lines, "  "+selected.Render("› "+fmt.Sprintf("%d. %s", i+1, label)))
+			continue
+		}
+		lines = append(lines, "    "+dim.Render(fmt.Sprintf("%d. %s", i+1, label)))
+	}
+	if len(m.queue) > maxQueueVisible {
+		lines[0] += dim.Render(fmt.Sprintf(" · %d total", len(m.queue)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m hybridInputModel) renderStatusBar(maxWidth int) string {

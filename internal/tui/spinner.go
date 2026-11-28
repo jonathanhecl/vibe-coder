@@ -55,6 +55,9 @@ func (u *PlainUI) startSpinner(label string) {
 	u.spinner = sp
 	u.spinnerMu.Unlock()
 
+	// The spinner owns the cursor row while it runs and renders the draft inside
+	// its block, so the capture must not paint a second line.
+	u.capture.setSpinning(true)
 	go u.runSpinner(sp)
 }
 
@@ -77,6 +80,7 @@ func (u *PlainUI) stopSpinner() {
 	u.mu.Lock()
 	u.clearPendingLocked()
 	u.mu.Unlock()
+	u.capture.setSpinning(false)
 }
 
 // runSpinner is the per-spinner goroutine. It paints a single line and
@@ -104,11 +108,7 @@ func (u *PlainUI) runSpinner(sp *spinner) {
 		label = strings.ReplaceAll(label, "\n", " ")
 		label = strings.ReplaceAll(label, "\r", " ")
 		label = strings.ReplaceAll(label, "\t", "  ")
-		text := fmt.Sprintf("%s %s %s",
-			u.style.BrightBlue(spinnerFrames[frame%len(spinnerFrames)]),
-			label,
-			u.style.Dim("("+elapsed+")"),
-		)
+		text := u.spinnerFrameText(label, frame, elapsed)
 		u.mu.Lock()
 		// A single row keeps the seamless in-place rewrite; a wrapped one has to
 		// be cleared first, because after a wrap the cursor sits at the end of
@@ -213,6 +213,23 @@ func wrapRows(text string, cols int) int {
 
 // terminalCols is the terminal width the animated line must fit, or a plain 80
 // when the writer cannot report one.
+// spinnerFrameText renders one animation frame. While the user types during the
+// run, the live draft is appended as a second row so the spinner keeps owning
+// both rows and clears them together.
+func (u *PlainUI) spinnerFrameText(label string, frame int, elapsed string) string {
+	text := fmt.Sprintf("%s %s %s",
+		u.style.BrightBlue(spinnerFrames[frame%len(spinnerFrames)]),
+		label,
+		u.style.Dim("("+elapsed+")"),
+	)
+	if draft := u.capture.draftLine(); draft != "" {
+		text += "\n" + draft
+	}
+	return text
+}
+
+// terminalCols reports the terminal width for the animated line, falling back
+// to the standard 80 columns when the writer is not a terminal.
 func (u *PlainUI) terminalCols() int {
 	type fdHaver interface{ Fd() uintptr }
 	if f, ok := u.out.(fdHaver); ok {

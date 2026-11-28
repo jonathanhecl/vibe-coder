@@ -274,6 +274,12 @@ func readBufferedInput(reader *bufio.Reader, first string) (string, bool, string
 // nobody is there to answer. The bound comes from the configured permission
 // timeout and disappears when it is disabled or when stdin cannot be watched.
 func (u *PlainUI) AskPermission(tool string, params map[string]any) Decision {
+	// The card owns the terminal while it waits: clear the draft line and stop
+	// repainting it, then hand it back to the capture.
+	if u.capture.available() {
+		u.capture.setEnabled(false)
+		defer u.capture.setEnabled(true)
+	}
 	u.stopSpinner()
 	u.mu.Lock()
 	u.flushPendingToolLocked()

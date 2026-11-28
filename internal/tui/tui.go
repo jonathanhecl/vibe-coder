@@ -112,6 +112,11 @@ type PlainUI struct {
 	escDone    chan struct{}
 	escRestore func()
 
+	// capture collects what the user types while a turn runs. It is installed
+	// only by the hybrid TUI (enablePromptCapture), which is the mode with a
+	// composer to hand the draft and the queue to.
+	capture promptCapture
+
 	// rawRestore tracks interactive raw mode during input reading so Stop()
 	// can restore the terminal cleanly on signal termination.
 	rawMu      sync.Mutex
@@ -184,6 +189,45 @@ func NewPlain(cfg ...*config.Config) *PlainUI {
 		u.history = loadHistory(c.HistoryFile)
 	}
 	return u
+}
+
+// enablePromptCapture installs the live writer and lets the run capture
+// keystrokes. Only the hybrid TUI calls it: the plain and rich modes have no
+// composer to review a queue in, and wrapping their writer would change how they
+// print the status line.
+func (u *PlainUI) enablePromptCapture() {
+	if u == nil || u.in == nil || !term.IsTerminal(int(u.in.Fd())) {
+		return
+	}
+	if u.capture.available() {
+		return
+	}
+	u.capture.setRaw(u.out, u.style)
+	u.out = &liveWriter{ui: u, w: u.out}
+}
+
+// rawWriter is the terminal behind the live writer. Width and height probes need
+// the real file, not the wrapper.
+func (u *PlainUI) rawWriter() io.Writer {
+	if u.capture.available() {
+		u.capture.mu.Lock()
+		raw := u.capture.raw
+		u.capture.mu.Unlock()
+		if raw != nil {
+			return raw
+		}
+	}
+	return u.out
+}
+
+// takeRunInput hands the composer what was typed while the last turn ran.
+func (u *PlainUI) takeRunInput() (string, []string) {
+	return u.capture.take()
+}
+
+// setPromptQueue keeps the prompts the composer did not send.
+func (u *PlainUI) setPromptQueue(queue []string) {
+	u.capture.setQueue(queue)
 }
 
 // SeedHistory preloads input-history entries (for example the user prompts of

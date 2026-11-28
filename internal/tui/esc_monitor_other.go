@@ -5,7 +5,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
@@ -24,6 +23,7 @@ func (u *PlainUI) StartESCMonitor(interrupt func()) error {
 	if !ok {
 		return nil
 	}
+	u.capture.setEnabled(u.capture.available())
 	u.escMu.Lock()
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -55,20 +55,24 @@ func (u *PlainUI) StopESCMonitor() {
 	}
 	close(stop)
 	<-done
+	// The draft line must go before the terminal returns to canonical mode: the
+	// composer draws the prompt on that row next.
+	u.capture.setEnabled(false)
 	if restore != nil {
 		restore()
 	}
 }
 
-// escMonitorLoop reads stdin in non-canonical mode, watching for two ESC
-// (0x1b) bytes within 500 ms. It uses unix.Poll with a short timeout so it can
-// check the stop channel between reads. The escMu mutex coordinates with
-// readSingleChar (AskPermission) so only one reader accesses stdin at a time.
+// escMonitorLoop reads stdin in non-canonical mode during a run. Every byte goes
+// to the prompt capture, which turns it into a draft or a queued prompt and
+// reports the double-ESC cancel gesture. It uses unix.Poll with a short timeout
+// so it can check the stop channel between reads. The escMu mutex coordinates
+// with readSingleChar (AskPermission) so only one reader accesses stdin at a
+// time.
 func (u *PlainUI) escMonitorLoop(stop <-chan struct{}, done chan struct{}) {
 	defer close(done)
 	fd := int(u.in.Fd())
-	var lastEsc time.Time
-	buf := make([]byte, 1)
+	buf := make([]byte, 64)
 
 	for {
 		select {
@@ -80,23 +84,25 @@ func (u *PlainUI) escMonitorLoop(stop <-chan struct{}, done chan struct{}) {
 		u.escMu.Lock()
 		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
 		n, err := unix.Poll(fds, 50)
+		read := 0
 		if n > 0 && err == nil {
-			_, err := unix.Read(fd, buf)
-			if err == nil && buf[0] == 0x1b {
-				now := time.Now()
-				if now.Sub(lastEsc) < 500*time.Millisecond {
-					fmt.Fprintln(u.out, "\n⏹  Agent stopped (press ESC twice).")
-					cancelFn := u.escCancel
-					u.escMu.Unlock()
-					if cancelFn != nil {
-						cancelFn()
-					}
-					return
-				}
-				lastEsc = now
-			}
+			read, err = unix.Read(fd, buf)
 		}
 		u.escMu.Unlock()
+
+		if err != nil || read <= 0 {
+			continue
+		}
+		if u.capture.handle(buf[:read]) {
+			fmt.Fprintln(u.out, "\n⏹  Agent stopped (press ESC twice).")
+			u.escMu.Lock()
+			cancelFn := u.escCancel
+			u.escMu.Unlock()
+			if cancelFn != nil {
+				cancelFn()
+			}
+			return
+		}
 	}
 }
 

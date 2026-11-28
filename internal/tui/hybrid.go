@@ -71,6 +71,7 @@ type HybridUI struct {
 func NewHybrid(cfg ...*config.Config) *HybridUI {
 	base := NewPlain(cfg...)
 	base.markdown = NewRichMarkdownRenderer(base.style)
+	base.enablePromptCapture()
 	info := StatusInfo{ContextPct: -1}
 	if len(cfg) > 0 && cfg[0] != nil {
 		info.Model = compactHybridModel(cfg[0].Model)
@@ -192,14 +193,22 @@ func (h *HybridUI) GetInput(prompt string) (string, error) {
 	cmds := append([]SlashCommand(nil), h.slashCmds...)
 	h.mu.Unlock()
 
+	// What was typed while the last turn ran becomes the starting draft, and any
+	// prompts queued with Enter are listed under the composer.
+	runDraft, queued := h.plain.takeRunInput()
 	var draftBuf []rune
 	draftCursor := 0
+	if runDraft != "" {
+		draftBuf = []rune(runDraft)
+		draftCursor = len(draftBuf)
+	}
 	for {
-		width, height := terminalDimensions(h.plain.out)
+		width, height := terminalDimensions(h.plain.rawWriter())
 		hasThinking := strings.TrimSpace(h.lastThinkingText()) != ""
 		model := newHybridInputModel(prompt, status, h.plain.history.snapshot(), cmds, width).
 			withThinkingAvailable(hasThinking).
-			withDraft(draftBuf, draftCursor)
+			withDraft(draftBuf, draftCursor).
+			withQueue(queued)
 		p := tea.NewProgram(model, tea.WithInput(h.plain.in), tea.WithOutput(h.plain.out))
 		finalModel, err := p.Run()
 		if err != nil {
@@ -209,6 +218,10 @@ func (h *HybridUI) GetInput(prompt string) (string, error) {
 		if !ok {
 			return "", io.EOF
 		}
+		// Whatever the user did not send stays queued for the next prompt instead
+		// of being dropped with the program.
+		queued = res.queue
+		h.plain.setPromptQueue(queued)
 		if res.inspectThinking {
 			draftBuf = append([]rune(nil), res.buf...)
 			draftCursor = res.cursor
