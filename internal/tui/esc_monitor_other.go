@@ -8,6 +8,8 @@ import (
 
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
+
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 )
 
 // StartESCMonitor enables double-ESC detection during agent execution. It puts
@@ -21,9 +23,14 @@ func (u *PlainUI) StartESCMonitor(interrupt func()) error {
 	}
 	restore, ok := setNonCanonical(u.in)
 	if !ok {
+		logger.Errorf("prompt capture off: stdin cannot enter non-canonical mode")
 		return nil
 	}
-	u.capture.setEnabled(u.capture.available())
+	capturing := u.capture.available()
+	u.capture.setEnabled(capturing)
+	if capturing {
+		logger.Infof("prompt capture on for this run (draft line active)")
+	}
 	u.escMu.Lock()
 	stop := make(chan struct{})
 	done := make(chan struct{})

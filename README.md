@@ -162,7 +162,7 @@ stale work.
 - **Color roles** — the `you` rail and the `assistant` label are green; tool cards (shell, read, write, edit, search, web) use a separate steel-blue accent for their name, icon, arrow and left rail, so the user's own messages stand out in a long transcript. Errors are red, background tasks amber.
 - **To-do panel** — `TodoWrite` renders a live Cursor-style task list with status glyphs.
 - **Inline diff renderer** — `Edit` tool shows colored unified-diff (red/green/cyan) with 50-line truncation.
-- **Type-ahead and a prompt queue** — while the agent works, the bottom line stays writable (the `✎` draft is repainted without overwriting the stream). Enter queues the text and keeps you typing; when the turn ends, the composer opens with the queue listed: `Ctrl+P`/`Ctrl+N` pick, `Ctrl+O` edits, `Ctrl+X` discards, and Enter on an empty line sends the selected prompt. Anything not sent stays queued for the next prompt.
+- **Type-ahead and a prompt queue** — while the agent works, the bottom line stays writable and is visible from the start (a `✎ type to queue a prompt` hint, replaced by your text as you type; repainted without overwriting the stream). Enter queues the text and keeps you typing; when the turn ends, the composer opens with the queue listed: `Ctrl+P`/`Ctrl+N` pick, `Ctrl+O` edits, `Ctrl+X` discards, and Enter on an empty line sends the selected prompt. Anything not sent stays queued for the next prompt.
 - **Multiline input** — `Alt+Enter` inserts a newline; plain Enter submits. Backspace, arrows and Home/End follow the visual rows the terminal wraps, so editing keeps working past the edge of the screen.
 - **Terminal restoration** — signal handler ensures raw mode is never left behind on Ctrl+C, ESC, or panic.
 

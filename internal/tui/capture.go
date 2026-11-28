@@ -85,6 +85,9 @@ func (c *promptCapture) setEnabled(on bool) {
 	if on {
 		c.enabled = true
 		c.atLineStart = true
+		// Show the prompt line immediately: the affordance is the point. Waiting
+		// for the first keystroke left the user with no visible place to type.
+		c.paintLocked()
 		return
 	}
 	c.enabled = false
@@ -344,7 +347,7 @@ func (c *promptCapture) paintLocked() {
 func (c *promptCapture) lineLocked() string {
 	draft := strings.Join(strings.Fields(string(c.draft)), " ")
 	if draft == "" && len(c.queue) == 0 {
-		return ""
+		return c.style.Dim("✎ type to queue a prompt · Enter adds it to the queue")
 	}
 	var b strings.Builder
 	b.WriteString(c.style.Dim("✎ "))

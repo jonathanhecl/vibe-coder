@@ -178,13 +178,30 @@ func TestSpinnerFrameCarriesDraft(t *testing.T) {
 	ui.capture.setRaw(&raw, ui.style)
 	ui.capture.setEnabled(true)
 
-	if got := ui.spinnerFrameText("Shell $ ls", 0, "1s"); strings.Contains(got, "✎") {
-		t.Fatalf("no draft yet, frame must be one row: %q", got)
+	// The prompt affordance is visible from the start, so a user looking at a
+	// running turn knows where to type.
+	if got := ui.spinnerFrameText("Shell $ ls", 0, "1s"); !strings.Contains(got, "✎") {
+		t.Fatalf("the spinner must show the prompt hint: %q", got)
 	}
 
 	ui.capture.handle([]byte("mientras corre"))
 	frame := ui.spinnerFrameText("Shell $ ls", 0, "1s")
 	if !strings.Contains(frame, "\n") || !strings.Contains(frame, "mientras corre") {
 		t.Fatalf("draft missing from the spinner block: %q", frame)
+	}
+}
+
+// The prompt line is painted the moment the run starts, not only after the first
+// keystroke: an invisible composer looks exactly like a missing feature.
+func TestCaptureShowsPromptLineOnEnable(t *testing.T) {
+	t.Parallel()
+	var raw bytes.Buffer
+
+	c := &promptCapture{}
+	c.setRaw(&raw, NewStyleForTest(true))
+	c.setEnabled(true)
+
+	if !strings.Contains(raw.String(), "✎") {
+		t.Fatalf("no prompt line after enabling capture: %q", raw.String())
 	}
 }
