@@ -871,7 +871,7 @@ These settings persist as `PROVIDER_<NAME>_KIND`, `PROVIDER_<NAME>_ENDPOINT`, `P
 - `/think` — show the thinking level and model capability
 - `/think off|low|medium|high|max|on` — set thinking effort for this session (`/save` persists it; on Ollama it travels as the native `think` field, on an OpenAI-compatible provider as `reasoning_effort` plus the template's `enable_thinking` switch for `off`)
 - `/sidecar on|off` — toggle the sidecar for this session
-- `/autocontinue on|off` — after a turn stops with pending TODOs, an active goal or an interrupted checkpoint, start the next turn automatically instead of waiting for Enter (session only, never persisted). It still stops when the work is done, when a turn needs your input or fails, and on Ctrl+C; the loop pauses after two turns that run no tool and moves nothing, and turns itself off after 20 automatic turns for one prompt.
+- `/autocontinue on|off` — after a turn stops with pending TODOs, an active goal or an interrupted checkpoint, start the next turn automatically instead of waiting for Enter (session only, never persisted). It still stops when the work is done, when a turn needs your input or fails, and on Ctrl+C; the loop pauses after two turns that run no tool and moves nothing, and after 20 automatic turns for one prompt (the mode stays on). A stop the agent's own anti-loop guard produced gets one more turn instead of handing the prompt back on the first hit.
 - `/autocontinue` — show the auto-continue state
 - `/sidecar perm-on|perm-off` — persist sidecar state to `vibe-coder.env`
 - `/settimeout` — show how long a permission prompt waits before it auto-denies

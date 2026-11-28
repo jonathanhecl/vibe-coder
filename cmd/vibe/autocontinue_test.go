@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
@@ -166,7 +168,80 @@ func TestFinishTurnAutoContinueStopsAtTurnCap(t *testing.T) {
 	if runs != autoContinueTurnCap {
 		t.Fatalf("continuations=%d, want the cap %d", runs, autoContinueTurnCap)
 	}
-	if cfg.AutoContinue {
-		t.Fatal("hitting the cap must turn the mode off so the prompt returns")
+	// The cap bounds one prompt. Turning the mode off here made it look like
+	// /autocontinue had stopped working, so it stays on.
+	if !cfg.AutoContinue {
+		t.Fatal("hitting the cap must not turn the mode off")
+	}
+}
+
+// textTurnClient answers every chat turn with prose in disjoint vocabulary, so
+// the repeated-answer guard is not the thing under test.
+type textTurnClient struct {
+	emptyRetryClient
+	calls atomic.Int32
+}
+
+func (c *textTurnClient) Chat(context.Context, ollama.ChatRequest) (<-chan ollama.Chunk, error) {
+	n := c.calls.Add(1)
+	replies := []string{
+		"Reading schema.",
+		"Build compiled successfully.",
+		"Investigating flaky widget.",
+		"Polishing chart layout.",
+		"Reviewing migration notes.",
+	}
+	ch := make(chan ollama.Chunk, 1)
+	ch <- ollama.Chunk{Delta: replies[int(n)%len(replies)], Done: true, StopReason: "stop"}
+	close(ch)
+	return ch, nil
+}
+
+// The real path, not the injected runner: a finished turn with a pending
+// checklist and /autocontinue on must start another turn by itself.
+func TestAutoContinueStartsAnotherTurnForARealStop(t *testing.T) {
+	client := &textTurnClient{}
+	ag, tw, cfg, sess, ui := newAutoContinueAgent(t, client, true)
+	seedPendingTodo(t, tw)
+
+	_ = finishTurn(context.Background(), cfg, sess, ag, ui, nil)
+
+	if client.calls.Load() == 0 {
+		t.Fatal("auto-continue did not start a single turn")
+	}
+}
+
+// A turn its own anti-loop guard stopped is not a finished task: with work
+// pending, the loop gives it another turn instead of waiting for Enter.
+func TestAutoContinueEligibleOnStallStop(t *testing.T) {
+	ag, tw, _, _, _ := newAutoContinueAgent(t, emptyRetryClient{}, true)
+	stall := fmt.Errorf("stopped: %w", agent.ErrRepeatedReply)
+
+	if autoContinueEligible(ag, stall) {
+		t.Fatal("a stall with nothing pending must not continue")
+	}
+	seedPendingTodo(t, tw)
+	if !autoContinueEligible(ag, stall) {
+		t.Fatal("a stall with pending work is continuable")
+	}
+}
+
+// The stop notice names the reason only when there is a reason: an ordinary
+// finished turn stays silent.
+func TestAutoContinueStopReason(t *testing.T) {
+	ag, tw, _, _, _ := newAutoContinueAgent(t, emptyRetryClient{}, true)
+
+	if got := autoContinueStopReason(ag, nil); got != "" {
+		t.Fatalf("a finished task must stay silent, got %q", got)
+	}
+
+	seedPendingTodo(t, tw)
+	ag.EnterPlanMode()
+	if got := autoContinueStopReason(ag, nil); !strings.Contains(got, "interactive") {
+		t.Fatalf("plan mode reason = %q", got)
+	}
+	ag.ExitPlanMode()
+	if got := autoContinueStopReason(ag, fmt.Errorf("boom")); !strings.Contains(got, "error") {
+		t.Fatalf("hard error reason = %q", got)
 	}
 }

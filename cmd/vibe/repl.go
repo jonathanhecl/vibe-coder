@@ -10,6 +10,7 @@ import (
 	"github.com/jonathanhecl/vibe-coder/internal/agent"
 	"github.com/jonathanhecl/vibe-coder/internal/config"
 	"github.com/jonathanhecl/vibe-coder/internal/contextfiles"
+	"github.com/jonathanhecl/vibe-coder/internal/logger"
 	"github.com/jonathanhecl/vibe-coder/internal/lsp"
 	"github.com/jonathanhecl/vibe-coder/internal/mcp"
 	"github.com/jonathanhecl/vibe-coder/internal/ollama"
@@ -240,7 +241,46 @@ const (
 	// the same shorthand a user types, so goal resolution and checklist
 	// handling treat it as a continuation.
 	autoContinueInput = "continue"
+	// autoContinueStallStops is how many consecutive automatic turns may end on
+	// an anti-loop guard before the loop hands the prompt back. One more turn
+	// often unsticks the model; the same stop twice is it asking for help.
+	autoContinueStallStops = 2
 )
+
+// isStallStop reports a turn its own anti-loop guard stopped: the model lurched
+// (repeated answer, repeated call, inspection-only) instead of finishing. It is
+// not a hard failure, so an automatic continuation gets another turn before the
+// guard wins.
+func isStallStop(err error) bool {
+	return agent.IsNoProgressErr(err) ||
+		agent.IsRepeatedReplyErr(err) ||
+		agent.IsInspectionLoopErr(err) ||
+		agent.IsThinkingLoopStopErr(err)
+}
+
+// autoContinueStopReason names, for the user, why a stop is not continuable. It
+// returns "" for the ordinary end of a task, where there is nothing to explain.
+func autoContinueStopReason(ag *agent.Agent, err error) string {
+	if ag == nil {
+		return "the agent is not available"
+	}
+	switch {
+	case ag.InPlanMode() || ag.InReviewMode():
+		return "plan and review modes are interactive"
+	case ag.MissionSnapshot().Status == tools.MissionStatusBlocked:
+		return "the goal is paused waiting for your input"
+	case ag.StaleChecklist(time.Now()):
+		return "the checklist needs review before it can continue"
+	case agent.IsTurnCancelledErr(err):
+		return "the turn was cancelled"
+	case err == nil && !ag.CanResume():
+		return ""
+	case err == nil:
+		return "there is nothing resumable"
+	default:
+		return "the turn stopped on an error"
+	}
+}
 
 // autoContinueEligible reports whether a finished turn stopped in a way a
 // continuation can pick up. Everything else - a finished task, a question, a
@@ -271,6 +311,10 @@ func autoContinueEligible(ag *agent.Agent, err error) bool {
 		// The step budget ran out, not the work: a continuation resumes the
 		// checkpoint, the pending checklist, or a turn that did run tools.
 		return ag.CanResume() || ag.PendingTodoCount() > 0 || ag.ToolCallsThisTurn() > 0
+	case isStallStop(err):
+		// An anti-loop guard fired: the turn lurched, it did not finish, so a
+		// continuation gets another chance while there is work to continue.
+		return ag.CanResume() || ag.PendingTodoCount() > 0
 	default:
 		return false
 	}
@@ -294,19 +338,31 @@ func finishTurn(rootCtx context.Context, cfg *config.Config, sess *session.Sessi
 // exercise the loop limits without a model.
 func finishTurnWith(rootCtx context.Context, cfg *config.Config, sess *session.Session, ag *agent.Agent, ui tui.UI, err error, run func() error) error {
 	printTurnError(err)
-	if cfg == nil || !cfg.AutoContinue || !autoContinueEligible(ag, err) {
+	st := tui.NewStyle(os.Stdout)
+	eligible := autoContinueEligible(ag, err)
+	if cfg == nil || !cfg.AutoContinue || !eligible {
+		if cfg != nil && cfg.AutoContinue && !eligible {
+			// A stop /autocontinue deliberately returns on: say why in the chat
+			// and in the log, so "it still asked for Enter" can be explained.
+			if reason := autoContinueStopReason(ag, err); reason != "" {
+				fmt.Fprintf(os.Stderr, "%s Auto-continue paused: %s.\n", st.Yellow("⏳"), reason)
+			}
+			logger.Infof("auto-continue stopped: err=%v canResume=%t pending=%d plan=%t review=%t stale=%t stopReason=%q",
+				err, ag.CanResume(), ag.PendingTodoCount(), ag.InPlanMode(), ag.InReviewMode(),
+				ag.StaleChecklist(time.Now()), ag.LastStopReason())
+		}
 		reportPendingWork(ag)
 		return err
 	}
-	st := tui.NewStyle(os.Stdout)
-	turns, idle := 0, 0
+	turns, idle, stalls := 0, 0, 0
 	for cfg.AutoContinue && autoContinueEligible(ag, err) {
 		if rootCtx.Err() != nil {
 			break
 		}
 		if turns >= autoContinueTurnCap {
-			cfg.AutoContinue = false
-			fmt.Fprintf(os.Stderr, "%s Auto-continue stopped after %d turns to avoid an endless loop. Work state is saved; press Enter to continue, or /autocontinue on to re-enable it.\n", st.Yellow("⏳"), autoContinueTurnCap)
+			// The mode stays on: the cap bounds this prompt, not the session, and
+			// silently turning it off is what made it look like it had no effect.
+			fmt.Fprintf(os.Stderr, "%s Auto-continue paused after %d turns to avoid an endless loop. Work state is saved; press Enter to continue (the mode stays on).\n", st.Yellow("⏳"), autoContinueTurnCap)
 			break
 		}
 		turns++
@@ -325,6 +381,15 @@ func finishTurnWith(rootCtx context.Context, cfg *config.Config, sess *session.S
 			idle++
 		} else {
 			idle = 0
+		}
+		if isStallStop(err) {
+			stalls++
+		} else {
+			stalls = 0
+		}
+		if stalls >= autoContinueStallStops {
+			fmt.Fprintf(os.Stderr, "%s Auto-continue paused: the model hit the same anti-loop guard %d turns in a row. Press Enter to retry, or type a correction.\n", st.Yellow("⏳"), stalls)
+			break
 		}
 		if idle >= autoContinueIdleTurns {
 			fmt.Fprintf(os.Stderr, "%s Auto-continue paused: %d turns in a row ran no tool and left the checklist unchanged. Press Enter to retry, or type a correction.\n", st.Yellow("⏳"), idle)

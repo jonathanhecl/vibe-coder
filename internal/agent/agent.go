@@ -42,6 +42,15 @@ func (t turnStop) truncated() bool {
 	return strings.EqualFold(strings.TrimSpace(t.Reason), ollama.StopReasonLength)
 }
 
+// LastStopReason reports how the provider ended the last streamed reply ("" when
+// it never said). The REPL logs it when /autocontinue decides not to continue.
+func (a *Agent) LastStopReason() string {
+	if a == nil {
+		return ""
+	}
+	return a.lastStop.Reason
+}
+
 type Agent struct {
 	cfg    *config.Config
 	client ollama.Client

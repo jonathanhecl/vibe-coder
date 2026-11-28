@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jonathanhecl/vibe-coder/internal/config"
+	"github.com/jonathanhecl/vibe-coder/internal/tui"
 )
 
 // /autocontinue toggles a session-only flag and reports its own state; an
@@ -24,7 +25,7 @@ func TestAutoContinueCommandTogglesSessionFlag(t *testing.T) {
 	if !cfg.AutoContinue {
 		t.Fatal("/autocontinue on must enable the flag")
 	}
-	if !strings.Contains(out.String(), "Auto-continue on") {
+	if !strings.Contains(out.String(), "Auto-continue ON") {
 		t.Fatalf("unexpected output: %q", out.String())
 	}
 
@@ -32,7 +33,7 @@ func TestAutoContinueCommandTogglesSessionFlag(t *testing.T) {
 	if _, _, err := Dispatch(c, "/autocontinue"); err != nil {
 		t.Fatalf("unexpected status error: %v", err)
 	}
-	if !strings.Contains(out.String(), "Auto-continue: on") {
+	if !strings.Contains(out.String(), "Auto-continue: ON") {
 		t.Fatalf("status must report on: %q", out.String())
 	}
 
@@ -53,5 +54,21 @@ func TestAutoContinueCommandTogglesSessionFlag(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Invalid value") {
 		t.Fatalf("expected usage guidance, got %q", out.String())
+	}
+}
+
+// The confirmation wears the state's color: green when ON, red when OFF, so a
+// long transcript answers "is it on?" without reading the sentence.
+func TestAutoContinueStateLineIsGreenOnRedOff(t *testing.T) {
+	t.Parallel()
+	st := tui.NewStyleForTest(true)
+
+	on := autoContinueStateLine(st, true)
+	if !strings.HasPrefix(on, "\x1b[32m") || !strings.Contains(on, "ON") {
+		t.Fatalf("expected a green ON line, got %q", on)
+	}
+	off := autoContinueStateLine(st, false)
+	if !strings.HasPrefix(off, "\x1b[31m") || !strings.Contains(off, "OFF") {
+		t.Fatalf("expected a red OFF line, got %q", off)
 	}
 }
