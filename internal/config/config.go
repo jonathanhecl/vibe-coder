@@ -59,6 +59,11 @@ type Config struct {
 	SidecarDisabled bool
 	// SidecarSkipSession skips the sidecar for this process only (--no-sidecar, /sidecar off); not persisted.
 	SidecarSkipSession bool
+	// AutoContinue keeps starting continuation turns while a finished turn
+	// left durable work (pending TODOs, an active goal, a resume checkpoint).
+	// It is session-only on purpose: /autocontinue toggles it, /save never
+	// writes it, and a restart cannot silently resume an unattended loop.
+	AutoContinue bool
 	// MaxTokens caps one generated reply (num_predict / max_tokens). Zero, the
 	// default, sends no cap at all so the provider's own limit applies: a
 	// model can then write a large file in one call instead of being cut at

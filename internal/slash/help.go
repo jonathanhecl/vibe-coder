@@ -46,6 +46,8 @@ func helpGroups() []helpGroup {
 			{"/sidecar on|off", "toggle the sidecar for this session"},
 			{"/sidecar status", "show current sidecar state"},
 			{"/sidecar perm-on|perm-off", "persist sidecar state to vibe-coder.env"},
+			{"/autocontinue on|off", "keep sending continue after a turn stops with pending work (session only)"},
+			{"/autocontinue", "show the auto-continue state"},
 			{"/settimeout", "show how long a permission prompt waits before denying"},
 			{"/settimeout 3m|90s|45|off", "set the permission timeout (bare number = seconds, off waits forever)"},
 			{"/decision status", "show the decision backend and assisted mode"},

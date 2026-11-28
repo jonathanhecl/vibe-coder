@@ -137,6 +137,16 @@ func statusRows(c *Ctx) []tui.Row {
 		},
 	})
 	rows = append(rows, tui.Row{
+		Label: "Auto-continue",
+		Plain: yesNo(c.Cfg.AutoContinue),
+		Render: func(st tui.Style) string {
+			if c.Cfg.AutoContinue {
+				return st.Green(yesNo(c.Cfg.AutoContinue))
+			}
+			return st.Gray(yesNo(c.Cfg.AutoContinue))
+		},
+	})
+	rows = append(rows, tui.Row{
 		Label: "Offline",
 		Plain: offlineStatusValue(c),
 		Render: func(st tui.Style) string {

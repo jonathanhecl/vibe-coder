@@ -83,7 +83,7 @@ func runInteractiveREPL(rootCtx context.Context, cfg *config.Config, client olla
 		st := tui.NewStyle(os.Stdout)
 		fmt.Fprintln(os.Stdout, st.Yellow("↩ Continuing from checkpoint..."))
 		ui.SetPlanMode(ag.InPlanMode())
-		printTurnOutcome(ag, runContinuationPrompt(rootCtx, ag, ui))
+		finishTurn(rootCtx, cfg, sess, ag, ui, runContinuationPrompt(rootCtx, ag, ui))
 		_ = sess.Save()
 	}
 	review := func(ui tui.UI) {
@@ -161,20 +161,20 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 	if handled {
 		ui.SetPlanMode(ag.InPlanMode())
 		if task, ok := planTaskFromSlash(line); ok {
-			printTurnOutcome(ag, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
+			finishTurn(rootCtx, slashCtx.Cfg, slashCtx.Session, ag, ui, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
 			_ = slashCtx.Session.Save()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
 		}
 		if task, ok := reviewTaskFromSlash(line); ok {
-			printTurnOutcome(ag, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
+			finishTurn(rootCtx, slashCtx.Cfg, slashCtx.Session, ag, ui, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
 			_ = slashCtx.Session.Save()
 			ag.ExitReviewMode()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
 		}
 		if task, ok := slash.PasteTaskFromSlash(slashCtx, line); ok {
-			printTurnOutcome(ag, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
+			finishTurn(rootCtx, slashCtx.Cfg, slashCtx.Session, ag, ui, runAgentWithEmptyRetry(rootCtx, ag, ui, task))
 			_ = slashCtx.Session.Save()
 			ui.SetPlanMode(ag.InPlanMode())
 			return false
@@ -182,7 +182,7 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 		if task, ok := slash.GoalTaskFromSlash(line); ok {
 			if ag.MissionActive() && ag.MissionSnapshot().Goal == task {
 				prompt := slash.FormatGoalPrompt(task)
-				printTurnOutcome(ag, runPrompt(rootCtx, ag, ui, prompt))
+				finishTurn(rootCtx, slashCtx.Cfg, slashCtx.Session, ag, ui, runPrompt(rootCtx, ag, ui, prompt))
 				_ = slashCtx.Session.Save()
 				return false
 			}
@@ -191,17 +191,15 @@ func handleInputLine(rootCtx context.Context, slashCtx *slash.Ctx, ag *agent.Age
 	}
 
 	ui.SetPlanMode(ag.InPlanMode())
-	printTurnOutcome(ag, runPrompt(rootCtx, ag, ui, line))
+	finishTurn(rootCtx, slashCtx.Cfg, slashCtx.Session, ag, ui, runPrompt(rootCtx, ag, ui, line))
 	_ = slashCtx.Session.Save()
 	return false
 }
 
-// printTurnOutcome closes every turn the same way: it names an interruption and
-// an error plainly, and then reports the work that is still open. A turn stops
-// for many reasons - the step cap, a repeated tool call, an interrupt, a paused
-// mission - and returning to a bare prompt made all of them look like the task
-// had simply vanished.
-func printTurnOutcome(ag *agent.Agent, err error) {
+// printTurnError names an interruption and an error plainly, without the
+// pending-work notice. /autocontinue prints that notice only once, when the
+// loop really hands the prompt back.
+func printTurnError(err error) {
 	switch {
 	case err == nil:
 	case agent.IsTurnCancelledErr(err):
@@ -210,7 +208,6 @@ func printTurnOutcome(ag *agent.Agent, err error) {
 	default:
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}
-	reportPendingWork(ag)
 }
 
 // reportPendingWork prints one line about the checklist and mission state the
@@ -226,6 +223,116 @@ func reportPendingWork(ag *agent.Agent) {
 	}
 	st := tui.NewStyle(os.Stdout)
 	fmt.Fprintf(os.Stdout, "%s %s\n", st.Yellow("⏳"), summary)
+}
+
+// autoContinueTurnCap bounds how many turns one prompt may continue on its
+// own. A model that never finishes has to hand the prompt back instead of
+// spending the night on the same task. A variable so a test can lower it.
+var autoContinueTurnCap = 20
+
+const (
+	// autoContinueIdleTurns is how many consecutive automatic turns may run no
+	// tool at all before the loop returns to the prompt: asking again only
+	// repeats the same request to the same model.
+	autoContinueIdleTurns = 2
+	// autoContinueInput is what a continuation sends when there is no durable
+	// checkpoint to resume (for example the step cap hit mid-inspection). It is
+	// the same shorthand a user types, so goal resolution and checklist
+	// handling treat it as a continuation.
+	autoContinueInput = "continue"
+)
+
+// autoContinueEligible reports whether a finished turn stopped in a way a
+// continuation can pick up. Everything else - a finished task, a question, a
+// cancellation, a paused goal, plan/review mode, a hard error - goes back to
+// the prompt, because only a human can move it forward.
+func autoContinueEligible(ag *agent.Agent, err error) bool {
+	if ag == nil {
+		return false
+	}
+	// A plan or a review is a conversation with the user, not unattended work.
+	if ag.InPlanMode() || ag.InReviewMode() {
+		return false
+	}
+	// A paused goal explicitly asked for the user; continuing would undo the
+	// pause the agent just declared.
+	if m := ag.MissionSnapshot(); m.Status == tools.MissionStatusBlocked {
+		return false
+	}
+	// A leftover checklist from an earlier session needs review first, and the
+	// interactive path asks about it. An unattended loop must not bypass that.
+	if ag.StaleChecklist(time.Now()) {
+		return false
+	}
+	switch {
+	case err == nil:
+		return ag.CanResume()
+	case agent.IsIterationCapErr(err):
+		// The step budget ran out, not the work: a continuation resumes the
+		// checkpoint, the pending checklist, or a turn that did run tools.
+		return ag.CanResume() || ag.PendingTodoCount() > 0 || ag.ToolCallsThisTurn() > 0
+	default:
+		return false
+	}
+}
+
+// finishTurn reports one turn and then honours /autocontinue: while the mode is
+// on and the stop is one a continuation can pick up, it starts the next turn by
+// itself. The pending-work notice is printed once, when the loop really hands
+// control back, so "Press Enter to continue" never appears right before the
+// agent continues on its own.
+func finishTurn(rootCtx context.Context, cfg *config.Config, sess *session.Session, ag *agent.Agent, ui tui.UI, err error) error {
+	return finishTurnWith(rootCtx, cfg, sess, ag, ui, err, func() error {
+		if ag.CanResume() {
+			return runContinuationPrompt(rootCtx, ag, ui)
+		}
+		return runPrompt(rootCtx, ag, ui, autoContinueInput)
+	})
+}
+
+// finishTurnWith is finishTurn with the turn itself injected, so a test can
+// exercise the loop limits without a model.
+func finishTurnWith(rootCtx context.Context, cfg *config.Config, sess *session.Session, ag *agent.Agent, ui tui.UI, err error, run func() error) error {
+	printTurnError(err)
+	if cfg == nil || !cfg.AutoContinue || !autoContinueEligible(ag, err) {
+		reportPendingWork(ag)
+		return err
+	}
+	st := tui.NewStyle(os.Stdout)
+	turns, idle := 0, 0
+	for cfg.AutoContinue && autoContinueEligible(ag, err) {
+		if rootCtx.Err() != nil {
+			break
+		}
+		if turns >= autoContinueTurnCap {
+			cfg.AutoContinue = false
+			fmt.Fprintf(os.Stderr, "%s Auto-continue stopped after %d turns to avoid an endless loop. Work state is saved; press Enter to continue, or /autocontinue on to re-enable it.\n", st.Yellow("⏳"), autoContinueTurnCap)
+			break
+		}
+		turns++
+		fmt.Fprintf(os.Stdout, "%s [autocontinue] continuing (turn %d/%d)\n", st.Dim("↻"), turns, autoContinueTurnCap)
+		before := ag.PendingTodoCount()
+		err = run()
+		if sess != nil {
+			if saveErr := sess.Save(); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to save session: %v\n", saveErr)
+			}
+		}
+		printTurnError(err)
+		// A turn that ran no tool and did not move the checklist is not
+		// progress; two in a row are the model restating itself.
+		if err == nil && ag.ToolCallsThisTurn() == 0 && ag.PendingTodoCount() >= before {
+			idle++
+		} else {
+			idle = 0
+		}
+		if idle >= autoContinueIdleTurns {
+			fmt.Fprintf(os.Stderr, "%s Auto-continue paused: %d turns in a row ran no tool and left the checklist unchanged. Press Enter to retry, or type a correction.\n", st.Yellow("⏳"), idle)
+			break
+		}
+	}
+	reportPendingWork(ag)
+	return err
 }
 
 // runPrompt runs one user prompt and then honours any mission the agent
