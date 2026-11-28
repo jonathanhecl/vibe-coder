@@ -2,7 +2,6 @@ package tui
 
 import (
 	"io"
-	"os"
 
 	"github.com/clipperhouse/displaywidth"
 	"golang.org/x/term"
@@ -33,16 +32,27 @@ func runeCellWidth(r rune) int {
 	return w
 }
 
+// writerFd returns the descriptor behind w when it exposes one. Anything that
+// forwards Fd counts, not just *os.File: the TUI wraps stdout in a live writer
+// for the prompt draft, and asserting on the concrete file hid the terminal size
+// behind the wrapper (every card fell back to 80 columns).
+func writerFd(w io.Writer) (int, bool) {
+	if f, ok := w.(interface{ Fd() uintptr }); ok {
+		return int(f.Fd()), true
+	}
+	return 0, false
+}
+
 // terminalColumns returns the column count of the terminal behind w, or 0 when
 // w is not a terminal. The line editor needs it to model soft wrapping: without
 // the width, the screen position of the cursor drifts as soon as a line is
 // longer than the screen.
 func terminalColumns(w io.Writer) int {
-	f, ok := w.(*os.File)
+	fd, ok := writerFd(w)
 	if !ok {
 		return 0
 	}
-	columns, _, err := term.GetSize(int(f.Fd()))
+	columns, _, err := term.GetSize(fd)
 	if err != nil || columns <= 0 {
 		return 0
 	}

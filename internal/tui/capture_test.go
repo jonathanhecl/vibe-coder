@@ -173,10 +173,9 @@ func TestCaptureWaitsForLineStart(t *testing.T) {
 func TestSpinnerFrameCarriesDraft(t *testing.T) {
 	t.Parallel()
 	var raw bytes.Buffer
-	c := newTestCapture(&raw)
 
 	ui := &PlainUI{out: &raw, style: NewStyleForTest(true)}
-	ui.capture = *c
+	ui.capture.setRaw(&raw, ui.style)
 	ui.capture.setEnabled(true)
 
 	if got := ui.spinnerFrameText("Shell $ ls", 0, "1s"); strings.Contains(got, "✎") {

@@ -262,8 +262,8 @@ func terminalDimensions(w io.Writer) (int, int) {
 		cols = 80
 	}
 	height := 24
-	if f, ok := w.(*os.File); ok {
-		if _, th, err := term.GetSize(int(f.Fd())); err == nil && th > 0 {
+	if fd, ok := writerFd(w); ok {
+		if _, th, err := term.GetSize(fd); err == nil && th > 0 {
 			height = th
 		}
 	}
