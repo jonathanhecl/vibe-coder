@@ -628,7 +628,7 @@ Legacy keys (`MODEL`, `MODEL_ENDPOINT`, `SIDECAR_MODEL`, `SIDECAR_ENDPOINT`, `OL
 - `--ollama-host <url>` — Ollama base URL
 - `--max-tokens <n>` — cap on one generated reply in tokens (default `0` = the provider's own limit; a cap that is too low cuts a large tool call mid-JSON)
 - `--temperature <f>` — sampling temperature
-- `--context-window <n>` — model context window
+- `--context-window <n>` — window the harness budgets against (default: the context the model reports, capped at `65536`; set it to override, for example `32768` to keep a small local model cheap)
 - `--keep-tool-results <n>` — recent tool results kept unmasked in the transcript window (default `6`)
 - `--tool-output-max-tokens <n>` — cap on a single tool result's token size (`0` = auto)
 - `--compact-at-percent <n>` — context-window fill percentage that triggers compaction (default `85`, clamped `50..95`)
@@ -670,7 +670,7 @@ Per-request harness metrics (model-reported token counts, estimated prompt-secti
 
 ### Context management & measuring harness changes
 
-`vibe` budgets the transcript in estimated tokens, not bytes. Each request splits `CONTEXT_WINDOW` into an output reserve (`MAX_TOKENS` when set, otherwise a quarter of the window, capped at window/4), the system prompt, the native tool schema, a 5% margin, and what remains is the transcript budget. Transcript selection is sticky: the window start only moves forward while the suffix stays within budget, the cutoff is the same percentage that triggers compaction (`COMPACT_AT_PERCENT`, default 85%, so the window never drops history the compactor would still have kept), and it resets whenever the stored transcript is rewritten (compaction, `/clear session`, resume). `/stats` reports the live context fill against that cutoff and the deepest window cut the run took (`Messages dropped`), so a request that loses history without a summary is visible instead of silent.
+`vibe` budgets the transcript in estimated tokens, not bytes. When `CONTEXT_WINDOW` is not set in the config file or on the command line, startup adopts the trained context the model reports through `/api/show` (any `*.context_length` key), capped at `65536`, so a 256k model is not squeezed into 32k and file reads stop being truncated and elided as often; an explicit `CONTEXT_WINDOW` always wins. Each request splits the window into an output reserve (`MAX_TOKENS` when set, otherwise a quarter of the window, capped at window/4), the system prompt, the native tool schema, a 5% margin, and what remains is the transcript budget. Transcript selection is sticky: the window start only moves forward while the suffix stays within budget, the cutoff is the same percentage that triggers compaction (`COMPACT_AT_PERCENT`, default 85%, so the window never drops history the compactor would still have kept), and it resets whenever the stored transcript is rewritten (compaction, `/clear session`, resume). `/stats` reports the live context fill against that cutoff and the deepest window cut the run took (`Messages dropped`), so a request that loses history without a summary is visible instead of silent.
 
 Large tool outputs older than the last `KEEP_TOOL_RESULTS` tool turns are masked on the wire only — the stored transcript is never mutated — replaced by a short `[elided]` stub. `TOOL_OUTPUT_MAX_TOKENS` caps a single tool result (auto = 15% of the context window, 2000-token floor, ≈4 bytes per token) across `Read`, `Bash`, `InteractiveBash`/`SendInput`, `HTTPRequest`, and `WebFetch`, including sub-agent tools.
 

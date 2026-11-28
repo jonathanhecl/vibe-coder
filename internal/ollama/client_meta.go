@@ -81,7 +81,37 @@ func (c *HTTPClient) Show(ctx context.Context, model string) (Model, error) {
 		Name:              name,
 		Capabilities:      caps,
 		CapabilitiesKnown: len(caps) > 0,
+		ContextLength:     contextLengthFromModelInfo(out.ModelInfo),
 	}, nil
+}
+
+// contextLengthFromModelInfo reads the trained context window out of the GGUF
+// metadata /api/show returns. The key is architecture-prefixed
+// ("qwen35.context_length", "llama.context_length", ...), so any key ending in
+// "context_length" counts; plain "context_length" is accepted too.
+func contextLengthFromModelInfo(info map[string]any) int {
+	if len(info) == 0 {
+		return 0
+	}
+	for key, raw := range info {
+		lower := strings.ToLower(strings.TrimSpace(key))
+		if lower != "context_length" && !strings.HasSuffix(lower, ".context_length") {
+			continue
+		}
+		switch v := raw.(type) {
+		case float64:
+			return int(v)
+		case int:
+			return v
+		case int64:
+			return int(v)
+		case json.Number:
+			if n, err := v.Int64(); err == nil {
+				return int(n)
+			}
+		}
+	}
+	return 0
 }
 
 func (m Model) SupportsTools() bool {
@@ -257,6 +287,9 @@ func ResolveModelCapabilities(ctx context.Context, client Client, models []Model
 		caps := normalizeCapabilities(out[i].Capabilities, info.Capabilities)
 		out[i].Capabilities = caps
 		out[i].CapabilitiesKnown = len(caps) > 0 || out[i].CapabilitiesKnown || info.CapabilitiesKnown
+		if out[i].ContextLength == 0 {
+			out[i].ContextLength = info.ContextLength
+		}
 	}
 	return out
 }

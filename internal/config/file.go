@@ -125,6 +125,7 @@ func applyConfigFile(cfg *Config, path string) error {
 		case "CONTEXT_WINDOW":
 			if parsed, err := strconv.Atoi(value); err == nil {
 				cfg.ContextWindow = parsed
+				cfg.ContextWindowExplicit = true
 			}
 		case "CHAT_TIMEOUT":
 			if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {

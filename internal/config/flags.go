@@ -108,7 +108,7 @@ func parseCLI(args []string) (cliOptions, error) {
 	fs.Var(&opts.sidecarProvider, "sidecar-provider", "sidecar model provider: ollama|openai")
 	fs.Var(&opts.maxTokens, "max-tokens", "cap on one generated reply in tokens (0 = the provider's own limit)")
 	fs.Var(&opts.temperature, "temperature", "temperature")
-	fs.Var(&opts.contextWindow, "context-window", "context window")
+	fs.Var(&opts.contextWindow, "context-window", "context window (default: the model's reported context, capped at 65536)")
 	fs.Var(&opts.keepAliveMain, "keep-alive-main", "seconds to keep the main model loaded (-1 pins forever, 0 uses the provider default)")
 	fs.Var(&opts.keepAliveWorker, "keep-alive-worker", "seconds to keep worker models loaded (-1 pins forever, 0 uses the provider default)")
 	fs.Var(&opts.keepToolResults, "keep-tool-results", "recent tool results kept unmasked in the transcript window (default 6)")
@@ -241,6 +241,7 @@ func applyCLI(cfg *Config, cli cliOptions) {
 	}
 	if cli.contextWindow.set {
 		cfg.ContextWindow = cli.contextWindow.value
+		cfg.ContextWindowExplicit = true
 	}
 	if cli.keepAliveMain.set {
 		cfg.KeepAliveMain = cli.keepAliveMain.value

@@ -68,9 +68,13 @@ type Config struct {
 	// default, sends no cap at all so the provider's own limit applies: a
 	// model can then write a large file in one call instead of being cut at
 	// 8192 tokens mid-JSON. A positive value is sent verbatim.
-	MaxTokens     int
-	Temperature   float64
-	ContextWindow int
+	MaxTokens   int
+	Temperature float64
+	// ContextWindow is the window the harness budgets against. When it came from
+	// the config file or a flag, ContextWindowExplicit is set and startup must
+	// not replace it with the model's reported context.
+	ContextWindow         int
+	ContextWindowExplicit bool
 	// KeepAliveMain is the Ollama keep_alive (idle seconds, may be -1) for the
 	// main role: -1 pins the model forever, 0 omits the field so the provider
 	// applies its own default, N > 0 unloads it after N idle seconds.

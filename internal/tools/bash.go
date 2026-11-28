@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -119,13 +120,23 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) Result {
 		cmd = exec.CommandContext(cmdCtx, "sh", "-c", command)
 	}
 	cmd.Env = safety.CleanEnv()
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	// stdout and stderr go to separate buffers: the tool needs to know whether
+	// the command printed usable output to stdout or only its own failure
+	// message to stderr. Two distinct writers also keep os/exec from copying
+	// both file descriptors concurrently into one unsynchronized buffer.
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 
 	err := cmd.Run()
-	output := out.String()
-	if output == "" && err == nil {
+	output := stdoutBuf.String()
+	if stderrBuf.Len() > 0 {
+		if output != "" && !strings.HasSuffix(output, "\n") {
+			output += "\n"
+		}
+		output += stderrBuf.String()
+	}
+	if output == "" && err == nil && stdoutBuf.Len() == 0 {
 		output = "(no output)"
 	}
 	output = TruncateOutput(output, t.outputLimit())
@@ -139,8 +150,26 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) Result {
 				IsError:       true,
 			}
 		}
+		trimmed := strings.TrimRight(output, "\n")
+		code := -1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+		}
+		if code > 0 && stdoutBuf.Len() > 0 && strings.TrimSpace(trimmed) != "" {
+			// The command ran and printed to stdout: a non-zero status describes
+			// the last command in the chain, not a failed tool call. The model
+			// still sees the code, but the card is not an error and the output is
+			// treated as evidence (a diagnostic sed/ls/cat chain often ends on a
+			// missing file and that is not what the call was for). Stderr-only
+			// failures keep the error card: the command itself failed.
+			return Result{
+				Output:        fmt.Sprintf("%s\n(exit %d; the output above is what the command printed)", trimmed, code),
+				HintsForModel: "The command exited non-zero but printed output. Read the output before treating it as a failure; with ';' and '&&' chains only the last command sets the status, and a missing file at the end can mask a successful inspection. Re-run just the step you need if the status hides the real result.",
+			}
+		}
 		return Result{
-			Output:  fmt.Sprintf("%s\n(exit error: %v)", strings.TrimRight(output, "\n"), err),
+			Output:  fmt.Sprintf("%s\n(exit error: %v)", trimmed, err),
 			IsError: true,
 		}
 	}

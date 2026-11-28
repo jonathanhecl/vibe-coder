@@ -373,6 +373,10 @@ type Model struct {
 	Name              string   `json:"name"`
 	Capabilities      []string `json:"capabilities,omitempty"`
 	CapabilitiesKnown bool     `json:"-"`
+	// ContextLength is the trained context window the model reports (0 when the
+	// server does not say). It lets the agent size its own window to the model
+	// instead of leaving a 256k model stuck at the 32k default.
+	ContextLength int `json:"-"`
 }
 
 type tagsResponse struct {
@@ -397,6 +401,9 @@ type showResponse struct {
 	Details      struct {
 		Capabilities []string `json:"capabilities"`
 	} `json:"details"`
+	// ModelInfo carries the GGUF metadata under architecture-prefixed keys
+	// ("qwen35.context_length", "llama.context_length", ...).
+	ModelInfo map[string]any `json:"model_info"`
 }
 
 type versionResponse struct {

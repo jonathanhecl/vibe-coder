@@ -688,6 +688,7 @@ func probeModelCapabilities(ctx context.Context, cfg *config.Config, client olla
 		return
 	}
 	probed := map[string]bool{}
+	mainKey := strings.ToLower(strings.TrimSpace(cfg.Model))
 	for _, want := range []string{cfg.Model, cfg.SidecarModel} {
 		want = strings.TrimSpace(want)
 		if want == "" {
@@ -697,21 +698,60 @@ func probeModelCapabilities(ctx context.Context, cfg *config.Config, client olla
 		if probed[key] {
 			continue
 		}
-		// If capabilities for this model are already known, skip probing.
+		// Capabilities already cached means no probe is needed — unless the model
+		// still has to report its context window and the user never chose one.
+		knownCaps := false
 		if _, known := ollama.LookupVision(cfg.VisionByModel, want); known {
+			knownCaps = true
+		}
+		needContext := key == mainKey && !cfg.ContextWindowExplicit
+		if knownCaps && !needContext {
 			continue
 		}
 		probed[key] = true
 		info, err := inspector.Show(ctx, want)
-		if err != nil || !info.CapabilitiesKnown {
+		if err != nil {
 			continue
 		}
-		cfg.VisionByModel[key] = info.SupportsVision()
-		cfg.ThinkingByModel[key] = info.SupportsThinking()
-		cfg.ToolsByModel[key] = info.SupportsTools()
-		logger.Infof("Capability probe for model %q via Show: vision=%t thinking=%t tools=%t",
-			key, info.SupportsVision(), info.SupportsThinking(), info.SupportsTools())
+		// Tags stay authoritative when they already answered the capability
+		// question; Show only fills a gap and reports the context window.
+		if !knownCaps && info.CapabilitiesKnown {
+			cfg.VisionByModel[key] = info.SupportsVision()
+			cfg.ThinkingByModel[key] = info.SupportsThinking()
+			cfg.ToolsByModel[key] = info.SupportsTools()
+			logger.Infof("Capability probe for model %q via Show: vision=%t thinking=%t tools=%t",
+				key, info.SupportsVision(), info.SupportsThinking(), info.SupportsTools())
+		}
+		if key == mainKey {
+			applyDetectedContext(cfg, info.ContextLength)
+		}
 	}
+}
+
+// autoContextCeiling is how far the detected window may raise the harness on its
+// own. A 256k model would otherwise be used at 32k, but a local engine has to
+// allocate the KV cache for whatever num_ctx asks, so the automatic value stops
+// at a size that still fits a normal workstation. CONTEXT_WINDOW overrides it.
+const autoContextCeiling = 65536
+
+// applyDetectedContext adopts the context window the model reports when the user
+// never chose one. It only ever raises the window, never lowers it, and stays
+// silent when the configured value is already at or above the detection.
+func applyDetectedContext(cfg *config.Config, detected int) {
+	if cfg == nil || detected <= 0 || cfg.ContextWindowExplicit {
+		return
+	}
+	target := detected
+	if target > autoContextCeiling {
+		target = autoContextCeiling
+	}
+	if target <= cfg.ContextWindow {
+		return
+	}
+	previous := cfg.ContextWindow
+	cfg.ContextWindow = target
+	logger.Infof("Context window raised %d -> %d from the model's reported context (%d); set CONTEXT_WINDOW to override",
+		previous, target, detected)
 }
 
 // applyVisionForModel refreshes the vision flags for the active model from
