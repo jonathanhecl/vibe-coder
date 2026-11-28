@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // promptCapture keeps what the user types while a turn is running. The terminal
@@ -26,6 +28,9 @@ type promptCapture struct {
 	enabled  bool
 	spinning bool
 	visible  bool
+	// visibleRows is how many terminal rows the painted box occupies, so it is
+	// erased exactly (a miscount leaves the old box's tail on screen).
+	visibleRows int
 	// atLineStart reports that the cursor sits at column 0 of a fresh row, which
 	// is the only place where a live draft line can be painted without
 	// overwriting streamed content.
@@ -110,12 +115,12 @@ func (c *promptCapture) setSpinning(on bool) {
 	}
 }
 
-// draftLine returns the styled line the spinner appends to its frames, or ""
-// when there is nothing to show.
-func (c *promptCapture) draftLine() string {
+// draftBox returns the input box the spinner appends below its own line.
+func (c *promptCapture) draftBox() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.lineLocked()
+	box, _ := c.boxLocked()
+	return box
 }
 
 // write is the terminal writer's front door: it erases the draft before the
@@ -290,7 +295,12 @@ func (c *promptCapture) enqueueLocked() {
 		fmt.Fprint(c.raw, "\n")
 		c.atLineStart = true
 	}
-	notice := c.style.Green("✎") + " " + c.style.Dim(fmt.Sprintf("queued (%d):", len(c.queue))) + " " + text
+	first, _, more := strings.Cut(text, "\n")
+	extra := ""
+	if more {
+		extra = fmt.Sprintf(" (+%d more lines)", strings.Count(text, "\n"))
+	}
+	notice := c.style.Green("✎") + " " + c.style.Dim(fmt.Sprintf("queued (%d):", len(c.queue))) + " " + first + extra
 	fmt.Fprintf(c.raw, "%s\n", truncateANSIWidth(notice, c.colsLocked()-2))
 }
 
@@ -376,40 +386,91 @@ func (c *promptCapture) clearPaintedLocked() {
 	if !c.visible || c.raw == nil {
 		return
 	}
-	fmt.Fprint(c.raw, "\r\x1b[2K")
+	fmt.Fprint(c.raw, clearPendingRows(c.visibleRows))
 	c.visible = false
+	c.visibleRows = 0
 }
 
 func (c *promptCapture) paintLocked() {
 	if !c.enabled || c.visible || c.spinning || !c.atLineStart || c.raw == nil {
 		return
 	}
-	line := c.lineLocked()
-	if line == "" {
+	box, rows := c.boxLocked()
+	if box == "" {
 		return
 	}
-	fmt.Fprint(c.raw, "\r\x1b[2K", line)
+	fmt.Fprint(c.raw, "\r\x1b[2K", box)
 	c.visible = true
+	c.visibleRows = rows
 }
 
-// lineLocked renders one physical row: the draft sanitized to a single line and
-// truncated to the terminal width so the cursor math stays exact.
-func (c *promptCapture) lineLocked() string {
-	draft := strings.Join(strings.Fields(string(c.draft)), " ")
-	if draft == "" && len(c.queue) == 0 {
-		return c.style.Dim("✎ type to queue a prompt · Enter adds it to the queue")
-	}
-	var b strings.Builder
-	b.WriteString(c.style.Dim("✎ "))
-	if draft == "" {
-		b.WriteString(c.style.Dim(fmt.Sprintf("%d queued prompt(s) · wait for the turn to finish", len(c.queue))))
-	} else {
-		b.WriteString(draft)
-		if len(c.queue) > 0 {
-			b.WriteString(c.style.Dim(fmt.Sprintf("  (+%d queued)", len(c.queue))))
+// captureBoxMaxContentRows bounds the draft box: a long prompt scrolls to its
+// tail, which is where the cursor is and what the user is typing.
+const captureBoxMaxContentRows = 4
+
+// boxLocked renders the draft with the same rounded box the composer uses, so
+// the place to type looks the same whether the agent is idle or working. It
+// returns the box and the number of terminal rows it occupies.
+func (c *promptCapture) boxLocked() (string, int) {
+	cols := c.colsLocked()
+	boxWidth := cols - 2
+	if boxWidth < 12 {
+		boxWidth = cols
+		if boxWidth < 6 {
+			boxWidth = 6
 		}
 	}
-	return truncateANSIWidth(b.String(), c.colsLocked()-2)
+	inner := boxWidth - 4
+	if inner < 2 {
+		inner = 2
+	}
+
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
+	cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("▌")
+	prompt := accent.Render(">") + " "
+
+	queueNote := ""
+	if len(c.queue) > 0 {
+		queueNote = fmt.Sprintf(" · %d queued", len(c.queue))
+	}
+
+	text := strings.ReplaceAll(string(c.draft), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "")
+	var lines []string
+	if strings.TrimSpace(text) == "" {
+		lines = []string{prompt + dim.Render("type to queue a prompt · Enter adds it to the queue"+queueNote) + cursor}
+	} else {
+		for i, ln := range strings.Split(text, "\n") {
+			prefix := prompt
+			if i > 0 {
+				prefix = "  "
+			}
+			lines = append(lines, prefix+ln)
+		}
+	}
+
+	var wrapped []string
+	for _, ln := range lines {
+		wrapped = append(wrapped, wrapANSILine(ln, inner)...)
+	}
+	if len(wrapped) > captureBoxMaxContentRows {
+		wrapped = wrapped[len(wrapped)-captureBoxMaxContentRows:]
+	}
+	if len(wrapped) > 0 && strings.TrimSpace(text) != "" {
+		last := wrapped[len(wrapped)-1]
+		if displayWidth(last) >= inner {
+			last = truncateANSIWidth(last, inner-1)
+		}
+		last += cursor
+		if len(c.queue) > 0 {
+			last += dim.Render(queueNote)
+		}
+		wrapped[len(wrapped)-1] = last
+	}
+
+	box := renderRoundedBox(wrapped, lipgloss.NewStyle().Foreground(lipgloss.Color("42")), boxWidth)
+	return box, strings.Count(box, "\n") + 1
 }
 
 func (c *promptCapture) colsLocked() int {

@@ -178,10 +178,10 @@ func TestSpinnerFrameCarriesDraft(t *testing.T) {
 	ui.capture.setRaw(&raw, ui.style)
 	ui.capture.setEnabled(true)
 
-	// The prompt affordance is visible from the start, so a user looking at a
-	// running turn knows where to type.
-	if got := ui.spinnerFrameText("Shell $ ls", 0, "1s"); !strings.Contains(got, "✎") {
-		t.Fatalf("the spinner must show the prompt hint: %q", got)
+	// The prompt box is visible from the start, so a user looking at a running
+	// turn knows where to type.
+	if got := ui.spinnerFrameText("Shell $ ls", 0, "1s"); !strings.Contains(got, "type to queue a prompt") {
+		t.Fatalf("the spinner must show the prompt box: %q", got)
 	}
 
 	ui.capture.handle([]byte("mientras corre"))
@@ -201,8 +201,9 @@ func TestCaptureShowsPromptLineOnEnable(t *testing.T) {
 	c.setRaw(&raw, NewStyleForTest(true))
 	c.setEnabled(true)
 
-	if !strings.Contains(raw.String(), "✎") {
-		t.Fatalf("no prompt line after enabling capture: %q", raw.String())
+	out := raw.String()
+	if !strings.Contains(out, "╭") || !strings.Contains(out, "type to queue a prompt") {
+		t.Fatalf("no prompt box after enabling capture: %q", out)
 	}
 }
 
@@ -264,5 +265,65 @@ func TestCaptureQueueHoldIsOneShot(t *testing.T) {
 	}
 	if c.takeHold() {
 		t.Fatal("the hold must be consumed once")
+	}
+}
+
+// A multi-line draft keeps its line breaks inside the box instead of collapsing
+// into one unreadable row.
+func TestCaptureBoxKeepsLineBreaks(t *testing.T) {
+	t.Parallel()
+	var raw bytes.Buffer
+	c := newTestCapture(&raw)
+
+	c.handle([]byte("\x1b[200~linea uno\nlinea dos\x1b[201~"))
+	out := raw.String()
+
+	if !strings.Contains(out, "linea uno") || !strings.Contains(out, "linea dos") {
+		t.Fatalf("both lines must render: %q", out)
+	}
+	if got := strings.Count(out, "\n"); got < 3 {
+		t.Fatalf("a two-line draft needs top border + 2 rows + bottom, got %d newlines: %q", got, out)
+	}
+}
+
+// A draft longer than the box scrolls to its tail: the part being typed is what
+// stays visible.
+func TestCaptureBoxShowsTheTailOfALongDraft(t *testing.T) {
+	t.Parallel()
+	var raw bytes.Buffer
+	c := newTestCapture(&raw)
+
+	head := "INICIO-DEL-TEXTO"
+	tail := "FINAL-QUE-ESTOY-ESCRIBIENDO"
+	c.handle([]byte(head + strings.Repeat("x", 1000) + tail))
+	out := raw.String()
+
+	// The tail may wrap across the last row, so check its closing characters.
+	if !strings.Contains(out, tail[len(tail)-6:]) {
+		t.Fatalf("the tail must stay visible: %q", out)
+	}
+	if strings.Contains(out, head) {
+		t.Fatalf("a long draft must scroll, not overflow its box: %q", out)
+	}
+}
+
+// The painted box is erased by its full row count before content is printed, so
+// no border tails survive under a streamed line.
+func TestCaptureBoxIsClearedByRows(t *testing.T) {
+	t.Parallel()
+	var raw bytes.Buffer
+	c := newTestCapture(&raw)
+
+	c.handle([]byte("hola"))
+	raw.Reset()
+	if _, err := c.write(&raw, []byte("respuesta\n")); err != nil {
+		t.Fatal(err)
+	}
+	out := raw.String()
+	if !strings.Contains(out, "\x1b[1A") {
+		t.Fatalf("a multi-row box must move up to erase every row: %q", out)
+	}
+	if !strings.Contains(out, "respuesta") {
+		t.Fatalf("content missing: %q", out)
 	}
 }

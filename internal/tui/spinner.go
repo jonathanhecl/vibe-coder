@@ -234,8 +234,8 @@ func (u *PlainUI) spinnerFrameText(label string, frame int, elapsed string) stri
 		label,
 		u.style.Dim("("+elapsed+")"),
 	)
-	if draft := u.capture.draftLine(); draft != "" {
-		text += "\n" + draft
+	if box := u.capture.draftBox(); box != "" {
+		text += "\n" + box
 	}
 	return text
 }
