@@ -111,6 +111,33 @@ func (s Style) Lime(text string) string { return s.Color256(colorLime, text) }
 // "verde lima" and a matrix-green accent.
 const colorLime = 154
 
+// colorTool is the xterm-256 accent reserved for tool cards — shells, edits,
+// writes, reads. It is a desaturated steel blue, deliberately away from the
+// green used for the user's own messages and the assistant label, so a
+// transcript can be scanned for "what I typed" without reading every line.
+// Semantic states keep their own colors: red for errors, amber for background.
+const colorTool = 74
+
+// Tool renders tool text (an icon, a finished result) in the tool accent.
+func (s Style) Tool(text string) string { return s.Color256(colorTool, text) }
+
+// BoldTool renders a tool name in the tool accent, bold.
+func (s Style) BoldTool(text string) string {
+	if !s.enabled {
+		return text
+	}
+	return fmt.Sprintf("\x1b[1;38;5;%dm%s%s", colorTool, text, cReset)
+}
+
+// DimTool renders a tool card's secondary furniture (the arrow) in the tool
+// accent, dim.
+func (s Style) DimTool(text string) string {
+	if !s.enabled {
+		return text
+	}
+	return fmt.Sprintf("\x1b[2;38;5;%dm%s%s", colorTool, text, cReset)
+}
+
 // ClearPendingLine returns the escape sequence used to wipe a previously
 // printed line so it can be redrawn with the final state.
 func (s Style) ClearPendingLine() string {

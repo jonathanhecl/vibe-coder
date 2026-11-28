@@ -159,6 +159,7 @@ stale work.
 ### TUI
 
 - **Three UI modes**: `plain` (default, line-based CLI), `tui` (hybrid Bubble Tea + Lipgloss inline composer, live status bar, slash autocomplete, and interactive permission/question cards while preserving native terminal scrollback and mouse copy-paste), and `rich` (pinned status bar + syntax-highlighted markdown). Select with `--ui tui` or switch in-place with `/ui tui` / `/ui cli` (persisted automatically to `vibe-coder.env`).
+- **Color roles** — the `you` rail and the `assistant` label are green; tool cards (shell, read, write, edit, search, web) use a separate steel-blue accent for their name, icon, arrow and left rail, so the user's own messages stand out in a long transcript. Errors are red, background tasks amber.
 - **To-do panel** — `TodoWrite` renders a live Cursor-style task list with status glyphs.
 - **Inline diff renderer** — `Edit` tool shows colored unified-diff (red/green/cyan) with 50-line truncation.
 - **Type-ahead** — keystrokes pressed mid-generation are captured and prefilled into the next prompt.

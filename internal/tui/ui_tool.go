@@ -47,7 +47,7 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	icon := u.style.BrightGreen(iconTool)
+	icon := u.style.Tool(iconTool)
 	if name == "Bash" {
 		icon = iconShell
 	}
@@ -76,7 +76,7 @@ func (u *PlainUI) ShowToolResult(name, output string, isError bool, toolParams m
 	if u.pendingActive {
 		u.clearPendingLocked()
 	}
-	arrow := u.style.DimGreen("→ ")
+	arrow := u.style.DimTool("→ ")
 	switch {
 	case isError:
 		fmt.Fprintf(u.out, "%s %s %s %s%s\n", icon, header, u.style.Red("error"), arrow, u.style.Red(summary))
@@ -157,16 +157,16 @@ func toolHeader(st Style, name string, params map[string]any) string {
 	case "Bash":
 		cmd, ok := headerParam(name, params)
 		if !ok {
-			return st.BoldGreen("Shell")
+			return st.BoldTool("Shell")
 		}
-		return st.BoldGreen("Shell") + " " + st.Gray("$ "+truncateInline(cmd, bashCommandRunes))
+		return st.BoldTool("Shell") + " " + st.Gray("$ "+truncateInline(cmd, bashCommandRunes))
 	case "Read", "Write", "Edit", "NotebookEdit":
 		if path, ok := headerParam(name, params); ok {
-			return st.BoldGreen(name) + " " + st.BoldBlue(compactPath(path))
+			return st.BoldTool(name) + " " + st.BoldBlue(compactPath(path))
 		}
 	case "WebFetch", "WebSearch":
 		if target, ok := headerParam(name, params); ok {
-			return st.BoldGreen(name) + " " + st.Gray(target)
+			return st.BoldTool(name) + " " + st.Gray(target)
 		}
 	}
 	return st.BoldBlue(CompactToolHeader(name, params))
@@ -184,7 +184,7 @@ func searchCardHeader(st Style, name string, params map[string]any) string {
 	if name == "Grep" {
 		shown = fmt.Sprintf("%q", pattern)
 	}
-	header := st.BoldGreen(name) + " " + st.Gray(shown)
+	header := st.BoldTool(name) + " " + st.Gray(shown)
 	key := "path"
 	if name == "Glob" {
 		key = "target_directory"

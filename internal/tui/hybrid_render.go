@@ -23,6 +23,12 @@ var (
 
 	hybridUserBuildStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	hybridUserPlanStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+
+	// hybridToolColor is the tool cards' rail and success glyph. It mirrors
+	// tui.colorTool (xterm 74), so a shell/edit/write card never reads as
+	// another "you" line: the user's rail stays green, tools are steel blue,
+	// and only the semantic states (error red, background amber) override it.
+	hybridToolColor lipgloss.Color = "74"
 )
 
 func (h *HybridUI) hybridBoxWidth() int {
@@ -459,8 +465,8 @@ func (h *HybridUI) showToolResult(name, output string, isError bool, toolParams 
 	}
 
 	background := (name == "BackgroundRun" || name == "BackgroundStatus") && strings.Contains(output, "STILL RUNNING")
-	borderColor := lipgloss.Color("42")
-	glyph := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true).Render("✓")
+	borderColor := hybridToolColor
+	glyph := lipgloss.NewStyle().Foreground(hybridToolColor).Bold(true).Render("✓")
 	if isError {
 		borderColor = lipgloss.Color("203")
 		glyph = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true).Render("✗")

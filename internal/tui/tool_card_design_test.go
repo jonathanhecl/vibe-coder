@@ -73,22 +73,22 @@ func TestShowToolResultShellReportsDuration(t *testing.T) {
 	}
 }
 
-// The name carries the tool and the path keeps its color: the green marks what
-// ran, the blue marks where.
+// The name carries the tool and the path keeps its color: the tool accent
+// marks what ran, the blue marks where.
 func TestToolHeaderColorsTheNameAndThePath(t *testing.T) {
 	t.Parallel()
 	st := NewStyleForTest(true)
 	header := toolHeader(st, "Edit", map[string]any{"file_path": "/home/u/proyecto/carpeta/archivo.go"})
 
-	if !strings.HasPrefix(header, st.BoldGreen("Edit")+" ") {
-		t.Fatalf("the tool name must be bold green: %q", header)
+	if !strings.HasPrefix(header, st.BoldTool("Edit")+" ") {
+		t.Fatalf("the tool name must use the tool accent: %q", header)
 	}
 	if !strings.Contains(header, st.BoldBlue("carpeta/archivo.go")) {
 		t.Fatalf("the path must stay blue: %q", header)
 	}
 	shell := toolHeader(st, "Bash", map[string]any{"command": "ls"})
-	if !strings.HasPrefix(shell, st.BoldGreen("Shell")+" ") {
-		t.Fatalf("the shell name must be bold green: %q", shell)
+	if !strings.HasPrefix(shell, st.BoldTool("Shell")+" ") {
+		t.Fatalf("the shell name must use the tool accent: %q", shell)
 	}
 	if !strings.Contains(shell, st.Gray("$ ls")) {
 		t.Fatalf("the command must use the thinking gray: %q", shell)
@@ -131,8 +131,8 @@ func TestWebCardsShowTheWholeTarget(t *testing.T) {
 	st := NewStyleForTest(true)
 	url := "https://example.com/docs/" + strings.Repeat("segmento/", 20) + "?page=2&q=" + strings.Repeat("x", 40)
 	header := toolHeader(st, "WebFetch", map[string]any{"url": url})
-	if !strings.HasPrefix(header, st.BoldGreen("WebFetch")+" ") {
-		t.Fatalf("the tool name must be bold green: %q", header)
+	if !strings.HasPrefix(header, st.BoldTool("WebFetch")+" ") {
+		t.Fatalf("the tool name must use the tool accent: %q", header)
 	}
 	if !strings.Contains(header, st.Gray(url)) {
 		t.Fatalf("the whole URL must be shown in gray: %q", header)
@@ -154,25 +154,25 @@ func TestWebCardsShowTheWholeTarget(t *testing.T) {
 	}
 }
 
-// Grep and Glob follow the same design: the tool in green, the pattern in gray
+// Grep and Glob follow the same design: the tool in the tool accent, the pattern in gray
 // and the directory in blue. All blue made them read like the old cards.
 func TestSearchCardsAreStyled(t *testing.T) {
 	t.Parallel()
 	st := NewStyleForTest(true)
 
 	grep := toolHeader(st, "Grep", map[string]any{"pattern": "TODO", "path": "/home/u/proyecto/abs/foo"})
-	want := st.BoldGreen("Grep") + " " + st.Gray(`"TODO"`) + st.Dim(" in ") + st.BoldBlue("abs/foo")
+	want := st.BoldTool("Grep") + " " + st.Gray(`"TODO"`) + st.Dim(" in ") + st.BoldBlue("abs/foo")
 	if grep != want {
 		t.Fatalf("grep header =\n%q\nwant\n%q", grep, want)
 	}
 
 	bare := toolHeader(st, "Grep", map[string]any{"pattern": "needle"})
-	if bare != st.BoldGreen("Grep")+" "+st.Gray(`"needle"`) {
+	if bare != st.BoldTool("Grep")+" "+st.Gray(`"needle"`) {
 		t.Fatalf("grep without a path = %q", bare)
 	}
 
 	glob := toolHeader(st, "Glob", map[string]any{"pattern": "**/*.go", "target_directory": "/home/u/proyecto"})
-	if !strings.HasPrefix(glob, st.BoldGreen("Glob")+" "+st.Gray("**/*.go")) {
+	if !strings.HasPrefix(glob, st.BoldTool("Glob")+" "+st.Gray("**/*.go")) {
 		t.Fatalf("glob header must keep the pattern unquoted: %q", glob)
 	}
 	if !strings.Contains(glob, st.BoldBlue("u/proyecto")) {
@@ -181,5 +181,23 @@ func TestSearchCardsAreStyled(t *testing.T) {
 
 	if got := toolHeader(st, "Grep", nil); got != st.BoldBlue("Grep") {
 		t.Fatalf("a Grep without params falls back to its name: %q", got)
+	}
+}
+
+// The tool accent must not be the green the user's own messages use: the whole
+// point of the split is scanning a transcript for "what I typed", and two
+// identical colors defeat it.
+func TestToolAccentIsNotTheUserGreen(t *testing.T) {
+	t.Parallel()
+	st := NewStyleForTest(true)
+	tool := st.BoldTool("Shell")
+	if tool == st.BoldGreen("Shell") {
+		t.Fatalf("the tool accent must differ from the user green: %q", tool)
+	}
+	if !strings.Contains(tool, "38;5;74") {
+		t.Fatalf("the tool accent must be xterm 74: %q", tool)
+	}
+	if !strings.Contains(st.DimTool("→ "), "38;5;74") {
+		t.Fatal("the tool arrow must use the same accent")
 	}
 }

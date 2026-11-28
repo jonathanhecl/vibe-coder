@@ -6,14 +6,14 @@ import (
 )
 
 // The line that spins while a tool runs must look like the card that replaces
-// it: same shield, same green name, same gray command. It used to print the
+// it: same shield, same tool accent, same gray command. It used to print the
 // whole header in one blue, so the design changed only after the tool finished.
 func TestPendingLabelMatchesTheCardDesign(t *testing.T) {
 	t.Parallel()
 	st := NewStyleForTest(true)
 
 	label := pendingLabel(st, "Bash", map[string]any{"command": "ls -la"})
-	want := iconShell + " " + st.BoldGreen("Shell") + " " + st.Gray("$ ls -la") + st.DimBlue(" running…")
+	want := iconShell + " " + st.BoldTool("Shell") + " " + st.Gray("$ ls -la") + st.DimBlue(" running…")
 	if label != want {
 		t.Fatalf("pending label =\n%q\nwant\n%q", label, want)
 	}
