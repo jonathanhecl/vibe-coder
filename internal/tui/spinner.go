@@ -200,15 +200,27 @@ func clearPendingRows(rows int) string {
 
 // wrapRows is how many terminal rows text occupies at cols columns. Escape
 // sequences are not counted: the terminal does not reserve space for them.
+// wrapRows counts the physical rows a frame occupies. Embedded newlines are
+// real rows, not characters: a frame that appends the prompt line under the
+// spinner has two rows even when both are short, and miscounting that left the
+// previous frame's tail on screen.
 func wrapRows(text string, cols int) int {
 	if cols <= 0 {
 		cols = 80
 	}
-	width := visibleWidth(text)
-	if width <= 0 {
+	rows := 0
+	for _, line := range strings.Split(text, "\n") {
+		width := visibleWidth(line)
+		n := (width + cols - 1) / cols
+		if n < 1 {
+			n = 1
+		}
+		rows += n
+	}
+	if rows < 1 {
 		return 1
 	}
-	return (width + cols - 1) / cols
+	return rows
 }
 
 // terminalCols is the terminal width the animated line must fit, or a plain 80

@@ -53,6 +53,11 @@ func TestPendingLineMovesByRows(t *testing.T) {
 		{strings.Repeat("x", 160), 80, 2},
 		{strings.Repeat("x", 512), 80, 7},
 		{"\x1b[1m\x1b[32mShell\x1b[0m " + strings.Repeat("x", 70), 80, 1}, // colors take no cells
+		// The frame that appends the prompt line below the spinner: two rows even
+		// when the terminal is wide enough to hold both on one physical line.
+		{"waiting… (0s)\n" + "✎ type to queue a prompt", 120, 2},
+		{"waiting… (0s)\n" + strings.Repeat("x", 130), 80, 3},
+		{"a\nb\nc", 80, 3},
 	}
 	for _, tc := range cases {
 		if got := wrapRows(tc.text, tc.cols); got != tc.want {
