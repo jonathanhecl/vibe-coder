@@ -71,7 +71,7 @@ func (s *Session) CompactTo(ctx context.Context, keepTailTokens int) error {
 	cut := len(s.messages)
 	sum := 0
 	for i := len(s.messages) - 1; i >= 0; i-- {
-		cost := s.calibrator.Adjust(estimateMessageTokens(s.messages[i].Content))
+		cost := s.calibrator.Adjust(MessageCost(s.messages[i]))
 		if sum+cost > keepTailTokens && len(s.messages)-cut >= 4 {
 			break
 		}
@@ -399,7 +399,7 @@ func hasToolCalls(m Message) bool {
 func (s *Session) recomputeTokenEstimate() {
 	total := 0
 	for _, msg := range s.messages {
-		total += estimateMessageTokens(msg.Content)
+		total += MessageCost(msg)
 	}
 	s.tokenEstimate = total
 }

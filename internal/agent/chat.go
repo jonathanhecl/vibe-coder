@@ -116,7 +116,7 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 	}
 	stats.MessagesSent = len(out) - 1
 	for _, m := range out[1:] {
-		stats.TranscriptTokensEst += session.MessageTokenCost(m.Content)
+		stats.TranscriptTokensEst += session.MessageTokenCost(m.Content) + session.ToolCallsCost(m.ToolCalls)
 	}
 	return out, stats
 }
@@ -126,7 +126,7 @@ func (a *Agent) buildOllamaMessages(ctx context.Context, systemPrompt string) ([
 func transcriptCost(msgs []session.Message) int {
 	total := 0
 	for _, m := range msgs {
-		total += session.MessageTokenCost(m.Content)
+		total += session.MessageCost(m)
 	}
 	return total
 }
@@ -148,7 +148,7 @@ func (a *Agent) windowStartForBudget(hist []session.Message, limitTokens int) in
 	start := len(hist) - 1
 	sum := 0
 	for i := len(hist) - 1; i >= 0; i-- {
-		cost := a.calibrateTokens(session.MessageTokenCost(hist[i].Content))
+		cost := a.calibrateTokens(session.MessageCost(hist[i]))
 		if i < len(hist)-1 && sum+cost > limitTokens {
 			break
 		}
@@ -329,6 +329,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 				a.ui.StopWaiting()
 				cancel()
 				a.recordChatAttempt(systemPrompt, wstats, chatStart, 0, err)
+				a.observeOverflowCalibration(err, systemPrompt, wstats)
 				if isCancelledByUser(rootCtx, err) {
 					return cancelledReply, nil, nil
 				}
@@ -347,6 +348,7 @@ func (a *Agent) chatOnce(rootCtx context.Context) (string, []ToolCall, error) {
 				lastErr = err
 			} else if reply, toolCalls, err := a.streamAssistantResponse(rootCtx, cancel, stream); err != nil {
 				a.recordChatAttempt(systemPrompt, wstats, chatStart, len(toolCalls), err)
+				a.observeOverflowCalibration(err, systemPrompt, wstats)
 				if errors.Is(err, ErrThinkingLoopDetected) {
 					cancel()
 					thinkingLoopRetries++

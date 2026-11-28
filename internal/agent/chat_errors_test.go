@@ -239,3 +239,46 @@ func TestChatOnceRetryableHTTPStatusesStillRetry(t *testing.T) {
 		})
 	}
 }
+
+// The local OpenAI-compatible server (llama.cpp style) phrases the overflow
+// differently from every other provider; it must still count as one so the turn
+// compacts and retries instead of dying on a 400.
+func TestOverflowErrorLocalServerPhrasing(t *testing.T) {
+	t.Parallel()
+	err := errors.New(`openai chat failed (400 Bad Request): {"error": {"type": "invalid_request_error", "message": "request exceeds the context window: prompt (66173 tokens) leaves no room to answer in the context (65536); requests are never truncated"}}`)
+
+	if !isContextOverflowError(err) {
+		t.Fatal("the local server overflow must be detected")
+	}
+	if got := overflowPromptTokens(err); got != 66173 {
+		t.Fatalf("prompt tokens = %d, want 66173", got)
+	}
+
+	other := errors.New(`openai chat failed (400 Bad Request): {"error": {"message": "invalid api key"}}`)
+	if isContextOverflowError(other) {
+		t.Fatal("an auth error is not an overflow")
+	}
+}
+
+// The provider's own token count corrects the harness estimate: a small
+// vocabulary tokenizer can count far more tokens than chars/4, and without this
+// the next request overflows again.
+func TestOverflowCalibratesTheTokenEstimate(t *testing.T) {
+	t.Parallel()
+	ag, sess := newWireTestAgent(t, 32768, 6)
+	err := errors.New(`openai chat failed (400 Bad Request): prompt (66173 tokens) leaves no room to answer in the context (65536)`)
+
+	before := sess.CalibrateTokens(1000)
+	ag.observeOverflowCalibration(err, "SYS", windowStats{TranscriptTokensEst: 40000})
+	after := sess.CalibrateTokens(1000)
+
+	if after <= before {
+		t.Fatalf("calibration did not grow: before=%d after=%d", before, after)
+	}
+	// A non-overflow failure must not move the calibration.
+	mid := sess.CalibrateTokens(1000)
+	ag.observeOverflowCalibration(errors.New("connection reset"), "SYS", windowStats{TranscriptTokensEst: 40000})
+	if got := sess.CalibrateTokens(1000); got != mid {
+		t.Fatalf("a transport error changed the calibration: %d -> %d", mid, got)
+	}
+}

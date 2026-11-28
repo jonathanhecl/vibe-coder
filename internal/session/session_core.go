@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -363,7 +364,7 @@ func (s *Session) addMessage(msg Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, msg)
-	s.tokenEstimate += estimateMessageTokens(msg.Content)
+	s.tokenEstimate += MessageCost(msg)
 	s.revision++
 }
 
@@ -380,6 +381,32 @@ func (s *Session) Generation() uint64 {
 // estimate plus the per-image cost of any vision markers it carries.
 func MessageTokenCost(content string) int {
 	return estimateMessageTokens(content)
+}
+
+// MessageCost prices one transcript message for the token budget. Native tool
+// calls carry their arguments outside Content, and a single Write can hold tens
+// of KB of JSON: ignoring them made the harness believe a session was small
+// while the provider counted tens of thousands of extra tokens and rejected the
+// request as too large.
+func MessageCost(m Message) int {
+	return MessageTokenCost(m.Content) + ToolCallsCost(m.ToolCalls)
+}
+
+// ToolCallsCost prices the serialized arguments of native tool calls, which is
+// what the provider receives on the wire.
+func ToolCallsCost(calls []ollama.MessageToolCall) int {
+	if len(calls) == 0 {
+		return 0
+	}
+	total := 0
+	for _, call := range calls {
+		raw, err := json.Marshal(call.Function.Arguments)
+		if err != nil {
+			continue
+		}
+		total += estimateTextTokens(string(raw))
+	}
+	return total
 }
 
 func (s *Session) TokenEstimate() int {

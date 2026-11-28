@@ -326,7 +326,7 @@ func (s *Session) HydrateMemory(ctx context.Context) {
 	cut := len(s.messages)
 	sum := 0
 	for i := len(s.messages) - 1; i >= 0; i-- {
-		cost := s.calibrator.Adjust(estimateMessageTokens(s.messages[i].Content))
+		cost := s.calibrator.Adjust(MessageCost(s.messages[i]))
 		if sum+cost > keepTailTokens && len(s.messages)-cut >= 4 {
 			break
 		}
